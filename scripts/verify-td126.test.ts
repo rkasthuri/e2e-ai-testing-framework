@@ -26,7 +26,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { ForgeStreamingReporter } from '../src/pipeline/ForgeStreamingReporter'
-import { initDb, getDb, closeDb } from '../src/core/storage/db'
+import { initDb, getDb, closeDb, resolveSqlitePath } from '../src/core/storage/db'
 import { runMigrations } from '../src/core/storage/migrate'
 import { RunRepository } from '../src/core/storage/repositories/RunRepository'
 import { TestResultRepository } from '../src/core/storage/repositories/TestResultRepository'
@@ -49,58 +49,36 @@ function reporterOn(dir: string): ForgeStreamingReporter {
   return new ForgeStreamingReporter({ dbPath: path.join(dir, 'forge.db'), appName: APP })
 }
 
-// ── T1-T3: discoverWorkspaceDb ────────────────────────────────────────────────
+// ── T1-T4: shared SQLite path resolver ────────────────────────────────────────
 
-test('T1 discoverWorkspaceDb finds .forge/forge.db in cwd', () => {
+test('T1 resolver finds .forge/forge.db in cwd', () => {
   const dir = tmp(); fs.mkdirSync(path.join(dir, '.forge')); fs.writeFileSync(path.join(dir, '.forge', 'forge.db'), '')
-  const cwd = process.cwd()
-  try {
-    process.chdir(dir)
-    const found = (new ForgeStreamingReporter() as any).discoverWorkspaceDb()
-    assert.ok(found && found.endsWith(path.join('.forge', 'forge.db')), `not found: ${found}`)
-  } finally { process.chdir(cwd) }
+  assert.equal(resolveSqlitePath(undefined, dir), path.join(dir, '.forge', 'forge.db'))
 })
 
-test('T2 discoverWorkspaceDb walks up to a parent .forge/forge.db', () => {
+test('T2 resolver walks up to a parent .forge/forge.db', () => {
   const root = tmp(); fs.mkdirSync(path.join(root, '.forge')); fs.writeFileSync(path.join(root, '.forge', 'forge.db'), '')
   const child = path.join(root, 'a', 'b'); fs.mkdirSync(child, { recursive: true })
-  const cwd = process.cwd()
-  try {
-    process.chdir(child)
-    const found = (new ForgeStreamingReporter() as any).discoverWorkspaceDb()
-    assert.ok(found && fs.existsSync(found), `walk-up failed: ${found}`)
-  } finally { process.chdir(cwd) }
+  assert.equal(resolveSqlitePath(undefined, child), path.join(root, '.forge', 'forge.db'))
 })
 
-test('T3 discoverWorkspaceDb returns undefined when no .forge/forge.db exists', () => {
-  const dir = tmp()   // empty temp dir, no .forge
-  const cwd = process.cwd()
-  try {
-    process.chdir(dir)
-    assert.equal((new ForgeStreamingReporter() as any).discoverWorkspaceDb(), undefined)
-  } finally { process.chdir(cwd) }
+test('T3 fresh workspace resolves to cwd/.forge/forge.db, never the root DB', () => {
+  const dir = tmp()
+  assert.equal(resolveSqlitePath(undefined, dir), path.join(dir, '.forge', 'forge.db'))
+  assert.notEqual(resolveSqlitePath(undefined, dir), path.join(dir, 'forge-framework.db'))
 })
 
-// ── T4: DB path priority ──────────────────────────────────────────────────────
-
-test('T4 DB path priority: option > auto-discovery > DB_PATH env', () => {
+test('T4 DB path priority: option > DB_PATH > workspace default', () => {
   const prev = process.env.DB_PATH
-  const cwd = process.cwd()
-  // Isolate cwd to a temp dir with no .forge — the repo root may now hold a
-  // .forge/forge.db (from standalone crawls) which auto-discovery would find,
-  // masking the DB_PATH fallback this test targets.
   const clean = fs.mkdtempSync(path.join(os.tmpdir(), 'td126-cwd-'))
   try {
-    process.env.DB_PATH = '/env/path.db'
-    assert.equal((new ForgeStreamingReporter({ dbPath: '/opt.db' }) as any).dbPath, '/opt.db')  // option wins
-    process.chdir(clean)
-    assert.equal((new ForgeStreamingReporter() as any).dbPath, '/env/path.db')  // no option, no .forge → DB_PATH
+    process.env.DB_PATH = path.join(clean, 'env.db')
+    assert.equal((new ForgeStreamingReporter({ dbPath: path.join(clean, 'option.db') }) as any).dbPath, path.join(clean, 'option.db'))
+    assert.equal((new ForgeStreamingReporter() as any).dbPath, path.join(clean, 'env.db'))
   } finally {
-    process.chdir(cwd)
     if (prev === undefined) delete process.env.DB_PATH; else process.env.DB_PATH = prev
   }
 })
-
 // ── T5-T6: onBegin ────────────────────────────────────────────────────────────
 
 test('T5 onBegin creates run with lifecycle:running, status:unknown', async () => {

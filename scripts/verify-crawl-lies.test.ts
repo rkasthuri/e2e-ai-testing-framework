@@ -160,13 +160,13 @@ test('C9a migration 015 applies cleanly + crawled_by is NULLABLE', async () => {
 })
 
 test('C9b a null crawled_by row inserts + reads back as null (the stub case)', async () => {
-  await new AppModelRepository().upsert({
+  await getDb().insertInto('app_models').values({
     app_name: 'stub-app', version: '1.0.0', base_url: 'https://stub.example.com',
     app_type: 'mobile-android', intake_mode: 'crawl', crawl_config_hash: '',
     page_count: 0, flow_count: 0, role_count: 0, model_json: '{}',
     crawled_at: null, crawled_by: null, status: 'active',
     evidence_state: 'unsupported-platform',
-  })
+  }).execute()
   const row = await new AppModelRepository().findActive('stub-app')
   assert.equal(row?.crawled_by, null)          // no crawler ran → NULL
   assert.notEqual(row?.crawled_by, 'human')     // specifically NOT the fabricated default

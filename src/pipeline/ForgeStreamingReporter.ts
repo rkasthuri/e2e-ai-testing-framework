@@ -30,17 +30,14 @@
  *
  * DB path priority (Nova Q1):
  *   1. reporter option { dbPath }
- *   2. workspace auto-discovery (.forge/forge.db, walking up from cwd)
- *   3. DB_PATH env var
- *   4. ./forge-framework.db (legacy fixture default — last resort)
+ *   2. DB_PATH env var
+ *   3. workspace .forge/forge.db (nearest existing, or cwd for a fresh workspace)
  */
-import * as fs from 'fs'
-import * as path from 'path'
 import type {
   Reporter, TestCase, TestResult, FullConfig, Suite, FullResult,
 } from '@playwright/test/reporter'
 
-import { initDb, getDb, closeDb } from '../core/storage/db'
+import { initDb, getDb, closeDb, resolveSqlitePath } from '../core/storage/db'
 import { runMigrations } from '../core/storage/migrate'
 import { RunRepository } from '../core/storage/repositories/RunRepository'
 import { TestResultRepository } from '../core/storage/repositories/TestResultRepository'
@@ -108,25 +105,10 @@ export class ForgeStreamingReporter implements Reporter {
   private readonly listMode = process.argv.includes('--list')
 
   constructor(options: ReporterOptions = {}) {
-    this.dbPath = options.dbPath
-      ?? this.discoverWorkspaceDb()
-      ?? process.env.DB_PATH
-      ?? './forge-framework.db'
+    this.dbPath = resolveSqlitePath(options.dbPath)
     this.appName = options.appName ?? process.env.APP_NAME ?? 'unknown'
   }
 
-  /** Walk up from cwd to find .forge/forge.db (TD-097: runtime resolution only). */
-  private discoverWorkspaceDb(): string | undefined {
-    let dir = process.cwd()
-    for (let i = 0; i < 5; i++) {
-      const candidate = path.join(dir, '.forge', 'forge.db')
-      if (fs.existsSync(candidate)) return candidate
-      const parent = path.dirname(dir)
-      if (parent === dir) break
-      dir = parent
-    }
-    return undefined
-  }
 
   async onBegin(_config: FullConfig, suite: Suite): Promise<void> {
     if (this.listMode) {

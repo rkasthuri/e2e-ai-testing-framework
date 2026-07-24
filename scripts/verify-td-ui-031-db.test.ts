@@ -39,26 +39,26 @@ test('D1 app_models: crawled_at is NULLABLE and evidence_state exists', async ()
 })
 
 test('D2 crawled-empty row persists a real crawled_at + evidence_state (no NOT-NULL violation)', async () => {
-  await new AppModelRepository().upsert({
+  await getDb().insertInto('app_models').values({
     app_name: 'empty-app', version: '1.0.0', base_url: 'https://empty.example.com',
     app_type: 'spa', intake_mode: 'crawl', crawl_config_hash: 'sha256:e',
     page_count: 0, flow_count: 0, role_count: 0, model_json: '{}',
     crawled_at: '2026-07-14T00:00:00.000Z', crawled_by: 'human', status: 'active',
     evidence_state: 'crawled-empty',
-  })
+  }).execute()
   const row = await new AppModelRepository().findActive('empty-app')
   assert.equal(row?.evidence_state, 'crawled-empty')
   assert.equal(row?.crawled_at, '2026-07-14T00:00:00.000Z')
 })
 
 test('D3 unsupported-platform row persists crawled_at = NULL, not "" (the honesty requirement)', async () => {
-  await new AppModelRepository().upsert({
+  await getDb().insertInto('app_models').values({
     app_name: 'mobile-app', version: '1.0.0', base_url: 'https://m.example.com',
     app_type: 'mobile-android', intake_mode: 'crawl', crawl_config_hash: '',
     page_count: 0, flow_count: 0, role_count: 0, model_json: '{}',
     crawled_at: null, crawled_by: 'agent', status: 'active',
     evidence_state: 'unsupported-platform',
-  })
+  }).execute()
   const row = await new AppModelRepository().findActive('mobile-app')
   assert.equal(row?.evidence_state, 'unsupported-platform')
   assert.equal(row?.crawled_at, null)          // NULL — "no crawl happened"
@@ -67,15 +67,15 @@ test('D3 unsupported-platform row persists crawled_at = NULL, not "" (the honest
 
 test('D4 backfill labels existing content rows (page_count>0) as crawled', async () => {
   // Simulate a pre-013 row shape by inserting a content-bearing model, then read
-  // it back — the repository path already sets evidence_state, but this asserts
-  // the crawled label round-trips for a content row.
-  await new AppModelRepository().upsert({
+  // it back through the real table, then assert the persisted evidence label
+  // round-trips for a content row.
+  await getDb().insertInto('app_models').values({
     app_name: 'full-app', version: '1.0.0', base_url: 'https://full.example.com',
     app_type: 'spa', intake_mode: 'crawl', crawl_config_hash: 'sha256:f',
     page_count: 7, flow_count: 3, role_count: 2, model_json: '{}',
     crawled_at: '2026-07-14T00:00:00.000Z', crawled_by: 'human', status: 'active',
     evidence_state: 'crawled',
-  })
+  }).execute()
   const row = await new AppModelRepository().findActive('full-app')
   assert.equal(row?.evidence_state, 'crawled')
   closeDb()

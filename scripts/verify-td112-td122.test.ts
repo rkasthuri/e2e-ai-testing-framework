@@ -28,7 +28,7 @@
  * T11 uses the STUB app type (Placeholder Model) — the one crawl() path that
  * needs no browser — to prove crawl() no longer saves internally.
  */
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as os from 'os'
@@ -41,6 +41,14 @@ import { Crawler } from '../src/core/onboarding/Crawler'
 import { GeneratorRunner } from '../src/core/onboarding/GeneratorRunner'
 import { createWorkspace, Workspace } from '../src/core/workspace/WorkspaceManager'
 import { AppModel, AiBudgetTracker, PageDefinition, OnboardingConfig } from '../src/core/onboarding/types'
+import { closeDb } from '../src/core/storage/db'
+const previousDbPath = process.env.DB_PATH
+process.env.DB_PATH = ':memory:'
+after(async () => {
+  await closeDb()
+  if (previousDbPath === undefined) delete process.env.DB_PATH
+  else process.env.DB_PATH = previousDbPath
+})
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 

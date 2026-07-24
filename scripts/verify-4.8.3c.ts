@@ -20,6 +20,7 @@ import { TrendRepository }          from '../src/core/storage/repositories/Trend
 import { PerfBaselineRepository }   from '../src/core/storage/repositories/PerfBaselineRepository'
 import { FrameworkConfigRepository} from '../src/core/storage/repositories/FrameworkConfigRepository'
 import { PurgeRepository }          from '../src/core/storage/repositories/PurgeRepository'
+import { loadAppModel }              from '../src/core/onboarding/ModelValidator'
 
 async function verify() {
   await runMigrations()
@@ -39,17 +40,7 @@ async function verify() {
 
   // AppModelRepository
   const modelRepo = new AppModelRepository()
-  await modelRepo.upsert({
-    app_name: 'saucedemo', version: '1.0.0',
-    base_url: 'https://www.saucedemo.com',
-    app_type: 'mpa', intake_mode: 'crawl',
-    crawl_config_hash: 'sha256:test123',
-    page_count: 7, flow_count: 3, role_count: 6,
-    model_json: JSON.stringify({ pages: [], flows: [] }),
-    crawled_at: new Date().toISOString(),
-    crawled_by: 'human', status: 'active',
-    evidence_state: 'crawled',   // TD-UI-031: page_count 7 / flow_count 3 → content found
-  })
+  await modelRepo.upsert(loadAppModel('saucedemo') as any)
   const active = await modelRepo.findActive('saucedemo')
   console.log('✓ AppModelRepository.upsert + findActive — version:', active?.version)
   const history = await modelRepo.findHistory('saucedemo')
