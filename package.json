@@ -84,7 +84,8 @@
     "onboard": "tsx src/core/onboarding/cli.ts crawl",
     "onboard:verify": "tsx src/core/onboarding/cli.ts verify",
     "onboard:generate": "tsx src/core/onboarding/cli.ts generate",
-    "onboard:refresh": "tsx src/core/onboarding/cli.ts refresh"
+    "onboard:refresh": "tsx src/core/onboarding/cli.ts refresh",
+    "validate:baseline": "tsx scripts/forge-validation-baseline.ts"
   },
   "keywords": [],
   "author": "",
