@@ -11,4 +11,4 @@ Durable audit outputs are the **deliberate exception**: when something depends o
 (e.g. a design that rests on a feasibility spike), it is *promoted* to a tracked docs location
 (`docs/architecture/spikes/`). Default is ignored; tracking is a conscious choice, not the norm.
 
-See the "Review/scratch artifacts" rule in `CLAUDE.md`.
+See "Documentation and Working Artifacts" in root `AGENTS.md`.

@@ -30,7 +30,7 @@ in `AI_CONSTITUTION.md`; steps 3/4/7 in `AI_WORKFLOW.md`.
 | 4 | Scoped brief to implementer | The implementer works from a scoped brief (context / scope / out-of-scope / steps / verify / stop) and never self-directs scope | `AI_WORKFLOW.md` §3.2 (brief format) + §5 |
 | 5 | Diff review, not summary | The reviewer reads the actual diff, never a summary of it | `AI_CONSTITUTION.md` §3.5 |
 | 6 | Commit gate | No commit without reviewer approval; the implementer never self-approves | `AI_CONSTITUTION.md` §3.5 |
-| 7 | Rule-9 push gate | No push without the owner's explicit "Go"; a push triggers live cost — CI runs, API usage, Slack/email, automated commits | `AI_WORKFLOW.md` §7 (authorisation protocol) · CI-cost rationale in `../../CLAUDE.md` "Standing Rules" |
+| 7 | Rule-9 push gate | No push without the owner's explicit "Go"; a push triggers live cost — CI runs, API usage, Slack/email, automated commits | `AI_WORKFLOW.md` §7 (authorisation protocol) · CI-cost rationale in `../../AGENTS.md` "Task and Checkpoint Workflow" |
 
 ---
 
@@ -43,12 +43,12 @@ fixes this map makes.
 
 | Rule | Source of truth | Footing |
 |---|---|---|
-| Evidence before "resolved / fixed / passing" (verify, adversarially) | `../../CLAUDE.md` Standing Rule 1 · `AI_CONSTITUTION.md` §3.1 · `../ADR/ADR-011_Verify_Before_Assert.md` | strong |
-| Design before code (structural fix over local patch) | `../../CLAUDE.md` Standing Rule 3 · `AI_CONSTITUTION.md` §3.2 | ⚠ no dedicated ADR — authority is the contract + constitution |
+| Evidence before "resolved / fixed / passing" (verify, adversarially) | `../../AGENTS.md` "Non-Negotiable Engineering Posture" · `AI_CONSTITUTION.md` §3.1 · `../ADR/ADR-011_Verify_Before_Assert.md` | strong |
+| Design before code (structural fix over local patch) | `../../AGENTS.md` "Task and Checkpoint Workflow" · `AI_CONSTITUTION.md` §3.2 | ⚠ no dedicated ADR — authority is the contract + constitution |
 | App-agnostic / portable paths (no app logic or hardcoded paths in framework internals) | `../ADR/ADR-007_App-Agnostic Framework Design.md` · `AI_CONSTITUTION.md` §3.8 | strong |
 | Honest provenance (assert only what evidence supports) | `../ADR/ADR-015_Provenance_Follows_Evidence.md` (parent: `../ADR/ADR-006_Truth-Telling and Earned Evidence.md`) | strong |
-| Reference-naming (name the real file; path resolvable from the citing location) | `../../CLAUDE.md` "Document references (name the real file)" | ⚠ single-homed in CLAUDE.md; automated CI enforcement not yet built (`../../TECH_DEBT.md` TD-177) |
-| No business logic in routes (`forge-ui/server/` routes are transport only) | `AI_CONSTITUTION.md` §3.10 | ⚠ no ADR, not in CLAUDE.md; enforcement is diff review only |
+| Reference-naming (name the real file; path resolvable from the citing location) | `../../AGENTS.md` "Documentation and Working Artifacts" | ⚠ single-homed in AGENTS.md; automated CI enforcement not yet built (`../../TECH_DEBT.md` TD-177) |
+| No business logic in routes (`forge-ui/server/` routes are transport only) | `AI_CONSTITUTION.md` §3.10 | ⚠ no ADR; enforcement is diff review only |
 | Aggregate to the weakest truth (failed > could-not-verify > passed) | `../ADR/ADR-018_Aggregate_to_the_Weakest_Truth.md` | strong; ratified, with a reference implementation |
 
 ---
@@ -96,12 +96,12 @@ critiques the result. No step is skipped. The canonical flow is `AI_WORKFLOW.md`
 The reading order, per-doc attestations, and implementer baseline checks already exist — this section
 **points at them and fills the two gaps they leave**, without restating them.
 
-**Start here (existing):** the required reading order and its "show what you understood" attestations
-live in `../DOCUMENTATION_INDEX.md` §2 and `AI_ONBOARDING_CHECKLIST.md`. Implementer baseline checks
-(`git status` · `git log --oneline -5` · `npm run check` · `npm run test:unit`, reported before any
-work) live in `AI_ONBOARDING_CHECKLIST.md` §2.1. *(That reading path is triplicated with a known
-circular prerequisite; that is owned by the Single Source of Truth DR in `DECISION_LOG.md` — not
-re-litigated here.)*
+**Start here (existing):** the required reading order, "show what you understood" attestations,
+and implementer baseline checks (`git status` · `git log --oneline -5` · `npm run check` ·
+`npm run test:unit`, reported before any work) live in `AI_ONBOARDING_CHECKLIST.md`.
+`../DOCUMENTATION_INDEX.md` is a map only and does not own onboarding governance.
+Root `../../AGENTS.md` is the active repository entry point and routes implementation agents to
+the checklist without restating it.
 
 ### First task — a dry run of the cycle (any role)
 
@@ -129,8 +129,8 @@ equivalent:
 1. Read the required set (`../DOCUMENTATION_INDEX.md` §2) and produce the attestation — *show* what
    you understood, do not say "understood" (`AI_ONBOARDING_CHECKLIST.md` §4).
 2. Confirm you can **locate** the baseline gates (you need not run them): where `npm run check` and
-   `npm run test:unit` are defined and what a green result looks like (`../../CLAUDE.md`
-   "Build & Verify Commands").
+   `npm run test:unit` are defined and what a green result looks like (`../../AGENTS.md`
+   "Validation").
 3. Confirm which role you hold (§3 roster) and read its obligations at the sources linked there.
 4. Do the first-task dry run for your role (above) before taking on real work.
 

@@ -41,7 +41,7 @@ local (unpushed) commit.
 
 A hallucinated diff was "reviewed" and nearly committed (a drafted commit message asserted a
 `?? (last ? 100 : 0)` fix that did NOT exist in the code); it was caught only by re-reading the tree
-against the claim. CLAUDE.md Rule 7 now demands re-reading the actual file / re-running the actual
+against the claim. AGENTS.md now demands re-reading the actual file / re-running the actual
 command and treating any prior summary as WRONG until fresh evidence proves otherwise. Lesson: a
 retained summary is not evidence.
 

@@ -15,6 +15,9 @@
 
 ---
 
+> **Implementation agents:** begin with [`AGENTS.md`](AGENTS.md), the active
+> repository-level instruction and governance-routing entry point.
+
 ## What FORGE Is
 
 FORGE is an AI-augmented Quality Engineering platform and applied research project focused on building reliable, evidence-driven software testing.

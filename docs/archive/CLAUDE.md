@@ -1,3 +1,12 @@
+# Archived — Non-Authoritative
+
+> This file is the preserved legacy repository contract formerly used by Claude Code.
+> It is retained for historical reference only and must not be used as current guidance.
+> The active repository-level instructions are in [`../../AGENTS.md`](../../AGENTS.md).
+> Universal governance remains in the authoritative documents linked from that file.
+
+---
+
 # FORGE — Autonomous Quality Engineering
 
 FORGE is an AI-augmented, app-agnostic, enterprise-grade Quality Engineering platform:

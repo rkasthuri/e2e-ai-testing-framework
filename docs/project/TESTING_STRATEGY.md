@@ -50,7 +50,7 @@ FORGE's own codebase is tested through:
 - Evaluation harnesses for AI capability validation
 
 Context B is this document's primary focus. Context A (how FORGE tests apps) is
-the FORGE pipeline — see the `ONBOARD → … → REPORT` line in `CLAUDE.md` and the
+the FORGE pipeline — see the `ONBOARD → … → REPORT` line in root `AGENTS.md` and the
 engine modules in `docs/architecture/CODEBASE_MAP.md` §2 (a canonical enumerated
 pipeline section is pending — TD-176).
 

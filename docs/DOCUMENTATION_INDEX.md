@@ -1,12 +1,12 @@
 # FORGE Documentation
 <!-- version: 1.0 | status: ACTIVE | owner: Raj Kasthuri (AnvilQ Technologies LLC) -->
 
-> Master index and required reading guide for all FORGE documentation.
-> Start here. Every other document in this directory is linked below
-> with its purpose, audience, and where it fits in the reading order.
+> Master index and map for all FORGE documentation.
+> Use this file to locate documents; it does not define governance or the
+> required reading order.
 >
-> **If you are a new AI agent:** Read the Required Reading Order in
-> Section 2 before touching anything else.
+> **If you are a new implementation agent:** Start at root
+> [`AGENTS.md`](../AGENTS.md), which routes you to the authoritative checklist.
 >
 > **If you are looking for something specific:** Use Section 3 (Document
 > Directory) to find it directly.
@@ -28,52 +28,40 @@ This documentation set covers:
 
 ---
 
-## 2. Required Reading Order
+## 2. Onboarding Map
 
-### For New AI Agents — Read in This Exact Order
+This index does not own or restate onboarding governance. The exact required
+reading order, attestations, repository checks, and role-specific confirmations
+live only in
+[`AI_ONBOARDING_CHECKLIST.md`](governance/AI_ONBOARDING_CHECKLIST.md).
 
-```
-1. AI_CONSTITUTION.md       ← Rules. Non-negotiable. Read first.
-2. AI_WORKFLOW.md           ← How the collaboration works.
-3. GLOSSARY.md              ← Terms FORGE uses and what they mean.
-4. KNOWN_LIMITATIONS.md     ← What FORGE cannot do today.
-5. TESTING_STRATEGY.md      ← How FORGE is tested and validated.
-6. DECISION_LOG.md          ← Why things are the way they are.
-7. ROADMAP.md               ← Where FORGE is going.
-8. AI_ONBOARDING_CHECKLIST.md ← Complete this before any work.
-```
+### New AI or Implementation Agent
 
-After completing the checklist, implementation agents read:
-```
-9.  FORGE-Handover.md        ← Master project orientation (dated 2026-07-20 snapshot — verify against live state)
-10. PROJECT_STATE.md         ← Current snapshot — branch, WIP, blockers
-11. CURRENT_MILESTONE.md     ← Active milestone scope and criteria
-12. CODEX_ONBOARDING.md      ← Implementation agent specific guide
-```
-
-**Do not skip steps. Do not reorder. The sequence is intentional.**
+1. Begin at root [`AGENTS.md`](../AGENTS.md).
+2. Complete
+   [`AI_ONBOARDING_CHECKLIST.md`](governance/AI_ONBOARDING_CHECKLIST.md)
+   in its stated order.
+3. Use the role-specific links from that checklist. Codex-specific deltas live
+   in [`CODEX_ONBOARDING.md`](governance/CODEX_ONBOARDING.md).
 
 ---
 
-### For Humans Onboarding to the Project
+### Human Project Orientation
 
-```
-1. FORGE-Handover.md         ← Start here for the full picture
-2. BUILD_AND_RUN.md          ← Get it running locally
-3. ROADMAP.md                ← Where things stand and where they're going
-4. TECH_DEBT_SUMMARY.md      ← What is open and why
-```
+Start with [`FORGE-Handover.md`](product/FORGE-Handover.md), then use
+[`BUILD_AND_RUN.md`](project/BUILD_AND_RUN.md),
+[`ROADMAP.md`](project/ROADMAP.md), and
+[`TECH_DEBT_SUMMARY.md`](project/TECH_DEBT_SUMMARY.md) for the relevant
+operational or project-state context.
 
 ---
 
-### For Architectural Reviewers (Nova)
+### Architectural Review
 
-```
-1. AI_CONSTITUTION.md        ← Rules that apply to all agents
-2. AI_WORKFLOW.md            ← Your role and review format
-3. DECISION_LOG.md           ← Decisions already made — do not re-litigate
-4. ROADMAP.md                ← Sequencing constraints
-```
+The role-specific reading and attestation live in
+[`AI_ONBOARDING_CHECKLIST.md`](governance/AI_ONBOARDING_CHECKLIST.md);
+the document directory below maps the constitution, workflow, decision log,
+architecture, and roadmap sources it references.
 
 ---
 
@@ -83,6 +71,7 @@ After completing the checklist, implementation agents read:
 
 | Document | Purpose | Status |
 |---|---|---|
+| [AGENTS.md](../AGENTS.md) | Active repository-level instruction and governance-routing entry point for implementation agents. | ✅ Complete |
 | [AI_CONSTITUTION.md](governance/AI_CONSTITUTION.md) | Immutable rules every AI must follow. Non-negotiable. | ✅ Complete |
 | [AI_WORKFLOW.md](governance/AI_WORKFLOW.md) | Collaboration process, roles, approval gates, Rule 9. | ✅ Complete |
 | [AI_ONBOARDING_CHECKLIST.md](governance/AI_ONBOARDING_CHECKLIST.md) | Step-by-step checklist every new AI must complete before contributing. | ✅ Complete |
@@ -141,13 +130,22 @@ After completing the checklist, implementation agents read:
 
 ---
 
+### Archive
+
+| Document | Purpose | Status |
+|---|---|---|
+| [CLAUDE.md](archive/CLAUDE.md) | Preserved legacy Claude-specific repository contract. Historical reference only; root `AGENTS.md` is active. | 🗄️ Archived — non-authoritative |
+| [CLAUDE_BEST_PRACTICES_v2.md](archive/CLAUDE_BEST_PRACTICES_v2.md) | Historical reference used during earlier instruction-file design work. | 🗄️ Archived — non-authoritative |
+
+---
+
 ## 4. Document Status Key
 
 | Symbol | Meaning |
 |---|---|
 | ✅ Complete | Written, reviewed, accurate as of this version |
 | 📅 Dated snapshot | Point-in-time doc; content may be superseded — verify against live state |
-| ⏳ Pending CC | Requires repo verification from Claude Code before writing |
+| ⏳ Pending verification | Requires repository verification from the active implementation agent before writing |
 | ⏳ Pending upload | Raj to upload source material |
 | ⏳ Pending | Requires scoping conversation before writing |
 
@@ -178,7 +176,7 @@ If you find a document that violates this — raise it with Aiden.
 | Milestone completed | Update `PROJECT_STATE.md`, `CURRENT_MILESTONE.md`, `ROADMAP.md` |
 | New limitation discovered | Add entry to `KNOWN_LIMITATIONS.md` |
 | New capability shipped | Update `ROADMAP.md` status, update `CODEBASE_MAP.md` |
-| New agent joins | Complete `AI_ONBOARDING_CHECKLIST.md` |
+| New agent joins | Begin at root `AGENTS.md`; complete `AI_ONBOARDING_CHECKLIST.md` |
 | New term introduced | Add to `GLOSSARY.md` |
 
 Documentation that drifts from the codebase is as much a lie as code

@@ -15,6 +15,10 @@
 
 ---
 
+> Root `AGENTS.md` is the active repository instruction entry point and routes
+> agents here. This checklist remains the single authoritative owner of the
+> required onboarding order, attestations, and role-specific confirmation.
+
 ## How to Use This Checklist
 
 Work through every item in order. For each item:
@@ -79,7 +83,7 @@ Do not summarise. Do not say "understood." Show what you understood.
 □ The data storage model — CODEBASE_MAP.md §2.7 (DB layer, schema, repositories);
   docs/architecture/ARCHITECTURE_NORTH_STAR.md "Data source-of-truth" for the source-of-truth decision (DB authoritative)
 □ The forge-ui structure — CODEBASE_MAP.md §3 (tab pages, lib, REST API)
-□ The pipeline stage sequence — CLAUDE.md pipeline line for now; a canonical
+□ The pipeline stage sequence — root AGENTS.md pipeline line for now; a canonical
   enumerated architecture section is pending (TD-176)
 □ Read the rest of CODEBASE_MAP.md for module-by-module architecture context
 ```

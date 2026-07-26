@@ -238,7 +238,7 @@ fixtures/
 |---|---|---|
 | `reports/` | Not committed | Generated per run — 17+ dirs from 2026-07 |
 | `logs/` | Not committed | Generated per run |
-| `docs/PRODUCT_VISION.md` | Untracked | Named in CLAUDE.md routing table — verify with Raj |
+| `docs/PRODUCT_VISION.md` | Historical snapshot | Former root `CLAUDE.md` routing entry; the tracked live file is `docs/product/PRODUCT_VISION.md`, routed from root `AGENTS.md` |
 | `notes/` | Untracked | |
 | `forge-framework.db` | Not committed | Runtime-generated SQLite file |
 | `forge-ui/dist/` | Not committed | Build output |

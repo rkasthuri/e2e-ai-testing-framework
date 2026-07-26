@@ -96,7 +96,7 @@ See `TECH_DEBT_SUMMARY.md` for the full categorised list.
 
 | Item | Issue |
 |---|---|
-| `docs/PRODUCT_VISION.md` | Untracked — CLAUDE.md routing table names it as a source of truth for product/branding/roadmap, but it is not in git |
+| `docs/PRODUCT_VISION.md` | Historical snapshot item: the former root `CLAUDE.md` routing table named this then-untracked path. The live file is `docs/product/PRODUCT_VISION.md`; current routing is in root `AGENTS.md`. |
 | `notes/` directory | Untracked |
 | `reports/2026-07-*/` (~17 dirs) | Untracked — run reports not committed |
 | `q.cjs`, `forge-ui/type` | Untracked — unclear purpose, verify with Raj |
