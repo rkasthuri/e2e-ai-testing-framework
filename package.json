@@ -85,6 +85,7 @@
     "onboard:verify": "tsx src/core/onboarding/cli.ts verify",
     "onboard:generate": "tsx src/core/onboarding/cli.ts generate",
     "onboard:refresh": "tsx src/core/onboarding/cli.ts refresh",
+    "db:app-models:json:dry-run": "tsx scripts/dry-run-json-app-model-migration.ts",
     "validate:baseline": "tsx scripts/forge-validation-baseline.ts"
   },
   "keywords": [],
