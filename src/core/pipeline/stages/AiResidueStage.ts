@@ -25,15 +25,14 @@
  *   - A failed AI call leaves the rule-pass unknown in place, warned.
  */
 import { aiCall } from '../../ai/AiClient'
-import { AppModel } from '../../onboarding/types'
 import { ModuleClassifier } from '../../crawler/ModuleClassifier'
-import { EnrichmentStage, EnrichmentContext } from '../ModelEnrichmentPipeline'
+import { EnrichmentStage, EnrichmentContext, EnrichableAppModel } from '../ModelEnrichmentPipeline'
 
 export class AiResidueStage implements EnrichmentStage {
   name = 'AiResidue'
   private classifier = new ModuleClassifier()
 
-  async run(model: AppModel, ctx: EnrichmentContext): Promise<void> {
+  async run(model: EnrichableAppModel, ctx: EnrichmentContext): Promise<void> {
     if (!model.pages) return
 
     const unknownPages = model.pages.filter(p => p.module?.confidence === 'unknown')

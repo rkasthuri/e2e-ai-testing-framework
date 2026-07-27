@@ -76,7 +76,7 @@ export class PomGenerator {
     }
 
     const content = [
-      `// @generated from app-model.json v${ver} ${hash}`,
+      `// @generated from SQLite App Model v${ver} ${hash}`,
       `// DO NOT EDIT — regenerate with: npm run onboard:generate`,
       ``,
       `import { APIRequestContext } from '@playwright/test'`,

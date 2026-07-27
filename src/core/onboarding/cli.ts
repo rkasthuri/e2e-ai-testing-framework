@@ -22,7 +22,9 @@ import { VerificationRunner } from './VerificationRunner'
 import { CrawlRunner }        from '../runner/CrawlRunner'
 import { createWorkspace }    from '../workspace/WorkspaceManager'
 import { openProjectDatabase } from '../storage/DatabaseFactory'
-import { getDb }              from '../storage/db'
+import { AppModelService, requireProjectedCommit } from '../storage/AppModelService'
+import { generateRunId } from './Bootstrap'
+import { getDb, initDb }      from '../storage/db'
 import { migrateDiskModels, migrateDbBlobs, UnmigratableModelError } from './ModelMigrator'
 import { AgentRunner } from '../agent/AgentRunner'
 import { JsonAgentMemoryRepository } from '../agent/AgentMemoryRepository'
@@ -132,6 +134,7 @@ async function main() {
           agent:    args.includes('--agent'),
           aiBudget,
           headed:   args.includes('--headed'),   // TD-131: default headless
+          operationId: getArg('operation-id'),
         })
         console.log(
           result.dryRun
@@ -162,20 +165,34 @@ async function main() {
         process.exit(0)
       }
 
-      const crawler = new Crawler(config)
-      const model   = await crawler.crawl()
-      await crawler.saveModel(model)   // TD-122: crawl() no longer saves internally
+      const fixtureWorkspace = createWorkspace()
+      const appModels = new AppModelService()
+      const previousModel = await appModels.findActive(appName)
+      const crawler = new Crawler(config, { previousModel })
+      const candidate = await crawler.crawl()
+      const fixtureOperationId = getArg('operation-id') ?? generateRunId()
+      const model = requireProjectedCommit(await appModels.commitAndProject(
+        candidate,
+        fixtureOperationId,
+        snapshot => fixtureWorkspace.saveModelProjection(appName, snapshot),
+      )).committed.snapshot
       const count = model.endpoints?.length ?? model.pages?.length ?? 0
       const unit  = (model.endpoints?.length ?? 0) > 0 ? 'endpoints' : 'pages'
       console.log(`\n[CLI] Crawl complete \u2014 ${count} ${unit} discovered`)
-      console.log(`[CLI] Review: models/${model.app.name}/app-model.json`)
+      console.log(`[CLI] Compatibility projection: models/${model.app.name}/app-model.json`)
       console.log(`[CLI] Next:   npm run onboard:verify -- --app=${model.app.name}`)
       break
     }
 
     case 'verify': {
       const config = await resolveConfig(appName)
-      const runner = new VerificationRunner(appName, config)
+      const runner = new VerificationRunner(
+        appName,
+        config,
+        createWorkspace(),
+        undefined,
+        getArg('operation-id'),
+      )
       await runner.run()
       break
     }
@@ -191,6 +208,7 @@ async function main() {
           console.error('[FORGE] No project found in this directory. Run forge crawl first.')
           process.exit(1)
         }
+        initDb(ws.dbPath())
         await new GeneratorRunner().generate(cfg.appName, ws)
         console.log(`[FORGE] Tests written to ${ws.testsDir}`)
         break
@@ -204,10 +222,17 @@ async function main() {
 
     case 'refresh': {
       await runMigrations()
-      const config  = await resolveConfig(appName)
-      const crawler = new Crawler(config)
-      const model   = await crawler.crawl()
-      await crawler.saveModel(model)   // TD-122: crawl() no longer saves internally
+      const config = await resolveConfig(appName)
+      const workspace = createWorkspace()
+      const appModels = new AppModelService()
+      const previousModel = await appModels.findActive(appName)
+      const crawler = new Crawler(config, { previousModel })
+      const candidate = await crawler.crawl()
+      requireProjectedCommit(await appModels.commitAndProject(
+        candidate,
+        getArg('operation-id') ?? generateRunId(),
+        snapshot => workspace.saveModelProjection(appName, snapshot),
+      ))
       break
     }
 

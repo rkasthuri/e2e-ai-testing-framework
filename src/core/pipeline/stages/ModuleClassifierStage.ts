@@ -18,15 +18,14 @@
  * that ran post-crawl in CrawlRunner (and at generation time in
  * GeneratorRunner) before TD-112 moved classification here, pre-persistence.
  */
-import { AppModel } from '../../onboarding/types'
 import { ModuleClassifier } from '../../crawler/ModuleClassifier'
-import { EnrichmentStage, EnrichmentContext } from '../ModelEnrichmentPipeline'
+import { EnrichmentStage, EnrichmentContext, EnrichableAppModel } from '../ModelEnrichmentPipeline'
 
 export class ModuleClassifierStage implements EnrichmentStage {
   name = 'ModuleClassifier'
   private classifier = new ModuleClassifier()
 
-  async run(model: AppModel, _ctx: EnrichmentContext): Promise<void> {
+  async run(model: EnrichableAppModel, _ctx: EnrichmentContext): Promise<void> {
     if (!model.pages) return
     for (const page of model.pages) {
       page.module = this.classifier.classify(page)

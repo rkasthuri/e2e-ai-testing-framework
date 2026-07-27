@@ -144,7 +144,7 @@ export class SpecGenerator {
     }
 
     const content = lines(
-      `// @generated from app-model.json v${ver} ${hash}`,
+      `// @generated from SQLite App Model v${ver} ${hash}`,
       `// DO NOT EDIT — regenerate with: npm run onboard:generate`,
       ``,
       `import { test, expect } from '@playwright/test'`,

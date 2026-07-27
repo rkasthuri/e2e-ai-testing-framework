@@ -37,6 +37,7 @@ import { AuthManager } from '../src/core/onboarding/AuthManager'
 import { GeneratorRunner } from '../src/core/onboarding/GeneratorRunner'
 import { createWorkspace, Workspace } from '../src/core/workspace/WorkspaceManager'
 import { OnboardingConfig } from '../src/core/onboarding/types'
+import type { AppModelService } from '../src/core/storage/AppModelService'
 
 const REPO_ROOT = path.resolve(__dirname, '..')
 
@@ -51,21 +52,22 @@ const CONFIG: OnboardingConfig = {
 
 // ── T1-T4: path-scoping defaults + overrides ──────────────────────────────────
 
-test('T1 Crawler without opts → modelsDir/authStateDir default to cwd (fixture behavior)', () => {
+test('T1 Crawler defaults to no prior SQLite snapshot and cwd auth state', () => {
   const c = new Crawler(CONFIG) as any
-  assert.equal(c.modelsDir, path.resolve('models'))
+  assert.equal(c.previousModel, null)
+  assert.equal(c.modelsDir, undefined)
   assert.equal(c.authStateDir, path.resolve('.auth'))
 })
 
-test('T2 Crawler with opts → provided dirs win (and ApiSpecCrawler mirrors the pattern)', () => {
-  const c = new Crawler(CONFIG, { modelsDir: 'C:/x/models', authStateDir: 'C:/x/.forge/auth' }) as any
-  assert.equal(c.modelsDir, 'C:/x/models')
+test('T2 Crawler and ApiSpecCrawler accept an injected prior SQLite snapshot', () => {
+  const previous = { app: { modelVersion: '1.2.3' } } as any
+  const c = new Crawler(CONFIG, { previousModel: previous, authStateDir: 'C:/x/.forge/auth' }) as any
+  assert.equal(c.previousModel, previous)
   assert.equal(c.authStateDir, 'C:/x/.forge/auth')
-  const a = new ApiSpecCrawler(CONFIG, { modelsDir: 'C:/y/models' }) as any
-  assert.equal(a.modelsDir, 'C:/y/models')
-  assert.equal((new ApiSpecCrawler(CONFIG) as any).modelsDir, path.resolve('models'))
+  const a = new ApiSpecCrawler(CONFIG, { previousModel: previous }) as any
+  assert.equal(a.previousModel, previous)
+  assert.equal(a.modelsDir, undefined)
 })
-
 test('T3 AuthManager without opts → authStateDir defaults to cwd/.auth', () => {
   assert.equal((new AuthManager(CONFIG) as any).authStateDir, path.resolve('.auth'))
 })
@@ -76,11 +78,12 @@ test('T4 AuthManager with opts → session state path uses the provided dir', ()
 
 // ── T5-T6: CrawlRunner wiring (source-level — run() needs a live crawl) ───────
 
-test('T5 CrawlRunner passes workspace.root/models as modelsDir', () => {
+test('T5 CrawlRunner injects the prior SQLite snapshot and has no modelsDir authority', () => {
   const src = fs.readFileSync(path.join(REPO_ROOT, 'src/core/runner/CrawlRunner.ts'), 'utf-8')
-  assert.match(src, /modelsDir:\s*path\.join\(workspace\.root,\s*'models'\)/)
+  assert.match(src, /previousModel\s*=\s*await this\.appModels\.findActive\(config\.appName\)/)
+  assert.match(src, /previousModel,/)
+  assert.doesNotMatch(src, /modelsDir:/)
 })
-
 test('T6 CrawlRunner passes workspace.forgeDir/auth as authStateDir (inside .forge/)', () => {
   const src = fs.readFileSync(path.join(REPO_ROOT, 'src/core/runner/CrawlRunner.ts'), 'utf-8')
   assert.match(src, /authStateDir:\s*path\.join\(workspace\.forgeDir,\s*'auth'\)/)
@@ -88,24 +91,24 @@ test('T6 CrawlRunner passes workspace.forgeDir/auth as authStateDir (inside .for
 
 // ── T7-T9: Workspace additions ────────────────────────────────────────────────
 
-test('T7 workspace.loadModel() returns null when missing', async () => {
+test('T7 Workspace exposes no runtime App Model JSON reader', () => {
   const root = tempRoot()
   try {
-    assert.equal(await createWorkspace(root).loadModel('nope'), null)
+    const ws = createWorkspace(root) as any
+    assert.equal(ws.loadModel, undefined)
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('T8 workspace.loadModel() returns the parsed model when present', async () => {
+test('T8 saveModelProjection writes compatibility JSON without creating a read authority', async () => {
   const root = tempRoot()
   try {
-    const dir = path.join(root, 'models', 'myapp')
-    fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(path.join(dir, 'app-model.json'), JSON.stringify({ app: { name: 'myapp' } }), 'utf-8')
-    const model = await createWorkspace(root).loadModel('myapp') as any
-    assert.equal(model.app.name, 'myapp')
+    const ws = createWorkspace(root)
+    await ws.saveModelProjection('myapp', { app: { name: 'myapp' } } as any)
+    const raw = JSON.parse(fs.readFileSync(path.join(root, 'models', 'myapp', 'app-model.json'), 'utf-8'))
+    assert.equal(raw.app.name, 'myapp')
+    assert.equal((ws as any).loadModel, undefined)
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
-
 test('T9 workspace.writeTestsFile() writes to tests/ ROOT (no module segment)', async () => {
   const root = tempRoot()
   try {
@@ -147,11 +150,12 @@ test('T10 generate(app, workspace) routes through workspace.writeTests*/loadMode
     loadMemory: async () => null, saveMemory: async () => {},
     writeTests: async (module: string, filename: string) => { calls.push({ kind: 'writeTests', args: [module, filename] }) },
     writeTestsFile: async (filename: string) => { calls.push({ kind: 'writeTestsFile', args: [filename] }) },
-    loadModel: async () => minimalModel,
+    saveModelProjection: async () => {},
     saveReport: async () => {},
   } as unknown as Workspace
 
-  await new GeneratorRunner().generate('spyapp', fake)
+  const service = { requireActive: async () => minimalModel } as unknown as AppModelService
+  await new GeneratorRunner(service).generate('spyapp', fake)
   // FixtureGenerator always emits fixtures.generated.ts → must be routed to the tests/ ROOT.
   assert.ok(
     calls.some(c => c.kind === 'writeTestsFile' && c.args[0] === 'fixtures.generated.ts'),
@@ -161,17 +165,12 @@ test('T10 generate(app, workspace) routes through workspace.writeTests*/loadMode
   // the fake (no fs paths available) + T11's fixture-path contrast below.
 })
 
-test('T10b generate(app) WITHOUT workspace takes the fixture path (loadAppModel, cwd models/)', async () => {
-  // The fixture path reads cwd models/<app>/app-model.json via loadAppModel and
-  // throws its distinctive error for an unknown app — proving the branch.
+test('T10b generate(app) WITHOUT workspace still requires SQLite authority', async () => {
   await assert.rejects(
     () => new GeneratorRunner().generate('no-such-app-xyz'),
-    /App model not found/,
+    /No crawled model/,
   )
 })
-
-// ── T11: CLI standalone generate error path ───────────────────────────────────
-
 test('T11 `forge generate` with no workspace config → "Run forge crawl first" + exit 1', () => {
   const root = tempRoot()
   try {

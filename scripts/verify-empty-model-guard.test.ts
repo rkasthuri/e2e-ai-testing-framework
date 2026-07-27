@@ -31,6 +31,10 @@ import { EmptyModelError, ModelNotFoundError } from '../src/core/errors/Operator
 import { JobRunner } from '../forge-ui/server/jobs/JobRunner'
 import type { AppModel } from '../src/core/onboarding/types'
 import type { Workspace } from '../src/core/workspace/WorkspaceManager'
+import type { AppModelService } from '../src/core/storage/AppModelService'
+import { initDb, closeDb } from '../src/core/storage/db'
+import { runMigrations } from '../src/core/storage/migrate'
+import { AppModelRepository } from '../src/core/storage/repositories/AppModelRepository'
 
 const appShell = (appType: string) => ({
   name: 'x', displayName: 'X', baseUrl: 'https://x.example.com', appType,
@@ -83,12 +87,20 @@ function mockWs(model: unknown): Workspace {
     saveGenerationManifest: async () => {},
     loadMemory: async () => null, saveMemory: async () => {},
     writeTests: async () => {}, writeTestsFile: async () => {},
-    loadModel: async () => model, saveModel: async () => {}, saveReport: async () => {},
+    saveModelProjection: async () => {}, saveReport: async () => {},
   } as unknown as Workspace
 }
 
 // ── modelHasContent predicate (the guard logic) ─────────────────────────────────
 
+function modelService(model: AppModel | null): AppModelService {
+  return {
+    requireActive: async (appName: string) => {
+      if (!model) throw new ModelNotFoundError(appName)
+      return model
+    },
+  } as unknown as AppModelService
+}
 test('G1 modelHasContent: 0 pages / 0 flows / 0 endpoints → false', () => {
   assert.equal(modelHasContent(emptyUiModel()), false)
 })
@@ -106,20 +118,20 @@ test('G4 modelHasContent: API (0 pages, N endpoints) → true (guard must NOT be
 
 test('G5 generate against an EMPTY model → EmptyModelError (MODEL_EMPTY)', async () => {
   await assert.rejects(
-    () => new GeneratorRunner().generate('emptyapp', mockWs(emptyUiModel())),
+    () => new GeneratorRunner(modelService(emptyUiModel())).generate('emptyapp', mockWs(emptyUiModel())),
     (err: unknown) => err instanceof EmptyModelError && err.code === 'MODEL_EMPTY',
   )
 })
 
 test('G6 generate against a NULL model → ModelNotFoundError (existing rail intact)', async () => {
   await assert.rejects(
-    () => new GeneratorRunner().generate('nullapp', mockWs(null)),
+    () => new GeneratorRunner(modelService(null)).generate('nullapp', mockWs(null)),
     (err: unknown) => err instanceof ModelNotFoundError && err.code === 'MODEL_NOT_FOUND',
   )
 })
 
 test('G7 generate against an API model (0 pages, N endpoints) → SUCCEEDS (not rejected as empty)', async () => {
-  const manifest = await new GeneratorRunner().generate('apiapp', mockWs(apiModel()))
+  const manifest = await new GeneratorRunner(modelService(apiModel())).generate('apiapp', mockWs(apiModel()))
   assert.ok(manifest && typeof manifest === 'object', 'expected a manifest, not void/throw')
   assert.equal((manifest as { appName: string }).appName, 'apiapp')
 })
@@ -134,7 +146,11 @@ test('G8 END-TO-END: EmptyModelError message reaches the Timeline lines[]', asyn
   try {
     fs.rmSync(root, { recursive: true, force: true })
     fs.mkdirSync(modelDir, { recursive: true })
-    fs.writeFileSync(path.join(modelDir, 'app-model.json'), JSON.stringify(schemaValidEmpty(appName)), 'utf-8')
+    const dbPath = path.join(root, '.forge', 'forge.db')
+    initDb(dbPath)
+    await runMigrations()
+    await new AppModelRepository().upsert(schemaValidEmpty(appName) as unknown as AppModel)
+    await closeDb()
 
     await jr.submit({ jobId: 'g8-empty', type: 'generate', appName, options: {} })
     const status = jr.getStatus('g8-empty')
@@ -157,23 +173,23 @@ test('G8 END-TO-END: EmptyModelError message reaches the Timeline lines[]', asyn
       'the false "onboarded but never crawled" message must not appear',
     )
   } finally {
+    await closeDb()
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
 // ── VerificationRunner guard ────────────────────────────────────────────────────
 
-test('G9 verify against an EMPTY model → refuses (EmptyModelError), no report emitted', async () => {
+test('G9 verify against an EMPTY SQLite model refuses with EmptyModelError', async () => {
   const appName = 'zzz-emptymodel-verify-proof'
-  const modelDir = path.resolve('models', appName)   // loadAppModel reads cwd/models/<app>/
-  try {
-    fs.mkdirSync(modelDir, { recursive: true })
-    fs.writeFileSync(path.join(modelDir, 'app-model.json'), JSON.stringify(schemaValidEmpty(appName)), 'utf-8')
-    await assert.rejects(
-      () => new VerificationRunner(appName).run(),
-      (err: unknown) => err instanceof EmptyModelError && err.code === 'MODEL_EMPTY',
-    )
-  } finally {
-    fs.rmSync(modelDir, { recursive: true, force: true })
-  }
+  const empty = schemaValidEmpty(appName) as unknown as AppModel
+  await assert.rejects(
+    () => new VerificationRunner(
+      appName,
+      undefined,
+      mockWs(empty),
+      modelService(empty),
+    ).run(),
+    (err: unknown) => err instanceof EmptyModelError && err.code === 'MODEL_EMPTY',
+  )
 })

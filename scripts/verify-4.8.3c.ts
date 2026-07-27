@@ -20,7 +20,7 @@ import { TrendRepository }          from '../src/core/storage/repositories/Trend
 import { PerfBaselineRepository }   from '../src/core/storage/repositories/PerfBaselineRepository'
 import { FrameworkConfigRepository} from '../src/core/storage/repositories/FrameworkConfigRepository'
 import { PurgeRepository }          from '../src/core/storage/repositories/PurgeRepository'
-import { loadAppModel }              from '../src/core/onboarding/ModelValidator'
+import { loadAppModelFixture }       from './helpers/load-app-model-fixture'
 
 async function verify() {
   await runMigrations()
@@ -40,7 +40,7 @@ async function verify() {
 
   // AppModelRepository
   const modelRepo = new AppModelRepository()
-  await modelRepo.upsert(loadAppModel('saucedemo') as any)
+  await modelRepo.upsert(loadAppModelFixture('saucedemo') as any)
   const active = await modelRepo.findActive('saucedemo')
   console.log('✓ AppModelRepository.upsert + findActive — version:', active?.version)
   const history = await modelRepo.findHistory('saucedemo')

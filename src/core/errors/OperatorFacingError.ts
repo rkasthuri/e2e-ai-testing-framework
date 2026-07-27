@@ -40,7 +40,7 @@ export abstract class OperatorFacingError extends Error {
 /**
  * A generation precondition: the app has no crawled model in its workspace yet.
  * The operator fix is to run a crawl first. Thrown by GeneratorRunner when
- * loadModel() returns null on the standalone/workspace path.
+ * AppModelService finds no active SQLite snapshot.
  */
 export class ModelNotFoundError extends OperatorFacingError {
   readonly code = 'MODEL_NOT_FOUND'

@@ -26,7 +26,7 @@ import { CredentialErrorBase } from '../context/credentials/CredentialTypes'
  * same proven mechanism Onboard ships in TD-UI-011). The engine call goes
  * through ExecutionContext — never CrawlRunner directly — preserving the
  * one-way forge-ui → engine boundary. Structured pages are NOT sourced here:
- * the crawl route reads them from app-model.json after completion.
+ * the crawl route reads them from SQLite after completion.
  *
  * PHASE 2: move execution to worker_threads and source progress from the
  * EngineEventPublisher (src/core/events) instead of parsed logs. The Job /
@@ -98,8 +98,14 @@ export class JobRunner {
       // right ~/.forge-projects/<appName>/.forge. CrawlRunner needs a REAL
       // Workspace object (loadConfig/…), which WorkspaceResolver returns.
       const options = job.type === 'crawl'
-        ? { ...job.options, workspace: workspaceResolver.provision(job.appName) }
-        : job.options
+        ? {
+            ...job.options,
+            operationId: job.options.operationId ?? job.jobId,
+            workspace: workspaceResolver.provision(job.appName),
+          }
+        : job.type === 'verify'
+          ? { ...job.options, operationId: job.options.operationId ?? job.jobId }
+          : job.options
       // Engine call ALWAYS via ExecutionContext (never CrawlRunner directly).
       const result = await executionContext.submit({
         type: job.type,

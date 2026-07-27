@@ -74,7 +74,7 @@ export interface CrawlRequest {
   aiBudget?: number
 }
 
-/** A page from app-model.json, mapped for the table (audit ruling; no depth). */
+/** A page from the SQLite App Model, mapped for the table (audit ruling; no depth). */
 export interface DiscoveredPage {
   id:               string
   url:              string          // app.baseUrl + urlPattern

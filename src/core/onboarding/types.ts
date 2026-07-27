@@ -429,6 +429,19 @@ export interface AppModel {
   }
 }
 
+/**
+ * TD-181 — an App Model before SQLite assigns its durable identity.
+ *
+ * Runtime producers may describe application evidence and may compare it with
+ * a previously committed snapshot, but they do not allocate modelVersion.
+ * AppModelRepository.commitCandidate() adds that field inside the same SQLite
+ * transaction that supersedes the prior active row and inserts the new one.
+ */
+export type AppModelCandidate =
+  Omit<AppModel, 'app'> & {
+    app: Omit<AppModel['app'], 'modelVersion'>
+  }
+
 export interface PageDiscovery {
   pageId:       string
   urlPattern:   string

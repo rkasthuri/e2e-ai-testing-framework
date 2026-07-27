@@ -21,13 +21,14 @@ import { jobRunner } from '../jobs/JobRunner'
 import { workspaceResolver } from '../context/WorkspaceResolver'
 import { isValidAppName } from '../context/appName'
 import { projectRegistry } from '../registry/ProjectRegistry'
+import { executionContext } from '../context/ExecutionContext'
 
 /**
  * TD-UI-002 Crawl tab (ADR-012, Phase 1 — polling).
  *  POST /api/v1/crawl               → 202 { jobId } (fires async, returns at once)
  *  GET  /api/v1/crawl/:jobId/status → Mission Timeline (live log lines) + strategy
  *                                     + structured pages (post-completion, from
- *                                     app-model.json). Client polls every 1s.
+ *                                     the SQLite App Model). Client polls every 1s.
  */
 const router = Router()
 
@@ -48,7 +49,7 @@ export interface DiscoveredPage {
   moduleReason:     string | null   // ADR-020 §6: the evidence behind the confidence grade
   elements:         number          // page.elements?.length ?? 0
   roles:            string[]        // page.accessibleByRoles ?? []
-  // depth: omitted — not present in app-model.json (audit)
+  // depth: omitted — not present in the SQLite App Model (audit)
 }
 
 function readJson(file: string): any {
@@ -63,7 +64,7 @@ function resolveUrl(appName: string): string | undefined {
   return readJson(path.join(ws.forgeDir, 'config.json'))?.url
 }
 
-/** Pure map: a parsed app-model.json → table rows (audit ruling; no depth). */
+/** Pure map: a SQLite-backed App Model → table rows (audit ruling; no depth). */
 export function mapModelPages(model: any): DiscoveredPage[] {
   if (!Array.isArray(model?.pages)) return []
   const baseUrl: string = model.app?.baseUrl ?? ''
@@ -79,7 +80,7 @@ export function mapModelPages(model: any): DiscoveredPage[] {
   }))
 }
 
-/** A crawl diagnostic from app-model.json (TD-UI-064). Structural mirror of the engine's
+/** A crawl diagnostic from the SQLite App Model (TD-UI-064). Structural mirror of the engine's
  *  CrawlDiagnostic (src/core/onboarding/types.ts) — redeclared, never imported (forge-ui →
  *  src is one-directional). `reason` is left open (string) so an unknown/future reason
  *  passes through and degrades honestly rather than being dropped. */
@@ -96,19 +97,13 @@ export interface CrawlDiagnostic {
   }
 }
 
-/** Pure map: parsed app-model.json → crawl diagnostics (TD-UI-064). Field selection only,
+/** Pure map: a SQLite-backed App Model → crawl diagnostics (TD-UI-064). Field selection only,
  *  NO business logic — reads .app.crawlMetadata.crawlDiagnostics and passes the engine's
  *  structured observation payload through VERBATIM (the UI renders it, never authors it).
  *  null crawlMetadata (unsupported-platform) or null crawlDiagnostics (clean crawl) → []. */
 export function mapModelDiagnostics(model: any): CrawlDiagnostic[] {
   const diags = model?.app?.crawlMetadata?.crawlDiagnostics
   return Array.isArray(diags) ? diags : []
-}
-
-/** After completion, read app-model.json ONCE — pages and diagnostics both map from it. */
-function readModel(appName: string): any {
-  const ws = workspaceResolver.resolve(appName)
-  return readJson(path.join(ws.root, 'models', appName, 'app-model.json'))
 }
 
 /** Parse the engine crawl mode from a '… | Mode: <mode> | …' log line. */
@@ -158,15 +153,24 @@ router.post('/', (req, res) => {
 })
 
 // GET /api/v1/crawl/:jobId/status — Mission Timeline (live) + pages (post-crawl).
-router.get('/:jobId/status', (req, res) => {
+router.get('/:jobId/status', async (req, res) => {
   const view = jobRunner.getStatus(req.params.jobId)
   if (!view) return res.status(404).json(fail('Job not found', 'NOT_FOUND'))
 
   const { raw, label } = parseStrategy(view.lines)
-  const model = view.complete ? readModel(view.appName) : null
+  let model: unknown | null = null
+  if (view.status === 'completed') {
+    try {
+      model = await executionContext.readAppModel(view.appName)
+    } catch (err) {
+      return res.status(500).json(
+        fail(`SQLite App Model read failed: ${String(err)}`, 'APP_MODEL_READ_FAILED'),
+      )
+    }
+  }
   const pages = mapModelPages(model)                    // [] when model is null
   const crawlDiagnostics = mapModelDiagnostics(model)   // [] when model is null
-  const pagesFound = view.complete ? pages.length : countDiscovered(view.lines)
+  const pagesFound = view.status === 'completed' ? pages.length : countDiscovered(view.lines)
 
   res.json(ok({
     jobId:       view.jobId,
@@ -176,7 +180,7 @@ router.get('/:jobId/status', (req, res) => {
     strategy:    label,            // user-friendly (ADR-012); null until Mode line appears
     strategyRaw: raw,              // engine term, for the hover tooltip
     pagesFound,                    // live count while running; pages.length when complete
-    pages,                         // [] until complete, then from app-model.json
+    pages,                         // [] until complete, then from the SQLite App Model
     crawlDiagnostics,              // [] until complete; [] also = clean crawl (TD-UI-064)
     error:       view.error ?? null,
     startedAt:   view.startedAt,

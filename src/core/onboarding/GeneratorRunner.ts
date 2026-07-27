@@ -17,13 +17,13 @@ import * as fs   from 'fs'
 import * as os   from 'os'
 import { createHash } from 'crypto'
 import { performance } from 'perf_hooks'
-import { loadAppModel, modelHasContent } from './ModelValidator'
+import { modelHasContent } from './ModelValidator'
 import { PomGenerator }     from './generators/PomGenerator'
 import { FixtureGenerator } from './generators/FixtureGenerator'
 import { SpecGenerator }    from './generators/SpecGenerator'
 import { toClassName }      from './generators/EmitHelper'
 import { AppModel, OnboardingConfig } from './types'
-import { ModelNotFoundError, EmptyModelError } from '../errors/OperatorFacingError'
+import { EmptyModelError } from '../errors/OperatorFacingError'
 import {
   GenerationManifest,
   GenerationFile,
@@ -35,8 +35,11 @@ import {
 import { pathToFileURL }   from 'url'
 import { Workspace } from '../workspace/WorkspaceManager'
 import { toOnboardingConfig } from '../workspace/ConfigAdapter'
+import { AppModelService } from '../storage/AppModelService'
 
 export class GeneratorRunner {
+
+  constructor(private readonly appModels = new AppModelService()) {}
 
   private findAppDir(appName: string): string {
     const appsDir = path.resolve('src/apps')
@@ -62,9 +65,8 @@ export class GeneratorRunner {
       return this.generateIntoWorkspace(appName, workspace)
     }
 
-    console.log(`[GeneratorRunner] Loading model for: ${appName}`)
-    const raw   = loadAppModel(appName)
-    const model = raw as unknown as AppModel
+    console.log(`[GeneratorRunner] Loading SQLite App Model for: ${appName}`)
+    const model = await this.appModels.requireActive(appName)
 
     // Load onboarding config so generators can use per-role loginUrl/successUrl
     let config: OnboardingConfig | undefined
@@ -135,19 +137,11 @@ export class GeneratorRunner {
    * No src/apps/ search on this path.
    */
   private async generateIntoWorkspace(appName: string, workspace: Workspace): Promise<GenerationManifest> {
-    console.log(`[GeneratorRunner] Loading model from workspace for: ${appName}`)
-    const raw = await workspace.loadModel(appName)
-    if (raw === null) {
-      // Operator-facing precondition (OperatorFacingError) — carries a stable
-      // code that survives the ExecutionContext boundary so forge-ui can surface
-      // the message to the Mission Timeline (TD-UI-003 Block 4b).
-      throw new ModelNotFoundError(appName)
-    }
-    const model = raw as AppModel
-
-    // TC-04 (2026-07-13): a model FILE can exist yet be empty — onboard's bootstrap
+    console.log(`[GeneratorRunner] Loading SQLite App Model for: ${appName}`)
+    const model = await this.appModels.requireActive(appName)
+    // TC-04 (2026-07-13): an authoritative SQLite snapshot can be empty — onboard's bootstrap
     // persists a contentless model (0 pages/flows/endpoints) with crawledAt set.
-    // The null check above cannot catch that; refuse explicitly rather than
+    // The repository existence check cannot catch that; refuse explicitly rather than
     // "generating" a lone fixtures file for an app FORGE never explored.
     if (!modelHasContent(model)) {
       throw new EmptyModelError(appName, {

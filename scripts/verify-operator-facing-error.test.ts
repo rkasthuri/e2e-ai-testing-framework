@@ -33,6 +33,8 @@ import { JobRunner } from '../forge-ui/server/jobs/JobRunner'
 import { executionContext } from '../forge-ui/server/context/ExecutionContext'
 import { ModelNotFoundError } from '../src/core/errors/OperatorFacingError'
 import { CredentialError } from '../forge-ui/server/context/credentials/CredentialTypes'
+import { initDb, closeDb } from '../src/core/storage/db'
+import { runMigrations } from '../src/core/storage/migrate'
 
 test('E1 ModelNotFoundError — operator-facing shape (code, brand, clean message)', () => {
   const e = new ModelNotFoundError('saucedemo')
@@ -52,7 +54,11 @@ test('E2 END-TO-END: generate with no model → ModelNotFoundError message reach
   const projectDir = path.join(os.homedir(), '.forge-projects', appName)
   const jr = new JobRunner()
   try {
-    fs.rmSync(projectDir, { recursive: true, force: true })   // ensure no stale model exists
+    fs.rmSync(projectDir, { recursive: true, force: true })
+    const dbPath = path.join(projectDir, '.forge', 'forge.db')
+    initDb(dbPath)
+    await runMigrations()
+    await closeDb()
     const jobId = 'e2-generate-nomodel'
     await jr.submit({ jobId, type: 'generate', appName, options: {} })
 
@@ -68,6 +74,7 @@ test('E2 END-TO-END: generate with no model → ModelNotFoundError message reach
       `operator message missing from Timeline lines[] — lines: ${JSON.stringify(status!.lines)}`,
     )
   } finally {
+    await closeDb()
     fs.rmSync(projectDir, { recursive: true, force: true })
   }
 })

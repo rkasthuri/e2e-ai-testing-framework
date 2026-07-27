@@ -27,9 +27,8 @@ function crawler(): any {
     app: { name: 'test-app', baseUrl: 'https://test.example.com', appType: 'spa' },
   } as any)
 }
-// buildModel reads this.loadExistingModel() from disk — stub it so tests never touch disk.
-function withExisting(c: any, existing: any) { c.loadExistingModel = () => existing }
-function buildModel(c: any) { return c.buildModel([], [], [], Date.now(), []) }
+// TD-181: previous runtime truth is injected from SQLite; tests set that seam directly.
+function withExisting(c: any, existing: any) { c.previousModel = existing }function buildModel(c: any) { return c.buildModel([], [], [], Date.now(), []) }
 
 // ── LIE-D: crawled_by provenance ───────────────────────────────────────────────
 

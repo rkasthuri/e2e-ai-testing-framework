@@ -28,7 +28,9 @@
  * Enrichment is SYNCHRONOUS (Nova ruling): one crawl produces one immutable,
  * fully-enriched snapshot; nothing mutates the model after persistence.
  */
-import { AppModel, AiBudgetTracker } from '../onboarding/types'
+import { AppModel, AppModelCandidate, AiBudgetTracker } from '../onboarding/types'
+
+export type EnrichableAppModel = AppModel | AppModelCandidate
 
 export interface EnrichmentContext {
   runId: string;              // CrawlRunner's run id (ties snapshot → run — Nova Q3)
@@ -44,7 +46,7 @@ export interface EnrichmentStage {
    * confidence:'unknown' (honesty floor) rather than crashing. A thrown error
    * is treated as a whole-stage failure and isolated by the pipeline below.
    */
-  run(model: AppModel, ctx: EnrichmentContext): Promise<void>;
+  run(model: EnrichableAppModel, ctx: EnrichmentContext): Promise<void>;
 }
 
 export class ModelEnrichmentPipeline {
@@ -55,7 +57,7 @@ export class ModelEnrichmentPipeline {
     return this   // fluent
   }
 
-  async run(model: AppModel, ctx: EnrichmentContext): Promise<void> {
+  async run(model: EnrichableAppModel, ctx: EnrichmentContext): Promise<void> {
     for (const stage of this.stages) {
       try {
         await stage.run(model, ctx)

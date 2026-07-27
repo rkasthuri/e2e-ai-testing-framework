@@ -42,6 +42,7 @@ import { GeneratorRunner } from '../src/core/onboarding/GeneratorRunner'
 import { createWorkspace, Workspace } from '../src/core/workspace/WorkspaceManager'
 import { AppModel, AiBudgetTracker, PageDefinition, OnboardingConfig } from '../src/core/onboarding/types'
 import { closeDb } from '../src/core/storage/db'
+import type { AppModelService } from '../src/core/storage/AppModelService'
 const previousDbPath = process.env.DB_PATH
 process.env.DB_PATH = ':memory:'
 after(async () => {
@@ -188,7 +189,7 @@ test('T9 saveModel() writes app-model.json with modules + classificationRunId po
   try {
     const m = model([page('p-login', '/login')])
     await new ModelEnrichmentPipeline().addStage(new ModuleClassifierStage()).run(m, ctx(budget(0)))
-    await createWorkspace(root).saveModel('testapp', m)
+    await createWorkspace(root).saveModelProjection('testapp', m)
     const onDisk = JSON.parse(fs.readFileSync(path.join(root, 'models', 'testapp', 'app-model.json'), 'utf-8'))
     assert.equal(onDisk.classificationRunId, 'run-test-1')
     assert.equal(onDisk.pages[0].module.name, 'Login')
@@ -196,35 +197,33 @@ test('T9 saveModel() writes app-model.json with modules + classificationRunId po
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('T10 saveModel()/loadModel() round-trips the AppModel cleanly', async () => {
+test('T10 compatibility projection is byte-faithful but exposes no runtime reader', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'td112-'))
   try {
     const ws = createWorkspace(root)
     const m = model([page('p1', '/cart')])
     m.classificationRunId = 'run-rt'
-    await ws.saveModel('testapp', m)
-    assert.deepEqual(await ws.loadModel('testapp'), JSON.parse(JSON.stringify(m)))
+    await ws.saveModelProjection('testapp', m)
+    const raw = JSON.parse(fs.readFileSync(path.join(root, 'models', 'testapp', 'app-model.json'), 'utf-8'))
+    assert.deepEqual(raw, JSON.parse(JSON.stringify(m)))
+    assert.equal((ws as any).loadModel, undefined)
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
 // ── T11: crawl() no longer saves internally (behavioral, browser-free) ────────
 
-test('T11 crawl() returns the Placeholder Model WITHOUT calling saveModel (stub path)', async () => {
+test('T11 crawl() returns an unversioned candidate and has no persistence method', async () => {
   const config: OnboardingConfig = {
     app: { name: 'stubapp', baseUrl: 'https://example.com', appType: 'web-ui' },
-    appType: 'iot',   // stub type → Placeholder Model path, no browser needed
+    appType: 'iot',
     roles: [],
   }
   const crawler = new Crawler(config)
-  let saveCalls = 0
-  ;(crawler as any).saveModel = async () => { saveCalls++ }   // spy — crawl() must never hit it
-  const m = await crawler.crawl()
-  assert.equal(saveCalls, 0, 'crawl() called saveModel internally — TD-122 regression')
-  assert.ok(m && m.app.name === 'stubapp', 'Placeholder Model returned')
+  const candidate = await crawler.crawl()
+  assert.equal((crawler as any).saveModel, undefined)
+  assert.equal('modelVersion' in candidate.app, false)
+  assert.equal(candidate.app.name, 'stubapp')
 })
-
-// ── T12: GeneratorRunner read-only consumer ───────────────────────────────────
-
 test('T12 missing page.module → "general" fallback + warning, and NO re-classification', async () => {
   const warns: string[] = []
   const origWarn = console.warn
@@ -242,12 +241,13 @@ test('T12 missing page.module → "general" fallback + warning, and NO re-classi
       loadMemory: async () => null, saveMemory: async () => {},
       writeTests: async (module: string, filename: string) => { written.push([module, filename]) },
       writeTestsFile: async (filename: string) => { written.push(['<root>', filename]) },
-      loadModel: async () => m,
-      saveModel: async () => {},
+      saveModelProjection: async () => {},
+
       saveReport: async () => {},
     } as unknown as Workspace
 
-    await new GeneratorRunner().generate('testapp', fake)
+    const service = { requireActive: async () => m } as unknown as AppModelService
+    await new GeneratorRunner(service).generate('testapp', fake)
     assert.ok(
       warns.some(w => w.includes('has no module assignment')),
       `missing-module warning not emitted — warns: ${JSON.stringify(warns)}`,

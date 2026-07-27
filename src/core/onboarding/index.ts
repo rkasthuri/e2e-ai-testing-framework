@@ -12,7 +12,7 @@
  * prohibited.
  */
 
-export { validateAppModel, loadAppModel } from './ModelValidator'
+export { validateAppModelObject }         from './ModelValidator'
 export type { ValidationResult }          from './ModelValidator'
 export { Crawler }                        from './Crawler'
 export { ApiSpecCrawler }                 from './ApiSpecCrawler'

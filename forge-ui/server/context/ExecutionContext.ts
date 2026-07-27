@@ -73,6 +73,7 @@ const ENGINE = {
   generator:    '../../../src/core/onboarding/GeneratorRunner',
   verifier:     '../../../src/core/onboarding/VerificationRunner',
   db:           '../../../src/core/storage/db',
+  appModels:    '../../../src/core/storage/AppModelService',
 }
 
 /** ADR-014 — close the open project DB only when switching to a different one. */
@@ -81,6 +82,8 @@ export function shouldCloseDb(lastDbPath: string | null, targetDbPath: string): 
 }
 
 export class ExecutionContext {
+  constructor(private readonly workspaces = workspaceResolver) {}
+
   // ADR-014 — one active execution engine per instance: every submit runs under
   // this serial queue, and the project DB is closed-on-switch between apps.
   private readonly queue = new SerialQueue()
@@ -92,6 +95,15 @@ export class ExecutionContext {
     return this.queue.run(() => this.runGuarded(job))
   }
 
+  /** TD-181: UI App Model reads cross the engine boundary through SQLite. */
+  readAppModel(appName: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.appModels)
+      return new mod.AppModelService().requireActive(appName)
+    })
+  }
+
   private async runGuarded(job: Job): Promise<JobResult> {
     const jobId = `job-${Date.now()}`
     // ADR-013 pre-flight (crawl only): resolve + inject credentials BEFORE the
@@ -100,7 +112,7 @@ export class ExecutionContext {
     if (job.type === 'crawl') this.prepareCredentials(job)
     try {
       // ADR-014 — release the previous app's DB before the engine opens this one.
-      if (job.type === 'crawl') await this.switchDatabaseIfNeeded(job.appName)
+      await this.switchDatabaseIfNeeded(job.appName)
       const result = await this.runInProcess(job)
       return { jobId, status: 'completed', result }
     } catch (err) {
@@ -119,11 +131,14 @@ export class ExecutionContext {
    * different app's DB (TD-UI-020). closeDb() is engine-exported; no src/ edit.
    */
   private async switchDatabaseIfNeeded(appName: string): Promise<void> {
-    const targetDbPath = path.join(workspaceResolver.resolve(appName).root, '.forge', 'forge.db')
+    const targetDbPath = path.join(this.workspaces.resolve(appName).root, '.forge', 'forge.db')
+    const dbMod: any = await import(ENGINE.db)
     if (shouldCloseDb(this.lastDbPath, targetDbPath)) {
-      const dbMod: any = await import(ENGINE.db)
       await dbMod.closeDb()
     }
+    // Scope every DB-touching runtime operation. CrawlRunner remains the owner
+    // that applies lazy migrations; reads/generate/verify do not apply them.
+    dbMod.initDb(targetDbPath)
     this.lastDbPath = targetDbPath
   }
 
@@ -168,7 +183,7 @@ export class ExecutionContext {
   /** Read the engine-owned .forge/config.json (read-only) — never writes it. */
   private readEngineConfig(appName: string): EngineConfigView | null {
     try {
-      const ws = workspaceResolver.resolve(appName)
+      const ws = this.workspaces.resolve(appName)
       return JSON.parse(fs.readFileSync(path.join(ws.forgeDir, 'config.json'), 'utf-8'))
     } catch {
       return null
@@ -185,14 +200,20 @@ export class ExecutionContext {
         const mod: any = await import(ENGINE.generator)
         // GeneratorRunner.generate(appName, workspace) → GenerationManifest on the
         // workspace path (TD-UI-003). provision() creates <root>/.forge/ and returns
-        // a REAL engine Workspace (loadModel / writeTests / saveGenerationManifest) —
+        // a REAL engine Workspace (projection / test / manifest writers) —
         // NOT resolve(), which is a paths-only object of the wrong shape. The returned
         // manifest bubbles up as JobResult.result via runGuarded → JobRunner → API.
-        return new mod.GeneratorRunner().generate(job.appName, workspaceResolver.provision(job.appName))
+        return new mod.GeneratorRunner().generate(job.appName, this.workspaces.provision(job.appName))
       }
       case 'verify': {
         const mod: any = await import(ENGINE.verifier)
-        return new mod.VerificationRunner(job.appName).run()
+        return new mod.VerificationRunner(
+          job.appName,
+          undefined,
+          this.workspaces.provision(job.appName),
+          undefined,
+          job.options.operationId,
+        ).run()
       }
       case 'run':
         // Test execution runs via the Playwright CLI, not a runner class.

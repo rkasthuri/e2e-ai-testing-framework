@@ -13,17 +13,14 @@
  */
 
 import { chromium, Browser }   from '@playwright/test'
-import * as fs                 from 'fs'
 import * as path               from 'path'
 import * as crypto             from 'crypto'
 import {
   OnboardingConfig, RoleConfig, RoleCrawlResult,
   PageDiscovery, StateGraph, StateEdge, PageNode,
-  AiBudgetTracker, AppModel, RoleDefinition, PageDefinition, FlowStep, CrawlDiagnostic
+  AiBudgetTracker, AppModel, AppModelCandidate, RoleDefinition, PageDefinition, FlowStep, CrawlDiagnostic
 } from './types'
 import { FlowDetector }        from './FlowDetector'
-import { validateAppModel }    from './ModelValidator'
-import { AppModelRepository }  from '../storage/repositories/AppModelRepository'
 import {
   shouldObserveLoginSurface, observeLoginSurface, buildAllNotObservedDiagnostic,
 } from './LoginSurfaceObservation'
@@ -72,20 +69,20 @@ export class Crawler {
   // instrumented, so the honest value is null ("not measured"), never 0. The real
   // count + a 'crawled-partial' coverage state is TD-UI-054 (A2). Emitting 0 here
   // would assert "measured, none skipped" — a claim FORGE cannot make today.
-  /** TD-121 path-scoping (Option A): where the App Model persists. Default = cwd behavior (fixtures byte-identical). */
-  private modelsDir: string
   /** TD-121: where auth storage state persists; threaded to AuthManager + recorded in the model. Default = cwd `.auth`. */
   private authStateDir: string
   /** TD-131: headless by default ("FORGE is invisible"); --headed opts in for anti-bot sites / visual debugging. */
   private headed: boolean
+  /** TD-181: previous runtime truth is injected from SQLite, never loaded from JSON. */
+  private previousModel: AppModel | null
 
   constructor(
     private config: OnboardingConfig,
-    opts: { modelsDir?: string; authStateDir?: string; headed?: boolean } = {},
+    opts: { authStateDir?: string; headed?: boolean; previousModel?: AppModel | null } = {},
   ) {
-    this.modelsDir    = opts.modelsDir    ?? path.resolve('models')
     this.authStateDir = opts.authStateDir ?? path.resolve('.auth')
     this.headed       = opts.headed       ?? false
+    this.previousModel = opts.previousModel ?? null
     // TD-132: total Pool A budget → naming + reserved flow. runId/appName are
     // bound at crawl() start (FIX TD-run_id + TD-028), same as before.
     const totalAi = config.budgets?.aiCalls ?? DEFAULT_AI_BUDGET
@@ -94,21 +91,18 @@ export class Crawler {
     this.flowTracker   = makeBudgetTracker(flowBudget(totalAi))
   }
 
-  async crawl(): Promise<AppModel> {
+  async crawl(): Promise<AppModelCandidate> {
     // ── Strategy branch — delegate non-UI types before any browser launch ──────
     if (this.config.appType === 'rest-api' || this.config.appType === 'graphql-api') {
-      // TD-121: modelsDir threads through (ApiSpecCrawler is constructed HERE, not by CrawlRunner).
-      const apiCrawler = new ApiSpecCrawler(this.config, { modelsDir: this.modelsDir })
+      const apiCrawler = new ApiSpecCrawler(this.config, { previousModel: this.previousModel })
       return await apiCrawler.crawl()
     }
 
     const stubTypes = ['mobile-android', 'mobile-ios', 'iot', 'cloud', 'data']
     if (this.config.appType && stubTypes.includes(this.config.appType)) {
       console.log(`[Crawler] App type '${this.config.appType}' not yet supported — returning Placeholder Model`)
-      // Placeholder Model — a valid AppModel with minimal knowledge (not "partial").
-      // Nova ruling (TD-122): stub types return a valid model; the CALLER owns
-      // persistence (CrawlRunner via workspace.saveModel(); fixture cli calls
-      // crawler.saveModel() explicitly).
+      // Placeholder candidate — valid evidence with no pre-allocated version.
+      // The caller commits it through the SQLite authority service.
       return this.buildStubModel()
     }
 
@@ -339,9 +333,8 @@ export class Crawler {
     )
     console.log(`════════════════════════════════════════════════════════`)
 
-    // TD-122: no internal save — the model is RETURNED and the caller persists
-    // (CrawlRunner: workspace.saveModel → validate → DB upsert; fixture cli:
-    // crawler.saveModel(model) explicitly).
+    // TD-181: no internal persistence Ã¢â‚¬â€ the candidate is returned to the
+    // caller, which commits through AppModelService before JSON projection.
     return model
   }
 
@@ -600,12 +593,8 @@ export class Crawler {
     flows:     any[],
     startTime: number,
     crawlDiagnostics: CrawlDiagnostic[] = [],
-  ): AppModel {
-    const existing = this.loadExistingModel()
-    const version  = existing
-      ? this.bumpModelVersion(existing.app.modelVersion)
-      : '1.0.0'
-
+  ): AppModelCandidate {
+    const existing = this.previousModel
     return {
       schemaVersion: '2.0',
       generatedAt:   new Date().toISOString(),
@@ -615,7 +604,6 @@ export class Crawler {
         displayName:      this.toDisplayName(this.config.app.name),
         baseUrl:          this.config.app.baseUrl,
         appType:          this.config.app.appType,
-        modelVersion:     version,
         spaConfig:        null,
         // TD-UI-031: evidenceState derived AT THE SOURCE from observed content.
         // A crawl ran either way (crawlMetadata non-null); pages.length decides
@@ -665,7 +653,7 @@ export class Crawler {
     }
   }
 
-  private buildStubModel(): AppModel {
+  private buildStubModel(): AppModelCandidate {
     const appType = this.config.appType || this.config.app.appType
     return {
       schemaVersion: '2.0',
@@ -679,7 +667,6 @@ export class Crawler {
         displayName:      this.config.app.name,
         baseUrl:          this.config.app.baseUrl,
         appType,
-        modelVersion:     '1.0.0',
         spaConfig:        null,
         // TD-UI-031: FORGE cannot crawl this platform — no crawl executed, so
         // crawlMetadata is null (ADR-015: reaching for .crawledAt is a type error,
@@ -693,55 +680,6 @@ export class Crawler {
       endpoints: null,
       api:       null,
       diff:      null,
-    }
-  }
-
-  /**
-   * TD-122: used by FIXTURE flows (cli.ts) only — crawl() no longer saves
-   * internally. Triple effect kept intact for those callers: file write +
-   * schema validation + DB upsert. The standalone tool instead runs
-   * workspace.saveModel() → validateAppModel() → AppModelRepository.upsert()
-   * in sequence via CrawlRunner (single persistence owner).
-   */
-  async saveModel(model: AppModel): Promise<void> {
-    // API types delegate to ApiSpecCrawler's variant — its DB row differs
-    // (intake_mode 'spec-driven', endpoint counts), and the fixture cli only
-    // holds this Crawler instance. Keeps restful-booker byte-identical.
-    if (this.config.appType === 'rest-api' || this.config.appType === 'graphql-api') {
-      return new ApiSpecCrawler(this.config, { modelsDir: this.modelsDir }).saveModel(model)
-    }
-    const dir       = path.join(this.modelsDir, model.app.name)   // TD-121: was cwd-relative path.resolve
-    const modelPath = path.join(dir, 'app-model.json')
-    fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(modelPath, JSON.stringify(model, null, 2))
-    console.log(`[Crawler] Model written to ${modelPath}`)
-
-    const { valid, errors } = validateAppModel(modelPath)
-    if (!valid) {
-      console.error('[Crawler] Model validation failed:')
-      errors.forEach(e => console.error(' ', e))
-    } else {
-      console.log('[Crawler] Model validated successfully')
-    }
-
-    try {
-      const repo = new AppModelRepository()
-      await repo.upsert(model)
-      console.log('[Crawler] Model persisted to DB')
-    } catch (e) {
-      console.warn('[Crawler] DB persist failed (non-fatal):', e)
-    }
-  }
-
-  private loadExistingModel(): AppModel | null {
-    const modelPath = path.join(   // TD-121: was cwd-relative path.resolve
-      this.modelsDir, this.config.app.name, 'app-model.json',
-    )
-    if (!fs.existsSync(modelPath)) return null
-    try {
-      return JSON.parse(fs.readFileSync(modelPath, 'utf-8'))
-    } catch {
-      return null
     }
   }
 
@@ -773,12 +711,6 @@ export class Crawler {
     return id
       .replace(/[-_]/g, ' ')
       .replace(/\b\w/g, c => c.toUpperCase())
-  }
-
-  private bumpModelVersion(version: string): string {
-    const parts = version.split('.').map(Number)
-    parts[2]    = (parts[2] || 0) + 1
-    return parts.join('.')
   }
 
   private hashConfig(): string {

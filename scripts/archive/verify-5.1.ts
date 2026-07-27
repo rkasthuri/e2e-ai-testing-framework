@@ -12,7 +12,8 @@
  * prohibited.
  */
 
-import { validateAppModel, loadAppModel } from '../src/core/onboarding/ModelValidator'
+
+import { loadAppModelFixture } from '../helpers/load-app-model-fixture'
 import * as path from 'path'
 
 async function verify() {
@@ -28,17 +29,9 @@ async function verify() {
   console.log('✓ Schema file exists:', schemaPath)
   console.log('✓ Model file exists: ', modelPath)
 
-  // Validate model against schema
-  const result = validateAppModel(modelPath)
-  if (!result.valid) {
-    console.error('✗ Validation failed:')
-    result.errors.forEach(e => console.error('  ', e))
-    process.exit(1)
-  }
-  console.log('✓ SauceDemo model validates against schema')
-
-  // Load and inspect model
-  const model = loadAppModel('saucedemo') as any
+  // Load, validate, and inspect the compatibility fixture.
+  const model = loadAppModelFixture('saucedemo') as any
+  console.log('[OK] SauceDemo model validates against schema')
   console.log('✓ Model loaded successfully')
   console.log('  App name:       ', model.app.name)
   console.log('  App type:       ', model.app.appType)

@@ -23,7 +23,7 @@ export function indent(n: number, code: string): string {
 
 export function generatedHeader(modelVersion: string, hash: string): string {
   return lines(
-    `// @generated from app-model.json v${modelVersion} ${hash}`,
+    `// @generated from SQLite App Model v${modelVersion} ${hash}`,
     `// DO NOT EDIT — regenerate with: npm run onboard:generate`,
     ``
   )

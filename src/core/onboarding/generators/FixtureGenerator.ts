@@ -52,7 +52,7 @@ export class FixtureGenerator {
     const lines_buf: string[] = []
 
     lines_buf.push(
-      `// @generated from app-model.json v${ver} ${hash}`,
+      `// @generated from SQLite App Model v${ver} ${hash}`,
       `// DO NOT EDIT — regenerate with: npm run onboard:generate`,
       ``,
       `import * as dotenv from 'dotenv'`,

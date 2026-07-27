@@ -23,9 +23,6 @@ import { AppModel } from './types'
  * it must resolve from this file's location (src/core/onboarding/), never from
  * process.cwd(). The old cwd-relative resolve crashed every standalone crawl
  * run outside the repo (ENOENT on <workspace>/models/schema/...).
- * NOTE: loadAppModel()'s model path below is deliberately NOT repo-anchored —
- * the model is a DATA artifact whose home (repo vs workspace) is the open
- * TD-114-family placement question; the schema is not.
  */
 const REPO_ROOT  = path.resolve(__dirname, '../../..')   // onboarding → core → src → repoRoot
 const schemaPath = path.join(REPO_ROOT, 'models', 'schema', 'app-model.schema.json')
@@ -50,9 +47,7 @@ export interface ValidationResult {
   errors: string[]
 }
 
-/** Validate an in-memory model object against the schema. Shared by the file
- *  path below and by the DB-blob path (TD-UI-031 `forge migrate`), so both
- *  validate through exactly one schema. */
+/** Validate an in-memory model object against the canonical App Model schema. */
 export function validateAppModelObject(model: unknown): ValidationResult {
   const validate = getValidator()
   const valid = validate(model) as boolean
@@ -64,9 +59,6 @@ export function validateAppModelObject(model: unknown): ValidationResult {
   return { valid, errors }
 }
 
-export function validateAppModel(modelPath: string): ValidationResult {
-  return validateAppModelObject(JSON.parse(fs.readFileSync(modelPath, 'utf-8')))
-}
 
 /**
  * True when the model has generatable/verifiable CONTENT — at least one page,
@@ -83,19 +75,4 @@ export function modelHasContent(model: AppModel): boolean {
   return (model.pages?.length ?? 0) > 0
     || (model.flows?.length ?? 0) > 0
     || (model.endpoints?.length ?? 0) > 0
-}
-
-export function loadAppModel(appName: string): Record<string, unknown> {
-  const modelPath = path.resolve(`models/${appName}/app-model.json`)
-  if (!fs.existsSync(modelPath)) {
-    throw new Error(`App model not found: ${modelPath}`)
-  }
-  const result = validateAppModel(modelPath)
-  if (!result.valid) {
-    throw new Error(
-      `App model validation failed for ${appName}:\n` +
-      result.errors.join('\n')
-    )
-  }
-  return JSON.parse(fs.readFileSync(modelPath, 'utf-8'))
 }

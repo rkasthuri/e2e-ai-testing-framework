@@ -19,9 +19,9 @@
  * Bootstrap, or AgentRunner directly. It owns the zero-friction decision
  * ("no config? bootstrap first, invisibly") and ALL workspace persistence.
  *
- * Ownership rules (Nova):
- *   - CrawlRunner is the ONLY component that calls workspace.*
- *   - Crawler/Bootstrap/AgentRunner produce data; CrawlRunner persists it.
+ * Ownership rules (Nova / TD-181):
+ *   - Runtime App Model writes cross AppModelService; SQLite commits first.
+ *   - Crawler/Bootstrap/AgentRunner produce data; orchestrators persist it.
  *   - No process.exit() anywhere on this path — errors propagate to the caller
  *     (the CLI's catch handler exits; a server would return a 500).
  */
@@ -34,10 +34,10 @@ import { AgentRunner } from '../agent/AgentRunner'
 import { Missions } from '../agent/Mission'
 import { GoalDefinition } from '../agent/AgentPlanner'
 import { AgentMode } from '../agent/types'
-import { AiBudgetTracker, AppModel } from '../onboarding/types'
+import { AiBudgetTracker, AppModelCandidate, OnboardingConfig } from '../onboarding/types'
 import { synthesizeAndPersistGoals } from '../onboarding/goalResolution'
-import { validateAppModel } from '../onboarding/ModelValidator'
-import { AppModelRepository } from '../storage/repositories/AppModelRepository'
+import { AppModelCommitOutcome } from '../storage/repositories/AppModelRepository'
+import { AppModelService, requireProjectedCommit } from '../storage/AppModelService'
 import { ModelEnrichmentPipeline } from '../pipeline/ModelEnrichmentPipeline'
 import { ModuleClassifierStage } from '../pipeline/stages/ModuleClassifierStage'
 import { AiResidueStage } from '../pipeline/stages/AiResidueStage'
@@ -64,6 +64,8 @@ export interface CrawlRunnerOptions {
   aiBudget?: number;
   /** TD-131 — run the crawl browser headed (default headless). */
   headed?: boolean;
+  /** Durable identity supplied by the operation orchestrator and reused on retry. */
+  operationId?: string;
 }
 
 export interface CrawlResult {
@@ -72,10 +74,41 @@ export interface CrawlResult {
   pagesDiscovered: number;
   testsGenerated: number;   // always 0 today — generation is a separate stage (see run())
   dryRun: boolean;
+  operationId: string;
+  appModelCommit?: {
+    outcome: AppModelCommitOutcome;
+    rowId: number;
+    version: string;
+  };
+}
+
+export interface CrawlProducer {
+  crawl(): Promise<AppModelCandidate>;
+}
+
+export interface CrawlRunnerDependencies {
+  appModels?: AppModelService;
+  createCrawler?: (
+    config: OnboardingConfig,
+    options: ConstructorParameters<typeof Crawler>[1],
+  ) => CrawlProducer;
 }
 
 export class CrawlRunner {
+  private readonly appModels: AppModelService
+  private readonly createCrawler: NonNullable<CrawlRunnerDependencies['createCrawler']>
+
+  constructor(dependencies: CrawlRunnerDependencies = {}) {
+    this.appModels = dependencies.appModels ?? new AppModelService()
+    this.createCrawler = dependencies.createCrawler
+      ?? ((config, options) => new Crawler(config, options))
+  }
+
   async run(options: CrawlRunnerOptions): Promise<CrawlResult> {
+    // The orchestrator owns one durable operation identity for this crawl.
+    // Callers retrying the same operation must pass the same value.
+    const operationId = options.operationId ?? generateRunId()
+
     // 1. Resolve the workspace (auto-init happens inside on first write).
     const workspace = options.workspace ?? createWorkspace()
 
@@ -105,10 +138,44 @@ export class CrawlRunner {
         console.log('[CrawlRunner] --dry-run: bootstrap previewed, nothing written, no crawl.')
         return {
           appName: options.appName ?? '(dry-run)', workspaceRoot: workspace.root,
-          pagesDiscovered: 0, testsGenerated: 0, dryRun: true,
+          pagesDiscovered: 0, testsGenerated: 0, dryRun: true, operationId,
         }
       }
       config = bootstrapped
+    }
+
+    // A complete-operation retry must resolve its durable SQLite identity
+    // before creating the crawler or rebuilding timestamp-bearing candidates.
+    // A hit performs compatibility projection only and returns the exact row.
+    if (!options.agent) {
+      const replay = await this.appModels.replayCommittedOperation(
+        config.appName,
+        operationId,
+        snapshot => workspace.saveModelProjection(config.appName, snapshot),
+      )
+      if (replay) {
+        const commit = requireProjectedCommit(replay)
+        const committed = commit.committed.snapshot
+        const pagesDiscovered = committed.pages?.length ?? committed.endpoints?.length ?? 0
+        console.log(
+          `[CrawlRunner] Operation '${operationId}' ${commit.outcome}; skipped crawl ` +
+          `and projected SQLite row ${commit.committed.rowId} ` +
+          `v${committed.app.modelVersion}.`,
+        )
+        return {
+          appName: config.appName,
+          workspaceRoot: workspace.root,
+          pagesDiscovered,
+          testsGenerated: 0,
+          dryRun: false,
+          operationId,
+          appModelCommit: {
+            outcome: commit.outcome,
+            rowId: commit.committed.rowId,
+            version: committed.app.modelVersion,
+          },
+        }
+      }
     }
 
     // 3b. TD-114: project.json — the canonical Project handshake. createdAt is
@@ -150,7 +217,7 @@ export class CrawlRunner {
       `[CrawlRunner] AI budget: ${effectiveBudget} calls ` +
       `(maxPages: ${maxPages}, user limit: ${userBudget})`
     )
-    const runId = generateRunId()
+    const runId = operationId
 
     // 5. Dispatch: agent path or the mechanical crawl.
     if (options.agent) {
@@ -172,7 +239,7 @@ export class CrawlRunner {
       console.log(`[CrawlRunner] Agent session ${session.id} complete — report: reports/${runId}/agent-session.json`)
       return {
         appName: config.appName, workspaceRoot: workspace.root,
-        pagesDiscovered: 0, testsGenerated: 0, dryRun: false,
+        pagesDiscovered: 0, testsGenerated: 0, dryRun: false, operationId,
       }
     }
 
@@ -180,10 +247,11 @@ export class CrawlRunner {
     // output (workspace root), session tokens are secrets (.forge/auth/).
     // Both runtime-resolved from the workspace; Crawler still never sees
     // the Workspace itself (path-scoping, Option A).
-    const crawler = new Crawler(onboardingConfig, {
-      modelsDir:    path.join(workspace.root, 'models'),
+    const previousModel = await this.appModels.findActive(config.appName)
+    const crawler = this.createCrawler(onboardingConfig, {
       authStateDir: path.join(workspace.forgeDir, 'auth'),
       headed:       options.headed ?? false,   // TD-131: headless unless --headed
+      previousModel,
     })
     const model   = await crawler.crawl()
 
@@ -212,35 +280,25 @@ export class CrawlRunner {
       )
     }
 
-    // 7. TD-122: persist — the pre-TD-122 Crawler.saveModel triple effect,
-    //    relocated to the single persistence owner (ruling B):
-    //    file write → schema validation → DB upsert.
-    await workspace.saveModel(config.appName, model)
-    const modelPath = path.join(workspace.root, 'models', config.appName, 'app-model.json')
-    const { valid, errors } = validateAppModel(modelPath)
-    if (!valid) {
-      console.error('[CrawlRunner] Model validation failed:')
-      errors.forEach(e => console.error(' ', e))
-    } else {
-      console.log('[CrawlRunner] Model validated successfully')
-    }
+    // 7. TD-181: SQLite commits the candidate and allocates its version in one
+    // transaction. Only the returned committed snapshot may be projected to
+    // compatibility JSON. Any SQLite or projection failure aborts the crawl.
+    const commit = requireProjectedCommit(await this.appModels.commitAndProject(
+      model,
+      operationId,
+      snapshot => workspace.saveModelProjection(config.appName, snapshot),
+    ))
+    const committed = commit.committed.snapshot
+    console.log(
+      `[CrawlRunner] App Model ${commit.outcome} in SQLite as row ` +
+      `${commit.committed.rowId} v${committed.app.modelVersion}; compatibility ` +
+      `JSON projected from the re-read committed snapshot.`,
+    )
+    // 7b. TD-013 Phase 3 post-crawl goal auto-discovery. The exact snapshot
+    // returned by SQLite is the input; compatibility JSON is never read back.
+    // This remains best-effort because the App Model is already committed.
     try {
-      await new AppModelRepository().upsert(model)
-      console.log('[CrawlRunner] Model persisted to DB')
-    } catch (e) {
-      console.warn('[CrawlRunner] DB persist failed (non-fatal):', e)
-    }
-
-    // 7b. TD-013 Phase 3 (Block 3) — post-crawl goal auto-discovery. SUPPLEMENT with
-    //     precedence (hand-authored config OVERRIDES). Reads the COMMITTED model back via
-    //     workspace.loadModel (the audit-honest round-trip — NOT the in-memory object), then
-    //     persists a synthesized-goals envelope for a LATER run. ADDITIVE: writes an
-    //     artifact only; it does NOT alter THIS run's execution (consumer is a re-run).
-    try {
-      const committed = await workspace.loadModel(config.appName) as unknown as AppModel | null
-      if (committed) {
-        await synthesizeAndPersistGoals(config.appName, committed, workspace)
-      }
+      await synthesizeAndPersistGoals(config.appName, committed, workspace)
     } catch (e) {
       // Explicit, never silent (Rule 2): auto-discovery is best-effort and must never
       // fail the crawl — the model is already committed. Log and continue.
@@ -248,12 +306,12 @@ export class CrawlRunner {
     }
 
     // Run summary — module assignments now read straight off the persisted model.
-    const pagesDiscovered = model.pages?.length ?? model.endpoints?.length ?? 0
+    const pagesDiscovered = committed.pages?.length ?? committed.endpoints?.length ?? 0
     await workspace.saveReport(runId, 'crawl-summary', {
       runId, appName: config.appName, url: config.url,
       crawlMode: onboardingConfig.crawlMode,
       pagesDiscovered,
-      classificationRunId: model.classificationRunId,
+      classificationRunId: committed.classificationRunId,
       moduleAssignments: pages.map(p => ({ pageId: p.id, urlPattern: p.urlPattern, module: p.module })),
       unassignedPages: unassigned,
     })
@@ -265,6 +323,12 @@ export class CrawlRunner {
       pagesDiscovered,
       testsGenerated: 0,   // generation (GeneratorRunner) is a separate pipeline stage, not run here
       dryRun: false,
+      operationId,
+      appModelCommit: {
+        outcome: commit.outcome,
+        rowId: commit.committed.rowId,
+        version: committed.app.modelVersion,
+      },
     }
   }
 

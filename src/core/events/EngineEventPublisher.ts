@@ -22,7 +22,7 @@ import * as crypto from 'crypto'
  * into the engine — no CrawlRunner/Crawler/strategy/PageVisitor call site emits
  * through it yet. Phase 1 surfaces live progress via the console-hijack +
  * LogBuffer "Mission Timeline" (TD-UI-011), and structured pages come from
- * app-model.json after completion.
+ * the SQLite App Model after completion.
  *
  * PHASE 2: threaded through the engine (Crawler + 3 strategies + PageVisitor) so
  * per-page discovery streams as typed events instead of parsed log lines. The

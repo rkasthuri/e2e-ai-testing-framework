@@ -86,16 +86,11 @@ export interface Workspace {
    */
   writeTestsFile(filename: string, content: string): Promise<void>;
 
-  /** Read the app model from the workspace (models/<app>/app-model.json). */
-  loadModel(appName: string): Promise<unknown | null>;
-
   /**
-   * TD-122: the single persistence point for the App Model on the standalone
-   * path — FILE WRITE ONLY. Schema validation + DB upsert happen in CrawlRunner
-   * immediately after this call (the pre-TD-122 Crawler.saveModel triple effect,
-   * relocated to the orchestration layer).
+   * TD-181 compatibility projection. The caller must supply the exact snapshot
+   * returned by the SQLite commit. Runtime code never reads this file.
    */
-  saveModel(appName: string, model: AppModel): Promise<void>;
+  saveModelProjection(appName: string, model: AppModel): Promise<void>;
 
   /**
    * models/<app>/synthesized-goals.json — the auto-discovered goals envelope
@@ -267,24 +262,8 @@ export class WorkspaceManager implements Workspace {
     fs.writeFileSync(path.join(this.testsDir, this.safeSegment(filename, 'filename')), content, 'utf-8')
   }
 
-  /**
-   * models/<appName>/app-model.json from the WORKSPACE root (the model is
-   * visible output, not .forge/ internal state). Missing → null; corrupt
-   * JSON → throw (same loud-failure contract as loadConfig).
-   */
-  async loadModel(appName: string): Promise<unknown | null> {
-    const modelPath = path.join(this.root, 'models', this.safeSegment(appName, 'appName'), 'app-model.json')
-    if (!fs.existsSync(modelPath)) return null
-    const raw = fs.readFileSync(modelPath, 'utf-8')
-    try {
-      return JSON.parse(raw)
-    } catch (e: any) {
-      throw new Error(`[Workspace] ${modelPath} is not valid JSON (${e.message}) — re-run forge crawl`)
-    }
-  }
-
-  /** models/<appName>/app-model.json — file write only (see interface doc, TD-122). */
-  async saveModel(appName: string, model: AppModel): Promise<void> {
+  /** models/<appName>/app-model.json — write-only compatibility projection. */
+  async saveModelProjection(appName: string, model: AppModel): Promise<void> {
     const dir = path.join(this.root, 'models', this.safeSegment(appName, 'appName'))
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(path.join(dir, 'app-model.json'), JSON.stringify(model, null, 2), 'utf-8')

@@ -1,0 +1,231 @@
+/**
+ * FORGE - Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
+ * Copyright (c) 2026 AnvilQ Technologies LLC
+ * Author: Raj Kasthuri
+ *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification is prohibited.
+ */
+
+import type { AppModel, AppModelCandidate } from '../onboarding/types'
+import { ModelNotFoundError } from '../errors/OperatorFacingError'
+import {
+  AppModelCommitResult,
+  AppModelPersistenceError,
+  AppModelProjectionError,
+  AppModelRepository,
+  CommittedAppModel,
+} from './repositories/AppModelRepository'
+
+export type AppModelProjector = (snapshot: AppModel) => Promise<void>
+
+export type AppModelCommitProjectionResult =
+  | {
+      status: 'commit_and_projection_succeeded'
+      commit: AppModelCommitResult
+    }
+  | {
+      status: 'commit_succeeded_projection_failed'
+      commit: AppModelCommitResult
+      error: AppModelProjectionError
+    }
+  | {
+      status: 'commit_failed'
+      error: AppModelPersistenceError
+    }
+
+export class AppModelProjectionAuthorityError extends AppModelPersistenceError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AppModelProjectionAuthorityError'
+  }
+}
+
+/**
+ * Convert the structured service result into the committed snapshot for runtime
+ * orchestrators that must fail the operation on either persistence or
+ * compatibility-projection failure.
+ */
+export function requireProjectedCommit(
+  result: AppModelCommitProjectionResult,
+): AppModelCommitResult {
+  if (result.status === 'commit_and_projection_succeeded') return result.commit
+  throw result.error
+}
+
+/**
+ * TD-181 runtime ownership boundary.
+ *
+ * Runtime consumers read through this SQLite-backed service. Runtime producers
+ * commit an unversioned candidate first, then project the exact committed row
+ * re-read by SQLite identity. Compatibility JSON never becomes authority.
+ */
+export class AppModelService {
+  constructor(private readonly repository = new AppModelRepository()) {}
+
+  async findActive(appName: string): Promise<AppModel | null> {
+    return this.repository.getModel(appName)
+  }
+
+  async requireActive(appName: string): Promise<AppModel> {
+    const model = await this.findActive(appName)
+    if (!model) throw new ModelNotFoundError(appName)
+    return model
+  }
+
+  /**
+   * Orchestrator preflight for a durable operation retry. A hit projects only
+   * the already committed SQLite authority; it never rebuilds or recommits a
+   * candidate. A miss returns null so the caller may perform the operation.
+   */
+  async replayCommittedOperation(
+    appName: string,
+    operationId: string,
+    project: AppModelProjector,
+  ): Promise<AppModelCommitProjectionResult | null> {
+    const existing = await this.repository.findCommittedByOperation(appName, operationId)
+    if (!existing) return null
+
+    const commit: AppModelCommitResult = {
+      outcome: 'replayed_existing',
+      committed: existing,
+    }
+    try {
+      const projected = await this.projectCommittedSnapshot(
+        existing.rowId,
+        appName,
+        project,
+      )
+      return {
+        status: 'commit_and_projection_succeeded',
+        commit: { outcome: 'replayed_existing', committed: projected },
+      }
+    } catch (cause) {
+      return {
+        status: 'commit_succeeded_projection_failed',
+        commit,
+        error: cause instanceof AppModelProjectionError
+          ? cause
+          : new AppModelProjectionError(
+              `[AppModelService.replayCommittedOperation] SQLite operation ` +
+              `'${operationId}' already committed row ${existing.rowId} for ` +
+              `'${appName}', but compatibility projection could not be retried. ` +
+              `SQLite remains authoritative.`,
+              existing,
+              { cause },
+            ),
+      }
+    }
+  }
+
+  async commitAndProject(
+    candidate: AppModelCandidate,
+    operationId: string,
+    project: AppModelProjector,
+  ): Promise<AppModelCommitProjectionResult> {
+    let commit: AppModelCommitResult
+    try {
+      commit = await this.repository.commitCandidate(candidate, operationId)
+    } catch (cause) {
+      const error = cause instanceof AppModelPersistenceError
+        ? cause
+        : new AppModelPersistenceError(
+            `[AppModelService.commitAndProject] SQLite commit failed for ` +
+            `'${candidate.app.name}' operation '${operationId}'.`,
+            { cause },
+          )
+      return { status: 'commit_failed', error }
+    }
+
+    const committed = commit.committed
+    let activeRowId: number | null = null
+    try {
+      activeRowId = Number((await this.repository.findActive(committed.appName))?.id ?? 0) || null
+    } catch (cause) {
+      return {
+        status: 'commit_succeeded_projection_failed',
+        commit,
+        error: new AppModelProjectionError(
+          `[AppModelService.commitAndProject] SQLite row ${committed.rowId} was ` +
+          `committed, but the active authority for '${committed.appName}' could ` +
+          `not be established. Compatibility JSON was not changed.`,
+          committed,
+          { cause },
+        ),
+      }
+    }
+    if (committed.status !== 'active' || activeRowId !== committed.rowId) {
+      return {
+        status: 'commit_succeeded_projection_failed',
+        commit,
+        error: new AppModelProjectionError(
+          `[AppModelService.commitAndProject] SQLite operation '${operationId}' ` +
+          `resolved to row ${committed.rowId}, but that snapshot is ` +
+          `'${committed.status}' and active row identity is ` +
+          `${activeRowId ?? 'absent'}, not the current exact authority. Compatibility ` +
+          `JSON was not changed.`,
+          committed,
+        ),
+      }
+    }
+
+    try {
+      await project(committed.snapshot)
+      return { status: 'commit_and_projection_succeeded', commit }
+    } catch (cause) {
+      return {
+        status: 'commit_succeeded_projection_failed',
+        commit,
+        error: new AppModelProjectionError(
+          `[AppModelService.commitAndProject] SQLite committed App Model ` +
+          `'${committed.appName}' row ${committed.rowId} version ` +
+          `'${committed.snapshot.app.modelVersion}', but the compatibility JSON ` +
+          `projection failed. SQLite remains authoritative.`,
+          committed,
+          { cause },
+        ),
+      }
+    }
+  }
+
+  /**
+   * Projection-only retry. The exact committed row is re-read and validated;
+   * no version allocation, supersede, insert, crawl, generation, or verification
+   * occurs. Only the current active authority may refresh compatibility JSON.
+   */
+  async projectCommittedSnapshot(
+    rowId: number,
+    expectedAppName: string,
+    project: AppModelProjector,
+  ): Promise<CommittedAppModel> {
+    const committed = await this.repository.getCommittedById(rowId)
+    if (committed.appName !== expectedAppName) {
+      throw new AppModelProjectionAuthorityError(
+        `[AppModelService.projectCommittedSnapshot] Row ${rowId} belongs to ` +
+        `'${committed.appName}', not expected workspace/app '${expectedAppName}'.`,
+      )
+    }
+    const active = await this.repository.findActive(expectedAppName)
+    if (committed.status !== 'active' || active?.id !== rowId) {
+      throw new AppModelProjectionAuthorityError(
+        `[AppModelService.projectCommittedSnapshot] Row ${rowId} is ` +
+        `'${committed.status}' and active row identity is ${active?.id ?? 'absent'}, ` +
+        `not the exact active SQLite authority for '${expectedAppName}'. ` +
+        `Compatibility JSON was not changed.`,
+      )
+    }
+    try {
+      await project(committed.snapshot)
+    } catch (cause) {
+      throw new AppModelProjectionError(
+        `[AppModelService.projectCommittedSnapshot] SQLite row ${rowId} remains ` +
+        `authoritative, but compatibility JSON projection failed.`,
+        committed,
+        { cause },
+      )
+    }
+    return committed
+  }
+}

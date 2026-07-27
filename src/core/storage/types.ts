@@ -210,6 +210,8 @@ export interface AppModelsTable {
   crawled_by:        string | null;   // Crawl-LIEs (migration 015): NULL when no crawl ran (stub). Values: 'engine'|'agent'|'human'|'import'
   status:            string;
   evidence_state:    string;          // 'crawled' | 'crawled-empty' | 'unsupported-platform'
+  operation_id:      string | null;   // migration 017: orchestrator-owned durable retry identity
+  candidate_hash:    string | null;   // migration 017: canonical unversioned-candidate SHA-256
 }
 
 // ── Assertions ────────────────────────────────────────────────────────────────

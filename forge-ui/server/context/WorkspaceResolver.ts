@@ -38,10 +38,14 @@ export interface ResolvedWorkspace {
 }
 
 export class WorkspaceResolver {
+  constructor(
+    private readonly projectsRoot = path.join(os.homedir(), '.forge-projects'),
+  ) {}
+
   /** PURE — per-app workspace paths. NEVER mkdirs. Use for read-only checks. */
   resolve(appName: string): ResolvedWorkspace {
     assertValidAppName(appName)   // TD-UI-051 backstop — traversal can't reach path.join even if a route forgets to validate
-    const root = path.join(os.homedir(), '.forge-projects', appName)
+    const root = path.join(this.projectsRoot, appName)
     return { root, forgeDir: path.join(root, '.forge') }
   }
 
@@ -52,7 +56,7 @@ export class WorkspaceResolver {
     assertValidAppName(appName)   // TD-UI-051 backstop — never mkdir outside the projects root
     const enginePath = '../../../src/core/workspace/WorkspaceManager'
     const { createWorkspace } = require(enginePath)
-    const root = path.join(os.homedir(), '.forge-projects', appName)
+    const root = path.join(this.projectsRoot, appName)
     return createWorkspace(root) as ResolvedWorkspace
   }
 }

@@ -15,7 +15,7 @@
 import * as fs   from 'fs'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
-import { loadAppModel }  from '../src/core/onboarding/ModelValidator'
+import { loadAppModelFixture } from '../helpers/load-app-model-fixture'
 import { FlowDetector }  from '../src/core/onboarding/FlowDetector'
 import { AppModel, OnboardingConfig, AiBudgetTracker } from '../src/core/onboarding/types'
 
@@ -68,7 +68,7 @@ async function runApp(appName: string, flowIdsOfInterest: string[]) {
   console.log(`App: ${appName}`)
   console.log('='.repeat(70))
 
-  const model  = loadAppModel(appName) as unknown as AppModel
+  const model  = loadAppModelFixture(appName) as unknown as AppModel
   const config = await findConfig(appName)
 
   console.log(`\n-- BEFORE (currently persisted in models/${appName}/app-model.json) --`)

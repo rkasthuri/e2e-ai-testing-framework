@@ -16,14 +16,16 @@ import { chromium, request, Browser, BrowserContext, Page } from '@playwright/te
 import * as fs   from 'fs'
 import * as path from 'path'
 import {
-  AppModel, PageDefinition, ElementDefinition,
+  AppModel, AppModelCandidate, PageDefinition, ElementDefinition,
   FlowDefinition, FlowStep, Strategy, OnboardingConfig
 } from './types'
-import { loadAppModel, modelHasContent } from './ModelValidator'
+import { modelHasContent } from './ModelValidator'
 import { EmptyModelError }    from '../errors/OperatorFacingError'
 import { escapeRoleAccessibleName } from './generators/EmitHelper'
 import { RunRepository }      from '../storage/repositories/RunRepository'
 import { runMigrations }      from '../storage/migrate'
+import { AppModelService, requireProjectedCommit } from '../storage/AppModelService'
+import { Workspace, createWorkspace } from '../workspace/WorkspaceManager'
 import * as dotenv from 'dotenv'
 dotenv.config()
 
@@ -274,18 +276,24 @@ export class VerificationRunner {
   private screenshotDir: string
   private runId:         string
 
-  constructor(private appName: string, private config?: OnboardingConfig) {
-    this.runId         = `verify-${appName}-${Date.now()}`
+  constructor(
+    private appName: string,
+    private config?: OnboardingConfig,
+    private workspace: Workspace = createWorkspace(REPO_ROOT),
+    private appModels: AppModelService = new AppModelService(),
+    operationId?: string,
+  ) {
+    this.runId         = operationId ?? `verify-${appName}-${Date.now()}`
     this.screenshotDir = path.join(REPO_ROOT, 'reports', 'verify')
     fs.mkdirSync(this.screenshotDir, { recursive: true })
   }
 
   async run(): Promise<VerificationReport> {
-    const model     = loadAppModel(this.appName) as unknown as AppModel
+    const model = await this.appModels.requireActive(this.appName)
 
     // TC-04 (2026-07-13): refuse to emit a "verification report" for an app FORGE
-    // never explored. A model file can exist yet be empty (onboard bootstrap
-    // persists a contentless model). Same emptiness precondition + error as the
+    // never explored. An authoritative snapshot can be contentless after
+    // bootstrap. Same emptiness precondition + error as the
     // generator. Thrown BEFORE any browser launch; on the OperatorFacingError rail
     // (ExecutionContext's verify case + CLI both surface it).
     if (!modelHasContent(model)) {
@@ -606,7 +614,7 @@ export class VerificationRunner {
     // Write model back if any heals occurred
     const healed = elementResults.filter(r => r.status === 'healed')
     if (healed.length > 0) {
-      this.writeModelHealbacks(model, healed)
+      await this.writeModelHealbacks(model, healed)
     }
 
     return report
@@ -997,10 +1005,26 @@ export class VerificationRunner {
     }
   }
 
-  private writeModelHealbacks(
+  private async writeModelHealbacks(
     model:  AppModel,
     healed: ElementResult[]
-  ): void {
+  ): Promise<void> {
+    const operationId = `${this.runId}:healback`
+    const replay = await this.appModels.replayCommittedOperation(
+      model.app.name,
+      operationId,
+      snapshot => this.workspace.saveModelProjection(model.app.name, snapshot),
+    )
+    if (replay) {
+      const commit = requireProjectedCommit(replay)
+      console.log(
+        `[Verify] Healback operation ${commit.outcome}; skipped candidate rebuild ` +
+        `and projected SQLite row ${commit.committed.rowId} ` +
+        `v${commit.committed.snapshot.app.modelVersion}.`,
+      )
+      return
+    }
+
     let changed = false
 
     for (const result of healed) {
@@ -1040,11 +1064,35 @@ export class VerificationRunner {
     }
 
     if (changed) {
-      const modelPath = path.join(
-        REPO_ROOT, 'models', model.app.name, 'app-model.json',   // TD-109: was cwd-relative
+      const { modelVersion: previousModelVersion, ...app } = model.app
+      const candidate: AppModelCandidate = {
+        ...model,
+        generatedAt: new Date().toISOString(),
+        generatedBy: 'engine',
+        app,
+        diff: {
+          previousModelVersion,
+          diffGeneratedAt: new Date().toISOString(),
+          pagesAdded: [],
+          pagesRemoved: [],
+          pagesModified: null,
+          elementsAdded: null,
+          elementsRemoved: null,
+          strategiesInvalidated: null,
+          flowsAdded: null,
+          flowsRemoved: null,
+        },
+      }
+      const commit = requireProjectedCommit(await this.appModels.commitAndProject(
+        candidate,
+        operationId,
+        snapshot => this.workspace.saveModelProjection(model.app.name, snapshot),
+      ))
+      console.log(
+        `[Verify] Healed App Model ${commit.outcome} in SQLite as row ` +
+        `${commit.committed.rowId} v${commit.committed.snapshot.app.modelVersion}; ` +
+        `compatibility JSON projected from the re-read committed snapshot.`,
       )
-      fs.writeFileSync(modelPath, JSON.stringify(model, null, 2))
-      console.log(`[Verify] Model updated: ${modelPath}`)
     }
   }
 
@@ -1245,7 +1293,7 @@ export class VerificationRunner {
         console.log(`    → Screenshot: ${result.screenshotPath}`)
       }
       console.log(
-        `    → Fix in: models/${result.pageId.split(':')[0]}/app-model.json`
+        `    Remedy: re-crawl or update the App Model through its SQLite-backed service`
       )
     }
     if (result.status === 'healed') {

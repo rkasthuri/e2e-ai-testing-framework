@@ -137,16 +137,15 @@ test('V5 DB row for a verification is NEVER status:passed (Nova: verification is
   assert.equal(/confidenceLevel === 'HIGH' \? 'passed'/.test(src), false, 'must not map confidenceLevel HIGH → passed')
 })
 
-test('V7 EmptyModelError guard still fires (regression) — verify refuses an empty model', async () => {
+test('V7 EmptyModelError guard still fires for an empty SQLite snapshot', async () => {
   const appName = 'zzz-vscore-empty-proof'
-  const modelDir = path.resolve('models', appName)
-  try {
-    fs.mkdirSync(modelDir, { recursive: true })
-    fs.writeFileSync(path.join(modelDir, 'app-model.json'), JSON.stringify(schemaValidEmpty(appName)))
-    await assert.rejects(() => new VerificationRunner(appName).run(), (e: unknown) => e instanceof EmptyModelError)
-  } finally {
-    fs.rmSync(modelDir, { recursive: true, force: true })
-  }
+  const empty = schemaValidEmpty(appName) as unknown as AppModel
+  const service = { requireActive: async () => empty } as any
+  const workspace = { saveModelProjection: async () => {} } as any
+  await assert.rejects(
+    () => new VerificationRunner(appName, undefined, workspace, service).run(),
+    (e: unknown) => e instanceof EmptyModelError,
+  )
 })
 
 // ── The earned "Model is ready" gate — Nova's five conditions ─────────────────────
