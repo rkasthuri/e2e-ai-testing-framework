@@ -2,34 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-02T08-44-34",
-      "timestamp": "2026-07-02T08:44:40.591Z",
-      "durationMs": 495042,
-      "stats": {
-        "total": 320,
-        "passed": 319,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Fixture setup timeout before test execution begins indicates environment/page-load failure, not app or test logic issues.",
-          "suggestedAction": "Check if orangehrm.com was accessible during test run; verify network connectivity and consider increasing fixture timeout for slow environments.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": []
-    },
-    {
       "runId": "2026-07-02T17-52-50",
       "timestamp": "2026-07-02T17:52:58.406Z",
       "durationMs": 530331,
@@ -2068,6 +2040,23 @@
       "runId": "2026-07-28T12-44-17",
       "timestamp": "2026-07-28T12:45:08.215Z",
       "durationMs": 429094,
+      "stats": {
+        "total": 316,
+        "passed": 316,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-07-28T20-49-20",
+      "timestamp": "2026-07-28T20:50:13.726Z",
+      "durationMs": 465203,
       "stats": {
         "total": 316,
         "passed": 316,
