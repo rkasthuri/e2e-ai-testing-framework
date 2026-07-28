@@ -613,5 +613,18 @@ room without updating the card (docs ride with the code that changes them).
 
 ---
 
+### Storage Decision - Atomic SQLite Migration Coordination
+
+**Status:** ACTIVE
+**Decided:** 2026-07-28 (TD-183)
+
+**Summary:**
+SQLite migration ordering, connection scope, transaction boundaries, migration-history bookkeeping, postcondition verification, backup policy, and failure reporting are owned by the migration coordinator in `src/core/storage/migrate.ts`. Each pending migration body and its `kysely_migration` record execute on one reserved connection inside `BEGIN IMMEDIATE`/`COMMIT`; failure rolls both back and stops later migrations.
+
+Physical schema and migration history are treated as one truth. Migration 016/017 schema-ahead or history-ahead states are refused and direct the operator to verified-backup restoration. Migration-owned transactions, Kysely capability overrides, duplicate-object suppression, and automatic partial-state repair are rejected.
+
+**ADR:** [`ADR-022`](../ADR/ADR-022-atomic-sqlite-migration-coordination.md)
+
+---
 *FORGE™ — AI-Augmented Quality Engineering Platform*
 *AnvilQ Technologies LLC — Copyright © 2026 Raj Kasthuri*
