@@ -89,25 +89,42 @@ export class AppModelProjectionError extends AppModelPersistenceError {
   }
 }
 
-function allocateNextVersion(previousVersion: string | null, appName: string): string {
-  if (previousVersion === null) return '1.0.0'
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(previousVersion)
-  if (!match) {
+function allocateNextVersion(
+  history: Array<{ id: number; version: string }>,
+  appName: string,
+): string {
+  if (history.length === 0) return '1.0.0'
+
+  let maximum: [number, number, number] | null = null
+  for (const row of history) {
+    const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(row.version)
+    const version = match
+      ? [Number(match[1]), Number(match[2]), Number(match[3])] as [number, number, number]
+      : null
+    if (!version || !version.every(Number.isSafeInteger)) {
+      throw new InvalidAppModelStateError(
+        `[AppModelRepository.commitCandidate] Cannot allocate the next version for ` +
+        `'${appName}': SQLite row ${row.id} contains malformed modelVersion ` +
+        `'${row.version}'; expected strict numeric major.minor.patch.`,
+      )
+    }
+    if (
+      maximum === null
+      || version[0] > maximum[0]
+      || (version[0] === maximum[0] && version[1] > maximum[1])
+      || (version[0] === maximum[0] && version[1] === maximum[1] && version[2] > maximum[2])
+    ) {
+      maximum = version
+    }
+  }
+
+  if (!maximum || maximum[2] === Number.MAX_SAFE_INTEGER) {
     throw new InvalidAppModelStateError(
       `[AppModelRepository.commitCandidate] Cannot allocate the next version for ` +
-      `'${appName}': latest SQLite version '${previousVersion}' is not strict major.minor.patch.`,
+      `'${appName}': maximum persisted patch version cannot be incremented safely.`,
     )
   }
-  const major = Number(match[1])
-  const minor = Number(match[2])
-  const patch = Number(match[3])
-  if (![major, minor, patch].every(Number.isSafeInteger) || patch === Number.MAX_SAFE_INTEGER) {
-    throw new InvalidAppModelStateError(
-      `[AppModelRepository.commitCandidate] Cannot allocate the next version for ` +
-      `'${appName}': latest SQLite version '${previousVersion}' is outside the safe integer range.`,
-    )
-  }
-  return `${major}.${minor}.${patch + 1}`
+  return `${maximum[0]}.${maximum[1]}.${maximum[2] + 1}`
 }
 
 function validateCandidate(candidate: AppModelCandidate): void {
@@ -259,13 +276,14 @@ export class AppModelRepository {
           return { outcome: 'replayed_existing' as const, rowId: Number(replay.id) }
         }
 
-        const latest = await trx.selectFrom('app_models')
-          .select(['version'])
+        const history = await trx.selectFrom('app_models')
+          .select(['id', 'version'])
           .where('app_name', '=', appName)
-          .orderBy('id', 'desc')
-          .limit(1)
-          .executeTakeFirst()
-        const version = allocateNextVersion(latest?.version ?? null, appName)
+          .execute()
+        const version = allocateNextVersion(
+          history.map(row => ({ id: Number(row.id), version: row.version })),
+          appName,
+        )
         const snapshot: AppModelSnapshot = {
           ...candidate,
           app: {

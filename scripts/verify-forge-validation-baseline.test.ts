@@ -20,9 +20,11 @@ import {
   ValidationReport,
 } from '../src/core/validation/ValidationBaseline'
 import {
+  CommandExecution,
   commandResult,
   humanGate,
   profileCommandSpecs,
+  resourceFailureReason,
   sauceDemoCommandSpec,
 } from './forge-validation-baseline'
 
@@ -74,6 +76,19 @@ function report(gates: ValidationGateResult[]): ValidationReport {
   }
 }
 
+function execution(
+  overrides: Partial<CommandExecution> = {},
+): CommandExecution {
+  return {
+    exitCode: 1,
+    signal: null,
+    error: null,
+    stdout: '',
+    stderr: '',
+    termination: 'exit',
+    ...overrides,
+  }
+}
 function createDatabase(
   root: string,
   options: {
@@ -205,10 +220,80 @@ test('SauceDemo smoke command selects only the approved primary-reference eviden
 
 test('command failure is preserved as FAIL instead of being swallowed', () => {
   const spec = profileCommandSpecs('offline')[0]
-  const result = commandResult(spec, { exitCode: 7, error: null })
+  const result = commandResult(spec, execution({ exitCode: 7 }))
   assert.equal(result.status, 'FAIL')
   assert.equal((result.evidence as any).exitCode, 7)
   assert.match(result.remedy?.action ?? '', /raw command output/)
+})
+
+test('explicit ENOMEM is BLOCKED and cannot become baseline debt', () => {
+  const spec = profileCommandSpecs('offline')[1]
+  const blocked = commandResult(spec, execution({ error: 'spawn ENOMEM', stderr: 'Error: spawn ENOMEM', termination: 'spawn-error' }))
+  assert.equal(blocked.status, 'BLOCKED')
+  assert.equal(blocked.findingKind, 'NONE')
+  assert.equal(resourceFailureReason(execution({ stderr: 'fatal: ENOMEM' })), 'ENOMEM')
+  const established = classifyAgainstBaseline([blocked], { establishBaseline: true })
+  assert.equal(established[0].findingKind, 'NONE')
+  const matched = classifyAgainstBaseline([blocked], { baselineReport: report(established) })
+  assert.equal(matched[0].status, 'BLOCKED')
+  assert.equal(matched[0].findingKind, 'NONE')
+})
+
+test('VirtualAlloc and worker resource exhaustion are BLOCKED', () => {
+  const spec = profileCommandSpecs('offline')[1]
+  const evidence = [
+    'FATAL ERROR: VirtualAlloc failure',
+    'ERR_WORKER_INIT_FAILED: Insufficient system resources exist to complete the requested service.',
+  ]
+
+  for (const stderr of evidence) {
+    const result = commandResult(spec, execution({ stderr }))
+    assert.equal(result.status, 'BLOCKED')
+    assert.equal(result.findingKind, 'NONE')
+  }
+})
+
+test('assertion failures and ordinary exit 1 remain FAIL', () => {
+  const spec = profileCommandSpecs('offline')[1]
+  const assertion = commandResult(
+    spec,
+    execution({ stderr: 'AssertionError [ERR_ASSERTION]: expected true to equal false' }),
+  )
+  const ordinary = commandResult(spec, execution({ stderr: 'command failed', exitCode: 1 }))
+
+  assert.equal(assertion.status, 'FAIL')
+  assert.equal(ordinary.status, 'FAIL')
+})
+
+test('non-resource signal or timeout termination remains ordinary FAIL', () => {
+  const spec = profileCommandSpecs('offline')[1]
+  const signalExecution = execution({
+    exitCode: null,
+    signal: 'SIGTERM',
+    stderr: 'Child process terminated after its test timeout.',
+    termination: 'signal',
+  })
+  const timedOut = commandResult(spec, signalExecution)
+
+  assert.equal(resourceFailureReason(signalExecution), null)
+  assert.equal(timedOut.status, 'FAIL')
+  assert.equal(timedOut.findingKind, 'NONE')
+  assert.notEqual(timedOut.status, 'BLOCKED')
+  assert.notEqual(timedOut.status, 'PASS')
+
+  const classified = classifyAgainstBaseline([timedOut])
+  assert.equal(classified[0].status, 'FAIL')
+  assert.equal(classified[0].findingKind, 'NEW_REGRESSION')
+})
+
+test('successful command remains PASS even when stdout names resource signatures', () => {
+  const spec = profileCommandSpecs('offline')[1]
+  const result = commandResult(
+    spec,
+    execution({ exitCode: 0, stdout: 'tests cover ENOMEM and VirtualAlloc failure' }),
+  )
+
+  assert.equal(result.status, 'PASS')
 })
 
 test('read-only inspection passes a valid disposable database without changing it', () => {

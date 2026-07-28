@@ -293,6 +293,75 @@ test('T6 invalid SQLite history aborts before mutation and preserves the active 
   assert.equal((await repo.findHistory('invalid-version-app')).length, beforeCount)
 })
 
+test('T6a full-history allocation uses the semantic maximum, not active or latest row', async () => {
+  const repo = new AppModelRepository()
+  const appName = 'full-history-version-app'
+  await repo.upsert(snapshot(appName, '1.0.37', 'historical-maximum-one'))
+  await repo.upsert(snapshot(appName, '1.0.37', 'historical-maximum-duplicate'))
+  const lowerActive = await repo.upsert(snapshot(appName, '1.0.2', 'lower-active'))
+  const before = (await repo.findHistory(appName))
+    .map(row => ({ id: row.id, version: row.version, status: row.status }))
+    .sort((left, right) => left.id - right.id)
+
+  assert.equal(before.length, 3)
+  assert.equal(before.filter(row => row.version === '1.0.37').length, 2)
+  assert.deepEqual(
+    before.find(row => row.id === lowerActive.id),
+    { id: lowerActive.id, version: '1.0.2', status: 'active' },
+  )
+
+  const committed = await repo.commitCandidate(
+    candidate(appName, 'fresh-observation'),
+    'crawl-full-history-version',
+  )
+  const after = (await repo.findHistory(appName))
+    .map(row => ({ id: row.id, version: row.version, status: row.status }))
+    .sort((left, right) => left.id - right.id)
+
+  assert.equal(committed.outcome, 'committed_new')
+  assert.equal(committed.committed.snapshot.app.modelVersion, '1.0.38')
+  assert.equal(after.length, before.length + 1)
+  assert.equal(after.filter(row => row.status === 'active').length, 1)
+  assert.deepEqual(
+    after.find(row => row.id === committed.committed.rowId),
+    { id: committed.committed.rowId, version: '1.0.38', status: 'active' },
+  )
+  assert.deepEqual(
+    after.filter(row => row.id !== committed.committed.rowId),
+    before.map(row => ({
+      ...row,
+      status: row.id === lowerActive.id ? 'superseded' : row.status,
+    })),
+  )
+})
+
+test('T6b malformed historical version reports row, app, and value without mutation', async () => {
+  const repo = new AppModelRepository()
+  const appName = 'malformed-history-context'
+  const malformed = await repo.upsert(snapshot(appName, 'not-semver'))
+  const before = await repo.findHistory(appName)
+
+  await assert.rejects(
+    () => repo.commitCandidate(
+      candidate(appName, 'replacement'),
+      'crawl-malformed-history-context',
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof InvalidAppModelStateError)
+      assert.match(error.message, new RegExp(`SQLite row ${malformed.id}\\b`))
+      assert.match(error.message, new RegExp(`'${appName}'`))
+      assert.match(error.message, /'not-semver'/)
+      return true
+    },
+  )
+
+  const after = await repo.findHistory(appName)
+  assert.deepEqual(after, before)
+  assert.equal(after.length, 1)
+  assert.equal(after[0].id, malformed.id)
+  assert.equal(after[0].status, 'active')
+})
+
 test('T7 duplicate active rows fail explicitly without selecting or mutating either row', async () => {
   const repo = new AppModelRepository()
   const first = await repo.upsert(snapshot('duplicate-active', '1.0.0'))

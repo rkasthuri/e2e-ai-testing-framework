@@ -46,7 +46,11 @@ export interface CommandSpec {
 
 export interface CommandExecution {
   exitCode: number | null
+  signal: NodeJS.Signals | null
   error: string | null
+  stdout: string
+  stderr: string
+  termination: 'exit' | 'signal' | 'spawn-error' | 'unknown'
 }
 
 export type CommandExecutor = (spec: CommandSpec) => CommandExecution
@@ -190,19 +194,86 @@ export const executeCommand: CommandExecutor = spec => {
   const result = spawnSync(spec.command, spec.args, {
     cwd: spec.cwd,
     env: { ...process.env, CI: '1', FORGE_VALIDATION_MODE: '1' },
-    stdio: 'inherit',
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
     shell: false,
+    windowsHide: true,
   })
+  const stdout = result.stdout ?? ''
+  const stderr = result.stderr ?? ''
+  if (stdout) process.stdout.write(stdout)
+  if (stderr) process.stderr.write(stderr)
   return {
     exitCode: result.status,
+    signal: result.signal,
     error: result.error?.message ?? null,
+    stdout,
+    stderr,
+    termination: result.signal
+      ? 'signal'
+      : result.status !== null
+        ? 'exit'
+        : result.error
+          ? 'spawn-error'
+          : 'unknown',
   }
+}
+
+const RESOURCE_FAILURE_SIGNATURES: ReadonlyArray<{
+  reason: string
+  pattern: RegExp
+}> = [
+  { reason: 'ENOMEM', pattern: /\bENOMEM\b/i },
+  { reason: 'VirtualAlloc failure', pattern: /\bVirtualAlloc\b[^\r\n]*(?:fail(?:ed|ure)?|unable)/i },
+  { reason: 'memory allocation failure', pattern: /(?:cannot|could not|failed to)\s+allocate\s+memory|allocation failure|out of memory allocating/i },
+  { reason: 'JavaScript heap out of memory', pattern: /JavaScript heap out of memory/i },
+  { reason: 'worker or process creation exhaustion', pattern: /(?:ERR_WORKER_INIT_FAILED|worker|spawn|CreateProcess)[^\r\n]*(?:EAGAIN|ENOMEM|resource exhaustion|insufficient system resources|resource temporarily unavailable)/i },
+  { reason: 'OS resource exhaustion', pattern: /insufficient system resources|resource temporarily unavailable|not enough (?:memory|system) resources/i },
+]
+
+export function resourceFailureReason(execution: CommandExecution): string | null {
+  // A successful command is authoritative even when a test name mentions a
+  // resource signature. Runtime failures emit their diagnostics on stderr or
+  // through the spawn error boundary.
+  if (execution.exitCode === 0 && execution.error === null) return null
+  const diagnostic = [execution.error, execution.stderr]
+    .filter((value): value is string => Boolean(value))
+    .join('\n')
+  for (const signature of RESOURCE_FAILURE_SIGNATURES) {
+    if (signature.pattern.test(diagnostic)) return signature.reason
+  }
+  return null
 }
 
 export function commandResult(
   spec: CommandSpec,
   execution: CommandExecution,
 ): ValidationGateResult {
+  const terminationEvidence = {
+    exitCode: execution.exitCode,
+    signal: execution.signal,
+    termination: execution.termination,
+  }
+  const resourceReason = resourceFailureReason(execution)
+  if (resourceReason) {
+    return createGateResult({
+      id: spec.id,
+      title: spec.title,
+      required: spec.required,
+      status: 'BLOCKED',
+      detail: `Command was blocked by verified environment resource exhaustion (${resourceReason}).`,
+      evidence: {
+        command: [spec.command, ...spec.args],
+        cwd: spec.cwd,
+        ...terminationEvidence,
+        resourceReason,
+      },
+      remedy: {
+        tier: 1,
+        action: `Restore sufficient OS/runtime resources, then rerun gate ${spec.id}.`,
+      },
+    })
+  }
   if (execution.error) {
     return createGateResult({
       id: spec.id,
@@ -213,7 +284,7 @@ export function commandResult(
       evidence: {
         command: [spec.command, ...spec.args],
         cwd: spec.cwd,
-        exitCode: execution.exitCode,
+        ...terminationEvidence,
       },
       remedy: {
         tier: 1,
@@ -231,7 +302,7 @@ export function commandResult(
       evidence: {
         command: [spec.command, ...spec.args],
         cwd: spec.cwd,
-        exitCode: 0,
+        ...terminationEvidence,
       },
       remedy: null,
     })
@@ -245,7 +316,7 @@ export function commandResult(
     evidence: {
       command: [spec.command, ...spec.args],
       cwd: spec.cwd,
-      exitCode: execution.exitCode,
+      ...terminationEvidence,
     },
     remedy: {
       tier: 1,
