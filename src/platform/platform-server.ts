@@ -25,8 +25,8 @@
  *   - platform.html  = static HTML, served from disk
  *   - platform.js    = client logic, served from disk
  *
- * Run:  npm run platform     (npx tsx src/platform-server.ts)
- *       Opens at http://localhost:4300
+ * RETIRED: This implementation is preserved for history and must not start.
+ * Use the canonical platform with: forge ui
  * ─────────────────────────────────────────────────────────────
  */
 
@@ -43,6 +43,9 @@ import {
   getSpecSummary,
 } from '../core/ai/generation-context';
 import { getAppName, getBaseUrl } from '../core/config/appConfig'
+
+console.error('Legacy platform server is retired. Use: forge ui')
+process.exit(1)
 
 dotenv.config();
 

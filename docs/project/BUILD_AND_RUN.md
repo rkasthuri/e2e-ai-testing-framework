@@ -212,7 +212,8 @@ npm run gaps:preview    # Preview gap-filling tests — no files written
 ### Start the platform
 
 ```bash
-npm run platform        # Start platform server on port 4280
+forge ui                # Start the canonical forge-ui platform
+forge ui --port=3002    # Request a specific port
 ```
 
 Or on Windows:
@@ -220,17 +221,9 @@ Or on Windows:
 forgeUI.bat             # Double-click — portable Windows launcher
 ```
 
-### Development mode (auto-restart)
-
-```bash
-npm run platform:dev    # Watch mode
-```
-
-### Stop the platform (Windows)
-
-```bash
-npm run platform:stop   # Kills process on port 4280
-```
+The deprecated `src/platform` server is retired. Its former `npm run platform`,
+`npm run platform:dev`, and `npm run platform:stop` entry points fail closed;
+use `forge ui` instead.
 
 ### forge-ui local type check
 
@@ -324,7 +317,7 @@ npm run query:ui        # Start web UI for knowledge queries
 | `ANTHROPIC_API_KEY` error | .env not configured | Copy `.env.example` to `.env`, add key |
 | Auth fails for a role | Credentials not in .env | Add `<APP>_<ROLE>_CREDENTIALS=user:pass` |
 | DB migration errors | Migrations out of sync | `npm run db:migrate` |
-| forge-ui won't start on port 4280 | Port in use | `npm run platform:stop` then retry |
+| `forge ui` cannot bind the requested port | Port in use | Choose another with `forge ui --port=<port>` |
 | Type check fails in forge-ui | forge-ui types broken | `cd forge-ui && npm run check` |
 | `lockedUser` auth fails on SauceDemo | Demo site account state | Check live SauceDemo — may be genuinely locked (TD-015) |
 
