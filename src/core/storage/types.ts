@@ -212,6 +212,8 @@ export interface AppModelsTable {
   evidence_state:    string;          // 'crawled' | 'crawled-empty' | 'unsupported-platform'
   operation_id:      string | null;   // migration 017: orchestrator-owned durable retry identity
   candidate_hash:    string | null;   // migration 017: canonical unversioned-candidate SHA-256
+  recovery_source_row_id: number | null;       // migration 018: guarded recovery source row
+  recovery_source_fingerprint: string | null;  // migration 018: SHA-256 of exact source model_json
 }
 
 // ── Assertions ────────────────────────────────────────────────────────────────

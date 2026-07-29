@@ -9,6 +9,7 @@
  * Unauthorized copying, distribution, or modification is prohibited.
  */
 
+import * as crypto from 'crypto'
 import { getDb } from '../db'
 import { AppModel as StoredAppModel, NewAppModel } from '../types'
 import type {
@@ -17,6 +18,10 @@ import type {
 } from '../../onboarding/types'
 import { validateAppModelObject } from '../../onboarding/ModelValidator'
 import { canonicalJsonSha256 } from '../JsonAppModelMigrationPlanner'
+import type {
+  InvalidActiveInspection,
+  InvalidActiveRecoveryRequest,
+} from '../AppModelRecoveryContract'
 
 export type AppModelCommitOutcome = 'committed_new' | 'replayed_existing'
 
@@ -27,6 +32,8 @@ export interface CommittedAppModel {
   candidateHash: string | null
   status: string
   snapshot: AppModelSnapshot
+  recoverySourceRowId: number | null
+  recoverySourceFingerprint: string | null
 }
 
 export interface AppModelCommitResult {
@@ -68,6 +75,22 @@ export class RetryableAppModelConflictError extends AppModelPersistenceError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options)
     this.name = 'RetryableAppModelConflictError'
+  }
+}
+
+export class InvalidActiveRecoveryConflictError extends AppModelPersistenceError {
+  constructor(
+    readonly appName: string,
+    readonly operationId: string,
+    reason: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      `[AppModelRepository.commitInvalidActiveRecovery] Recovery conflict for ` +
+      `'${appName}' operation '${operationId}': ${reason}`,
+      options,
+    )
+    this.name = 'InvalidActiveRecoveryConflictError'
   }
 }
 
@@ -148,6 +171,10 @@ function rowFromSnapshot(
   model: AppModelSnapshot,
   operationId: string | null,
   candidateHash: string | null,
+  recoverySource: {
+    rowId: number
+    fingerprint: string
+  } | null = null,
 ): NewAppModel {
   const validation = validateAppModelObject(model)
   if (!validation.valid) {
@@ -177,6 +204,8 @@ function rowFromSnapshot(
     evidence_state:    model.app.evidenceState,
     operation_id:      operationId,
     candidate_hash:    candidateHash,
+    recovery_source_row_id: recoverySource?.rowId ?? null,
+    recovery_source_fingerprint: recoverySource?.fingerprint ?? null,
   }
 }
 
@@ -214,6 +243,8 @@ function parseCommittedRow(row: StoredAppModel, operation: string): CommittedApp
     candidateHash: row.candidate_hash ?? null,
     status: row.status,
     snapshot,
+    recoverySourceRowId: row.recovery_source_row_id ?? null,
+    recoverySourceFingerprint: row.recovery_source_fingerprint ?? null,
   }
 }
 
@@ -223,6 +254,71 @@ function isSqliteBusy(cause: unknown): boolean {
   const message = cause instanceof Error ? cause.message : String(cause)
   return code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED'
     || /database is (?:locked|busy)/i.test(message)
+}
+
+function rawModelJsonFingerprint(modelJson: string): string {
+  return crypto.createHash('sha256').update(modelJson).digest('hex')
+}
+
+function invalidRowValidationErrors(
+  row: { app_name: string; version: string; model_json: string },
+): string[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(row.model_json)
+  } catch (cause) {
+    return [
+      `model_json JSON parse failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+    ]
+  }
+
+  const validation = validateAppModelObject(parsed)
+  const errors = [...validation.errors]
+  if (validation.valid) {
+    const snapshot = parsed as AppModelSnapshot
+    if (snapshot.app.name !== row.app_name) {
+      errors.push(
+        `model_json app.name '${snapshot.app.name}' does not match row app_name '${row.app_name}'.`,
+      )
+    }
+    if (snapshot.app.modelVersion !== row.version) {
+      errors.push(
+        `model_json app.modelVersion '${snapshot.app.modelVersion}' does not match row version '${row.version}'.`,
+      )
+    }
+  }
+  return errors
+}
+
+function validateRecoveryRequest(
+  request: InvalidActiveRecoveryRequest,
+  operation: string,
+): void {
+  if (request.app_name.trim() === '') {
+    throw new InvalidAppModelStateError(
+      `[AppModelRepository.${operation}] app_name must be non-empty.`,
+    )
+  }
+  if (request.operation_id.trim() === '') {
+    throw new InvalidAppModelStateError(
+      `[AppModelRepository.${operation}] operation_id must be non-empty.`,
+    )
+  }
+  if (!Number.isSafeInteger(request.expected_row_id) || request.expected_row_id <= 0) {
+    throw new InvalidAppModelStateError(
+      `[AppModelRepository.${operation}] expected_row_id must be a positive safe integer.`,
+    )
+  }
+  if (!/^[a-f0-9]{64}$/.test(request.expected_source_fingerprint)) {
+    throw new InvalidAppModelStateError(
+      `[AppModelRepository.${operation}] expected_source_fingerprint must be a lowercase SHA-256 hex digest.`,
+    )
+  }
+  if (request.operator_acknowledgement !== true) {
+    throw new InvalidAppModelStateError(
+      `[AppModelRepository.${operation}] explicit operator acknowledgement is required.`,
+    )
+  }
 }
 
 export class AppModelRepository {
@@ -360,6 +456,235 @@ export class AppModelRepository {
     return { outcome: identity.outcome, committed }
   }
 
+  /**
+   * Replace one specifically acknowledged invalid active row. Every guard is
+   * re-established inside the same transaction that supersedes the source and
+   * inserts the fresh candidate. The invalid model_json is fingerprinted and
+   * validated as raw evidence only; it is never parsed into a trusted model.
+   */
+  async commitInvalidActiveRecovery(
+    candidate: AppModelCandidate,
+    request: InvalidActiveRecoveryRequest,
+  ): Promise<AppModelCommitResult> {
+    validateRecoveryRequest(request, 'commitInvalidActiveRecovery')
+    if (candidate.app.name !== request.app_name) {
+      throw new AppModelPersistenceError(
+        `[AppModelRepository.commitInvalidActiveRecovery] Fresh candidate app ` +
+        `'${candidate.app.name}' does not match requested app '${request.app_name}'.`,
+      )
+    }
+    validateCandidate(candidate)
+    const candidateHash = canonicalJsonSha256(candidate)
+    const db = getDb()
+
+    const assertReplay = (
+      replay: {
+        id: number
+        candidate_hash: string | null
+        recovery_source_row_id: number | null
+        recovery_source_fingerprint: string | null
+      },
+    ): number => {
+      if (
+        replay.candidate_hash !== candidateHash
+        || Number(replay.recovery_source_row_id) !== request.expected_row_id
+        || replay.recovery_source_fingerprint !== request.expected_source_fingerprint
+      ) {
+        throw new AppModelOperationConflictError(request.app_name, request.operation_id)
+      }
+      return Number(replay.id)
+    }
+
+    let identity: { outcome: AppModelCommitOutcome; rowId: number }
+    try {
+      identity = await db.transaction().execute(async trx => {
+        const replay = await trx.selectFrom('app_models')
+          .select([
+            'id',
+            'candidate_hash',
+            'recovery_source_row_id',
+            'recovery_source_fingerprint',
+          ])
+          .where('app_name', '=', request.app_name)
+          .where('operation_id', '=', request.operation_id)
+          .executeTakeFirst()
+        if (replay) {
+          return {
+            outcome: 'replayed_existing' as const,
+            rowId: assertReplay(replay),
+          }
+        }
+
+        const expected = await trx.selectFrom('app_models')
+          .select(['id', 'app_name', 'version', 'status', 'model_json'])
+          .where('id', '=', request.expected_row_id)
+          .executeTakeFirst()
+        if (!expected) {
+          throw new InvalidActiveRecoveryConflictError(
+            request.app_name,
+            request.operation_id,
+            `expected source row ${request.expected_row_id} no longer exists.`,
+          )
+        }
+        if (expected.app_name !== request.app_name) {
+          throw new InvalidActiveRecoveryConflictError(
+            request.app_name,
+            request.operation_id,
+            `expected row ${request.expected_row_id} belongs to ` +
+            `'${expected.app_name}', not '${request.app_name}'.`,
+          )
+        }
+        if (expected.status !== 'active') {
+          throw new InvalidActiveRecoveryConflictError(
+            request.app_name,
+            request.operation_id,
+            `expected source row ${request.expected_row_id} is now ` +
+            `'${expected.status}', not active.`,
+          )
+        }
+
+        const activeRows = await trx.selectFrom('app_models')
+          .select(['id'])
+          .where('app_name', '=', request.app_name)
+          .where('status', '=', 'active')
+          .orderBy('id', 'desc')
+          .limit(2)
+          .execute()
+        if (
+          activeRows.length !== 1
+          || Number(activeRows[0].id) !== request.expected_row_id
+        ) {
+          throw new InvalidActiveRecoveryConflictError(
+            request.app_name,
+            request.operation_id,
+            `active row identity changed; expected only row ` +
+            `${request.expected_row_id}, observed ` +
+            `${activeRows.length === 0 ? 'none' : activeRows.map(row => row.id).join(', ')}.`,
+          )
+        }
+
+        const fingerprint = rawModelJsonFingerprint(expected.model_json)
+        if (fingerprint !== request.expected_source_fingerprint) {
+          throw new InvalidActiveRecoveryConflictError(
+            request.app_name,
+            request.operation_id,
+            `source row ${request.expected_row_id} fingerprint changed.`,
+          )
+        }
+        if (invalidRowValidationErrors(expected).length === 0) {
+          throw new InvalidActiveRecoveryConflictError(
+            request.app_name,
+            request.operation_id,
+            `source row ${request.expected_row_id} is now a valid App Model.`,
+          )
+        }
+
+        const history = await trx.selectFrom('app_models')
+          .select(['id', 'version'])
+          .where('app_name', '=', request.app_name)
+          .execute()
+        const version = allocateNextVersion(
+          history.map(row => ({ id: Number(row.id), version: row.version })),
+          request.app_name,
+        )
+        const snapshot: AppModelSnapshot = {
+          ...candidate,
+          app: {
+            ...candidate.app,
+            modelVersion: version,
+          },
+        }
+        const row = rowFromSnapshot(
+          snapshot,
+          request.operation_id,
+          candidateHash,
+          {
+            rowId: request.expected_row_id,
+            fingerprint: request.expected_source_fingerprint,
+          },
+        )
+
+        const superseded = await trx.updateTable('app_models')
+          .set({ status: 'superseded' })
+          .where('id', '=', request.expected_row_id)
+          .where('app_name', '=', request.app_name)
+          .where('status', '=', 'active')
+          .where('model_json', '=', expected.model_json)
+          .executeTakeFirst()
+        if (Number(superseded.numUpdatedRows) !== 1) {
+          throw new InvalidActiveRecoveryConflictError(
+            request.app_name,
+            request.operation_id,
+            `source row ${request.expected_row_id} changed before supersede.`,
+          )
+        }
+
+        const inserted = await trx.insertInto('app_models')
+          .values(row)
+          .returning('id')
+          .executeTakeFirstOrThrow()
+        return { outcome: 'committed_new' as const, rowId: Number(inserted.id) }
+      })
+    } catch (cause) {
+      if (cause instanceof AppModelPersistenceError) throw cause
+
+      try {
+        const replay = await db.selectFrom('app_models')
+          .select([
+            'id',
+            'candidate_hash',
+            'recovery_source_row_id',
+            'recovery_source_fingerprint',
+          ])
+          .where('app_name', '=', request.app_name)
+          .where('operation_id', '=', request.operation_id)
+          .executeTakeFirst()
+        if (replay) {
+          identity = {
+            outcome: 'replayed_existing',
+            rowId: assertReplay(replay),
+          }
+        } else if (isSqliteBusy(cause)) {
+          throw new RetryableAppModelConflictError(
+            `[AppModelRepository.commitInvalidActiveRecovery] SQLite could not ` +
+            `serialize '${request.app_name}' recovery '${request.operation_id}'. ` +
+            `Retry the same operation ID.`,
+            { cause },
+          )
+        } else {
+          throw new AppModelPersistenceError(
+            `[AppModelRepository.commitInvalidActiveRecovery] Failed to commit ` +
+            `guarded recovery for '${request.app_name}' operation ` +
+            `'${request.operation_id}'.`,
+            { cause },
+          )
+        }
+      } catch (resolutionCause) {
+        if (resolutionCause instanceof AppModelPersistenceError) throw resolutionCause
+        throw new AppModelPersistenceError(
+          `[AppModelRepository.commitInvalidActiveRecovery] Failed to resolve ` +
+          `recovery operation '${request.operation_id}' after a transactional conflict.`,
+          { cause: resolutionCause },
+        )
+      }
+    }
+
+    const committed = await this.getCommittedById(identity.rowId)
+    if (
+      committed.appName !== request.app_name
+      || committed.operationId !== request.operation_id
+      || committed.candidateHash !== candidateHash
+      || committed.recoverySourceRowId !== request.expected_row_id
+      || committed.recoverySourceFingerprint !== request.expected_source_fingerprint
+    ) {
+      throw new AppModelPersistenceError(
+        `[AppModelRepository.commitInvalidActiveRecovery] Re-read row ` +
+        `${identity.rowId} does not match the requested recovery identity and provenance.`,
+      )
+    }
+    return { outcome: identity.outcome, committed }
+  }
+
   /** Legacy/fixture write boundary. Canonical runtime code uses commitCandidate. */
   async upsert(snapshot: AppModelSnapshot): Promise<StoredAppModel> {
     const row = rowFromSnapshot(snapshot, null, null)
@@ -412,6 +737,88 @@ export class AppModelRepository {
     return rows[0] ?? null
   }
 
+  /**
+   * Bind a future guarded recovery operation to exact raw evidence from one
+   * invalid active row. This method is read-only and never returns model_json,
+   * parsed JSON, or a trusted AppModel.
+   */
+  async inspectInvalidActiveForRecovery(
+    request: InvalidActiveRecoveryRequest,
+  ): Promise<InvalidActiveInspection> {
+    validateRecoveryRequest(request, 'inspectInvalidActiveForRecovery')
+
+    const db = getDb()
+    let rows: Array<{
+      id: number
+      app_name: string
+      version: string
+      status: string
+      model_json: string
+    }>
+    try {
+      rows = await db.selectFrom('app_models')
+        .select(['id', 'app_name', 'version', 'status', 'model_json'])
+        .where('app_name', '=', request.app_name)
+        .where('status', '=', 'active')
+        .orderBy('id', 'desc')
+        .limit(2)
+        .execute()
+    } catch (cause) {
+      throw new AppModelPersistenceError(
+        `[AppModelRepository.inspectInvalidActiveForRecovery] Failed to inspect ` +
+        `active App Model '${request.app_name}'.`,
+        { cause },
+      )
+    }
+
+    if (rows.length === 0) {
+      throw new InvalidAppModelStateError(
+        `[AppModelRepository.inspectInvalidActiveForRecovery] Active App Model ` +
+        `'${request.app_name}' does not exist.`,
+      )
+    }
+    if (rows.length > 1) {
+      throw new InvalidAppModelStateError(
+        `[AppModelRepository.inspectInvalidActiveForRecovery] Invalid database state ` +
+        `for '${request.app_name}': multiple active rows ` +
+        `(${rows.map(row => row.id).join(', ')}).`,
+      )
+    }
+
+    const row = rows[0]
+    const rowId = Number(row.id)
+    const fingerprint = rawModelJsonFingerprint(row.model_json)
+    if (rowId !== request.expected_row_id) {
+      throw new InvalidAppModelStateError(
+        `[AppModelRepository.inspectInvalidActiveForRecovery] Active row changed for ` +
+        `'${request.app_name}': expected row ${request.expected_row_id}, observed row ${rowId}.`,
+      )
+    }
+    if (fingerprint !== request.expected_source_fingerprint) {
+      throw new InvalidAppModelStateError(
+        `[AppModelRepository.inspectInvalidActiveForRecovery] Active row ${rowId} ` +
+        `fingerprint mismatch for '${request.app_name}'.`,
+      )
+    }
+
+    const validationErrors = invalidRowValidationErrors(row)
+    if (validationErrors.length === 0) {
+      throw new InvalidAppModelStateError(
+        `[AppModelRepository.inspectInvalidActiveForRecovery] Active row ${rowId} ` +
+        `for '${request.app_name}' is a valid App Model and is not eligible for invalid-active inspection.`,
+      )
+    }
+
+    return {
+      row_id: rowId,
+      app_name: row.app_name,
+      version: row.version,
+      status: row.status,
+      raw_model_json_fingerprint: fingerprint,
+      validation_errors: validationErrors,
+    }
+  }
+
   async findHistory(appName: string): Promise<StoredAppModel[]> {
     const db = getDb()
     return db.selectFrom('app_models')
@@ -456,6 +863,52 @@ export class AppModelRepository {
       )
     }
     return rows[0] ? parseCommittedRow(rows[0], 'findCommittedByOperation') : null
+  }
+
+  /**
+   * Resolve only a completed recovery replay whose durable source provenance
+   * matches the operator's exact request. A normal operation or a recovery for
+   * different evidence is an operation-identity conflict, never a replay.
+   */
+  async findCommittedRecoveryByOperation(
+    request: InvalidActiveRecoveryRequest,
+  ): Promise<CommittedAppModel | null> {
+    validateRecoveryRequest(request, 'findCommittedRecoveryByOperation')
+    const db = getDb()
+    let rows: StoredAppModel[]
+    try {
+      rows = await db.selectFrom('app_models')
+        .selectAll()
+        .where('app_name', '=', request.app_name)
+        .where('operation_id', '=', request.operation_id)
+        .orderBy('id', 'desc')
+        .limit(2)
+        .execute()
+    } catch (cause) {
+      throw new AppModelPersistenceError(
+        `[AppModelRepository.findCommittedRecoveryByOperation] Failed to resolve ` +
+        `'${request.app_name}' recovery '${request.operation_id}'.`,
+        { cause },
+      )
+    }
+    if (rows.length > 1) {
+      throw new InvalidAppModelStateError(
+        `[AppModelRepository.findCommittedRecoveryByOperation] Invalid database ` +
+        `state for '${request.app_name}' recovery '${request.operation_id}': ` +
+        `multiple committed rows (${rows.map(row => row.id).join(', ')}).`,
+      )
+    }
+    if (!rows[0]) return null
+    if (
+      Number(rows[0].recovery_source_row_id) !== request.expected_row_id
+      || rows[0].recovery_source_fingerprint !== request.expected_source_fingerprint
+    ) {
+      throw new AppModelOperationConflictError(
+        request.app_name,
+        request.operation_id,
+      )
+    }
+    return parseCommittedRow(rows[0], 'findCommittedRecoveryByOperation')
   }
 
   async getCommittedById(rowId: number): Promise<CommittedAppModel> {

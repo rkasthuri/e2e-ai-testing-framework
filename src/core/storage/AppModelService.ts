@@ -11,6 +11,10 @@
 
 import type { AppModel, AppModelCandidate } from '../onboarding/types'
 import { ModelNotFoundError } from '../errors/OperatorFacingError'
+import type {
+  InvalidActiveInspection,
+  InvalidActiveRecoveryRequest,
+} from './AppModelRecoveryContract'
 import {
   AppModelCommitResult,
   AppModelPersistenceError,
@@ -65,6 +69,12 @@ export function requireProjectedCommit(
 export class AppModelService {
   constructor(private readonly repository = new AppModelRepository()) {}
 
+  async inspectInvalidActiveForRecovery(
+    request: InvalidActiveRecoveryRequest,
+  ): Promise<InvalidActiveInspection> {
+    return this.repository.inspectInvalidActiveForRecovery(request)
+  }
+
   async findActive(appName: string): Promise<AppModel | null> {
     return this.repository.getModel(appName)
   }
@@ -113,6 +123,49 @@ export class AppModelService {
               `'${operationId}' already committed row ${existing.rowId} for ` +
               `'${appName}', but compatibility projection could not be retried. ` +
               `SQLite remains authoritative.`,
+              existing,
+              { cause },
+            ),
+      }
+    }
+  }
+
+  /**
+   * Recovery-specific durable replay. The repository verifies that operation
+   * identity and source provenance both match before projection is attempted.
+   */
+  async replayCommittedRecoveryOperation(
+    request: InvalidActiveRecoveryRequest,
+    project: AppModelProjector,
+  ): Promise<AppModelCommitProjectionResult | null> {
+    const existing = await this.repository.findCommittedRecoveryByOperation(request)
+    if (!existing) return null
+
+    const commit: AppModelCommitResult = {
+      outcome: 'replayed_existing',
+      committed: existing,
+    }
+    try {
+      const projected = await this.projectCommittedSnapshot(
+        existing.rowId,
+        request.app_name,
+        project,
+      )
+      return {
+        status: 'commit_and_projection_succeeded',
+        commit: { outcome: 'replayed_existing', committed: projected },
+      }
+    } catch (cause) {
+      return {
+        status: 'commit_succeeded_projection_failed',
+        commit,
+        error: cause instanceof AppModelProjectionError
+          ? cause
+          : new AppModelProjectionError(
+              `[AppModelService.replayCommittedRecoveryOperation] SQLite recovery ` +
+              `'${request.operation_id}' already committed row ${existing.rowId} ` +
+              `for '${request.app_name}', but compatibility projection could not ` +
+              `be retried. SQLite remains authoritative.`,
               existing,
               { cause },
             ),
@@ -182,6 +235,77 @@ export class AppModelService {
           `[AppModelService.commitAndProject] SQLite committed App Model ` +
           `'${committed.appName}' row ${committed.rowId} version ` +
           `'${committed.snapshot.app.modelVersion}', but the compatibility JSON ` +
+          `projection failed. SQLite remains authoritative.`,
+          committed,
+          { cause },
+        ),
+      }
+    }
+  }
+
+  async commitRecoveryAndProject(
+    candidate: AppModelCandidate,
+    request: InvalidActiveRecoveryRequest,
+    project: AppModelProjector,
+  ): Promise<AppModelCommitProjectionResult> {
+    let commit: AppModelCommitResult
+    try {
+      commit = await this.repository.commitInvalidActiveRecovery(candidate, request)
+    } catch (cause) {
+      const error = cause instanceof AppModelPersistenceError
+        ? cause
+        : new AppModelPersistenceError(
+            `[AppModelService.commitRecoveryAndProject] SQLite recovery commit ` +
+            `failed for '${request.app_name}' operation '${request.operation_id}'.`,
+            { cause },
+          )
+      return { status: 'commit_failed', error }
+    }
+
+    const committed = commit.committed
+    let activeRowId: number | null = null
+    try {
+      activeRowId = Number((await this.repository.findActive(committed.appName))?.id ?? 0) || null
+    } catch (cause) {
+      return {
+        status: 'commit_succeeded_projection_failed',
+        commit,
+        error: new AppModelProjectionError(
+          `[AppModelService.commitRecoveryAndProject] SQLite recovery row ` +
+          `${committed.rowId} was committed, but the active authority for ` +
+          `'${committed.appName}' could not be established. Compatibility JSON ` +
+          `was not changed.`,
+          committed,
+          { cause },
+        ),
+      }
+    }
+    if (committed.status !== 'active' || activeRowId !== committed.rowId) {
+      return {
+        status: 'commit_succeeded_projection_failed',
+        commit,
+        error: new AppModelProjectionError(
+          `[AppModelService.commitRecoveryAndProject] SQLite recovery operation ` +
+          `'${request.operation_id}' resolved to row ${committed.rowId}, but that ` +
+          `snapshot is '${committed.status}' and active row identity is ` +
+          `${activeRowId ?? 'absent'}, not the current exact authority. ` +
+          `Compatibility JSON was not changed.`,
+          committed,
+        ),
+      }
+    }
+
+    try {
+      await project(committed.snapshot)
+      return { status: 'commit_and_projection_succeeded', commit }
+    } catch (cause) {
+      return {
+        status: 'commit_succeeded_projection_failed',
+        commit,
+        error: new AppModelProjectionError(
+          `[AppModelService.commitRecoveryAndProject] SQLite committed guarded ` +
+          `recovery '${committed.appName}' row ${committed.rowId} version ` +
+          `'${committed.snapshot.app.modelVersion}', but compatibility JSON ` +
           `projection failed. SQLite remains authoritative.`,
           committed,
           { cause },

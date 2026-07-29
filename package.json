@@ -15,6 +15,7 @@
     "check:core": "tsc --noEmit",
     "test": "npx tsx src/run.ts --smoke",
     "test:unit": "tsx --test scripts/*.test.ts",
+    "test:rehearsal:td184b3": "tsx --test scripts/verify-td184b3-saucedemo-recovery-rehearsal.ts",
     "eval:triage": "npx tsx evals/triage/eval-production.ts",
     "eval:generation": "npx tsx evals/generation/harness.ts",
     "test:all": "npx tsx src/run.ts --stable",
