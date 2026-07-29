@@ -38,6 +38,8 @@ import { GeneratorRunner } from '../src/core/onboarding/GeneratorRunner'
 import { createWorkspace, Workspace } from '../src/core/workspace/WorkspaceManager'
 import { OnboardingConfig } from '../src/core/onboarding/types'
 import type { AppModelService } from '../src/core/storage/AppModelService'
+import { closeDb, initDb } from '../src/core/storage/db'
+import { runMigrations } from '../src/core/storage/migrate'
 
 const REPO_ROOT = path.resolve(__dirname, '..')
 
@@ -166,10 +168,18 @@ test('T10 generate(app, workspace) routes through workspace.writeTests*/loadMode
 })
 
 test('T10b generate(app) WITHOUT workspace still requires SQLite authority', async () => {
-  await assert.rejects(
-    () => new GeneratorRunner().generate('no-such-app-xyz'),
-    /No crawled model/,
-  )
+  const root = tempRoot()
+  try {
+    initDb(path.join(root, 'forge.db'))
+    await runMigrations()
+    await assert.rejects(
+      () => new GeneratorRunner().generate('no-such-app-xyz'),
+      /No crawled model/,
+    )
+  } finally {
+    await closeDb()
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 test('T11 `forge generate` with no workspace config → "Run forge crawl first" + exit 1', () => {
   const root = tempRoot()
