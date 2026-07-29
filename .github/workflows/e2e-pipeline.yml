@@ -355,43 +355,40 @@ jobs:
           retention-days: 30
 
       # ── Post PR comment ──────────────────────────────────────
-      - name: Read triage summary
+      - name: Evaluate current-run triage evidence
         id: triage
         if: always()
-        run: |
-          if [ -f reports/triage-report.json ]; then
-            FAILED=$(cat reports/triage-report.json | node -e "const j=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(j.totalFailed ?? 0)")
-            APPBUG=$(cat reports/triage-report.json | node -e "const j=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(j.summary?.['app-bug'] ?? 0)")
-            TESTDEF=$(cat reports/triage-report.json | node -e "const j=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(j.summary?.['test-defect'] ?? 0)")
-            INFRA=$(cat reports/triage-report.json | node -e "const j=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(j.summary?.['infra-defect'] ?? 0)")
-            FLAKY=$(cat reports/triage-report.json | node -e "const j=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(j.summary?.['flaky'] ?? 0)")
-            NEEDS=$(cat reports/triage-report.json | node -e "const j=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(j.summary?.['insufficient-evidence'] ?? 0)")
-            echo "failed=$FAILED" >> $GITHUB_OUTPUT
-            echo "app_bug=$APPBUG" >> $GITHUB_OUTPUT
-            echo "test_defect=$TESTDEF" >> $GITHUB_OUTPUT
-            echo "infra_defect=$INFRA" >> $GITHUB_OUTPUT
-            echo "flaky=$FLAKY" >> $GITHUB_OUTPUT
-            echo "needs_review=$NEEDS" >> $GITHUB_OUTPUT
-          else
-            echo "failed=0" >> $GITHUB_OUTPUT
-            echo "app_bug=0" >> $GITHUB_OUTPUT
-            echo "test_defect=0" >> $GITHUB_OUTPUT
-            echo "infra_defect=0" >> $GITHUB_OUTPUT
-            echo "flaky=0" >> $GITHUB_OUTPUT
-            echo "needs_review=0" >> $GITHUB_OUTPUT
-          fi
+        run: >-
+          npx tsx src/pipeline/ai-triage.ts --ci-decision
+          --report=reports/triage-report.json
+          --expected-run-id="$CURRENT_RUN_ID"
+          --github-output="$GITHUB_OUTPUT"
 
       - name: Post PR comment
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
+        env:
+          REPORT_DECISION: ${{ steps.triage.outputs.decision }}
+          REPORT_REASON: ${{ steps.triage.outputs.reason }}
+          REPORT_FAILED: ${{ steps.triage.outputs.failed }}
+          REPORT_APP_BUG: ${{ steps.triage.outputs.app_bug }}
+          REPORT_TEST_DEFECT: ${{ steps.triage.outputs.test_defect }}
+          REPORT_FLAKY: ${{ steps.triage.outputs.flaky }}
+          REPORT_NEEDS_REVIEW: ${{ steps.triage.outputs.needs_review }}
+          REPORT_STATUS_MESSAGE: ${{ steps.triage.outputs.status_message }}
+          REPORT_MERGE_MESSAGE: ${{ steps.triage.outputs.merge_message }}
         with:
           script: |
-            const failed     = '${{ steps.triage.outputs.failed }}';
-            const appBug     = '${{ steps.triage.outputs.app_bug }}';
-            const testDefect = '${{ steps.triage.outputs.test_defect }}';
-            const flaky      = '${{ steps.triage.outputs.flaky }}';
-            const needs      = '${{ steps.triage.outputs.needs_review }}';
-            const status = failed === '0' ? '✅ All tests passed' : `⚠️ ${failed} failure(s) detected`;
+            const decision   = process.env.REPORT_DECISION || 'BLOCKED';
+            const reason     = process.env.REPORT_REASON || 'reporting decision output is unavailable';
+            const failed     = process.env.REPORT_FAILED || 'unavailable';
+            const appBug     = process.env.REPORT_APP_BUG || 'unavailable';
+            const testDefect = process.env.REPORT_TEST_DEFECT || 'unavailable';
+            const flaky      = process.env.REPORT_FLAKY || 'unavailable';
+            const needs      = process.env.REPORT_NEEDS_REVIEW || 'unavailable';
+            const status = process.env.REPORT_STATUS_MESSAGE || 'Reporting decision BLOCKED';
+            const mergeMessage = process.env.REPORT_MERGE_MESSAGE
+              || `> Merge safety cannot be established - ${reason}.`;
             const suite  = '${{ steps.suite.outputs.label }}';
             const run    = '${{ github.run_number }}';
 
@@ -416,9 +413,7 @@ jobs:
               `- 📊 Trend dashboard — download from run artifacts`,
               `- 📝 Suggested fixes — download from run artifacts`,
               '',
-              appBug > 0
-                ? `> ⚠️ **${appBug} Application defect(s) detected** — review suggested-fixes.md before merging.`
-                : '> Pipeline healthy — safe to merge.',
+              mergeMessage,
             ].join('\n');
 
             github.rest.issues.createComment({
@@ -432,6 +427,8 @@ jobs:
       - name: Check test outcome
         if: always()
         run: |
+          echo "Reporting decision:             ${{ steps.triage.outputs.decision }}"
+          echo "Decision reason:                ${{ steps.triage.outputs.reason }}"
           echo "ℹ️  Triage attribution (INFORMATIONAL — non-blocking per §4/TD-078):"
           echo "Application Defects (app-bug): ${{ steps.triage.outputs.app_bug }}"
           echo "Test Defects:                  ${{ steps.triage.outputs.test_defect }}"
@@ -439,6 +436,17 @@ jobs:
           echo "Flaky:                         ${{ steps.triage.outputs.flaky }}"
           echo "Needs Review:                  ${{ steps.triage.outputs.needs_review }}"
           echo "Note: bug-gate is non-blocking; only app-bug represents a real application defect (TD-063/TD-078)."
+
+      - name: Enforce reporting evidence completeness
+        if: always()
+        env:
+          REPORT_DECISION: ${{ steps.triage.outputs.decision }}
+        run: |
+          if [ "$REPORT_DECISION" != "PASS" ] && [ "$REPORT_DECISION" != "FAIL" ]; then
+            echo "Reporting decision is ${REPORT_DECISION:-unavailable}; required current-run evidence is incomplete."
+            exit 1
+          fi
+          echo "Reporting evidence is complete; decision=$REPORT_DECISION."
 
   # ── Job 3: Notify on failure ─────────────────────────────────
   notify-on-failure:

@@ -85,11 +85,14 @@ interface TriageResult {
 }
 
 interface TriageReport {
-  runTimestamp: string;
-  totalTests:   number;
-  totalFailed:  number;
-  summary: Record<TriageCategory, number>;
-  results:      TriageResult[];
+  runId:            string;
+  inputHealth:      InputHealth;
+  inputHealthReason: InputHealthReason;
+  runTimestamp:     string;
+  totalTests:       number;
+  totalFailed:      number;
+  summary:          Record<TriageCategory, number>;
+  results:          TriageResult[];
 }
 
 // ── Playwright JSON types (actual reporter format) ────────────
@@ -198,19 +201,30 @@ async function main() {
   const report: PWReport = parsedReport;
   const failedTests = extractFailedTests(report);
 
-if (failedTests.length === 0) {
-  console.log('✅ All tests passed — nothing to triage!\n');
-  const emptyReport = {
-    runTimestamp: new Date().toISOString(),
-    totalTests: report.stats.total ?? report.stats.expected ?? 0,
-    totalFailed: 0,
-    summary: emptySummary(),
-    results: []
-  };
-   fs.writeFileSync('reports/triage-report.json',
-    JSON.stringify(emptyReport, null, 2), 'utf-8');
-  process.exit(0);
-}
+  if (failedTests.length === 0) {
+    const emptyReport: TriageReport = {
+      runId,
+      inputHealth: health,
+      inputHealthReason: reason,
+      runTimestamp: new Date().toISOString(),
+      totalTests: report.stats.total ?? report.stats.expected ?? 0,
+      totalFailed: 0,
+      summary: emptySummary(),
+      results: [],
+    };
+    fs.writeFileSync(CONFIG.outputJson, JSON.stringify(emptyReport, null, 2), 'utf-8');
+
+    if (health !== 'healthy') {
+      console.error(
+        `Reporting evidence BLOCKED - test input health is ${health}` +
+        `${reason ? ` (${reason})` : ''}. Refusing to report all tests passed.`,
+      );
+      process.exit(1);
+    }
+
+    console.log('All tests passed - nothing to triage!\n');
+    process.exit(0);
+  }
 
   console.log(`📋 ${failedTests.length} failure(s) found. Sending to Claude for RCA...\n`);
 
@@ -240,7 +254,7 @@ if (failedTests.length === 0) {
     for (const r of results) r.confidenceSource = 'fallback';
   }
 
-  const triageReport = buildReport(report, results);
+  const triageReport = buildReport(report, results, runId, health, reason);
   fs.writeFileSync(CONFIG.outputJson, JSON.stringify(triageReport, null, 2), 'utf-8');
   fs.writeFileSync(CONFIG.outputMd,   buildMarkdown(triageReport, health, reason, report.stats.startTime), 'utf-8');
 
@@ -514,10 +528,19 @@ function emptySummary(): Record<TriageCategory, number> {
   );
 }
 
-function buildReport(pw: PWReport, results: TriageResult[]): TriageReport {
+function buildReport(
+  pw: PWReport,
+  results: TriageResult[],
+  runId: string,
+  inputHealth: InputHealth,
+  inputHealthReason: InputHealthReason,
+): TriageReport {
   const summary = emptySummary();
   for (const r of results) summary[r.verdict]++;
   return {
+    runId,
+    inputHealth,
+    inputHealthReason,
     runTimestamp: new Date().toISOString(),
     totalTests:   pw.stats.total ?? ((pw.stats.expected ?? 0) + pw.stats.unexpected + (pw.stats.flaky ?? 0) + (pw.stats.skipped ?? 0)),
     totalFailed:  results.length,
@@ -607,6 +630,190 @@ function verdictIcon(v: RCAVerdict) {
   return TRIAGE_DISPLAY[v]?.icon ?? '❓';
 }
 
+export type CiReportingDecisionState = 'PASS' | 'FAIL' | 'BLOCKED';
+
+export interface CiReportingDecision {
+  state: CiReportingDecisionState;
+  reason: string;
+  counts: {
+    failed: number;
+    appBug: number;
+    testDefect: number;
+    infraDefect: number;
+    flaky: number;
+    needsReview: number;
+  } | null;
+  statusMessage: string;
+  mergeMessage: string;
+}
+
+type ReadTriageText = (filePath: string) => string;
+
+function decisionLine(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
+function blockedDecision(reason: string): CiReportingDecision {
+  const detail = decisionLine(reason);
+  return {
+    state: 'BLOCKED',
+    reason: detail,
+    counts: null,
+    statusMessage: 'Reporting decision BLOCKED',
+    mergeMessage: `> Merge safety cannot be established - ${detail}`,
+  };
+}
+
+function isDecisionRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isDecisionCount(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+export function evaluateCiTriageEvidence(
+  value: unknown,
+  expectedRunId: string,
+): CiReportingDecision {
+  const currentRunId = expectedRunId.trim();
+  if (!currentRunId) {
+    return blockedDecision('CURRENT_RUN_ID is missing; current-run provenance cannot be established.');
+  }
+  if (!isDecisionRecord(value)) {
+    return blockedDecision('Triage report is malformed; expected a JSON object.');
+  }
+  if (typeof value.runId !== 'string' || value.runId.trim() === '') {
+    return blockedDecision('Triage report is missing required CURRENT_RUN_ID provenance.');
+  }
+  if (value.runId !== currentRunId) {
+    return blockedDecision(
+      `Triage report is stale: expected run ${currentRunId}, received ${value.runId}.`,
+    );
+  }
+  if (value.inputHealth !== 'healthy') {
+    const reason = typeof value.inputHealthReason === 'string'
+      ? ` (${value.inputHealthReason})`
+      : '';
+    return blockedDecision(`Triage input evidence is ${String(value.inputHealth)}${reason}, not healthy.`);
+  }
+  if (!isDecisionCount(value.totalTests) || !isDecisionCount(value.totalFailed)) {
+    return blockedDecision('Triage report is malformed; test counts must be non-negative integers.');
+  }
+  if (!isDecisionRecord(value.summary) || !Array.isArray(value.results)) {
+    return blockedDecision('Triage report is malformed; summary and result rows are required.');
+  }
+  const decisionSummary = value.summary;
+  if (!ALL_TRIAGE_CATEGORIES.every(category => isDecisionCount(decisionSummary[category]))) {
+    return blockedDecision('Triage report is malformed; canonical category counts are incomplete.');
+  }
+
+  const summary = decisionSummary as Record<TriageCategory, number>;
+  const summaryTotal = ALL_TRIAGE_CATEGORIES.reduce(
+    (total, category) => total + summary[category],
+    0,
+  );
+  if (summaryTotal !== value.totalFailed || value.results.length !== value.totalFailed) {
+    return blockedDecision('Triage report is inconsistent; failure totals do not match evidence rows.');
+  }
+
+  const counts = {
+    failed: value.totalFailed,
+    appBug: summary['app-bug'],
+    testDefect: summary['test-defect'],
+    infraDefect: summary['infra-defect'],
+    flaky: summary.flaky,
+    needsReview: summary['insufficient-evidence'],
+  };
+
+  if (value.totalFailed === 0) {
+    return {
+      state: 'PASS',
+      reason: 'Complete current-run triage evidence reports zero failures.',
+      counts,
+      statusMessage: 'All tests passed',
+      mergeMessage: '> Pipeline healthy - safe to merge.',
+    };
+  }
+
+  return {
+    state: 'FAIL',
+    reason: `Complete current-run triage evidence reports ${value.totalFailed} failure(s).`,
+    counts,
+    statusMessage: `${value.totalFailed} failure(s) detected`,
+    mergeMessage: summary['app-bug'] > 0
+      ? `> **${summary['app-bug']} Application defect(s) detected** - review suggested-fixes.md before merging.`
+      : '> Failures detected - review is required; no positive merge recommendation is available.',
+  };
+}
+
+export function readCiTriageEvidence(
+  reportPath: string,
+  expectedRunId: string,
+  readText: ReadTriageText = filePath => fs.readFileSync(filePath, 'utf-8'),
+): CiReportingDecision {
+  if (!fs.existsSync(reportPath)) {
+    return blockedDecision(`Required triage report is missing: ${reportPath}`);
+  }
+
+  let raw: string;
+  try {
+    raw = readText(reportPath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return blockedDecision(`Required triage report is unreadable: ${decisionLine(message)}`);
+  }
+
+  if (raw.trim() === '') {
+    return blockedDecision(`Required triage report is empty: ${reportPath}`);
+  }
+
+  try {
+    return evaluateCiTriageEvidence(JSON.parse(raw) as unknown, expectedRunId);
+  } catch {
+    return blockedDecision(`Required triage report is malformed JSON: ${reportPath}`);
+  }
+}
+
+export function writeCiDecisionOutputs(outputPath: string, decision: CiReportingDecision): void {
+  const counts = decision.counts;
+  const outputs: Record<string, string> = {
+    decision: decision.state,
+    reason: decision.reason,
+    failed: counts ? String(counts.failed) : 'unavailable',
+    app_bug: counts ? String(counts.appBug) : 'unavailable',
+    test_defect: counts ? String(counts.testDefect) : 'unavailable',
+    infra_defect: counts ? String(counts.infraDefect) : 'unavailable',
+    flaky: counts ? String(counts.flaky) : 'unavailable',
+    needs_review: counts ? String(counts.needsReview) : 'unavailable',
+    status_message: decision.statusMessage,
+    merge_message: decision.mergeMessage,
+  };
+  const text = Object.entries(outputs)
+    .map(([key, value]) => `${key}=${decisionLine(value)}`)
+    .join('\n');
+  fs.appendFileSync(outputPath, `${text}\n`, 'utf-8');
+}
+
+function ciDecisionArgument(name: string): string | undefined {
+  const prefix = `--${name}=`;
+  return process.argv.find(value => value.startsWith(prefix))?.slice(prefix.length);
+}
+
+function runCiDecisionCli(): void {
+  const reportPath = ciDecisionArgument('report') ?? CONFIG.outputJson;
+  const expectedRunId = ciDecisionArgument('expected-run-id') ?? process.env.CURRENT_RUN_ID ?? '';
+  const outputPath = ciDecisionArgument('github-output') ?? process.env.GITHUB_OUTPUT;
+  if (!outputPath) {
+    throw new Error('GITHUB_OUTPUT is unavailable; the reporting decision cannot be exported.');
+  }
+  const decision = readCiTriageEvidence(reportPath, expectedRunId);
+  writeCiDecisionOutputs(outputPath, decision);
+  console.log(`[ci-reporting] decision=${decision.state}`);
+  console.log(`[ci-reporting] reason=${decision.reason}`);
+  if (decision.state === 'BLOCKED') process.exitCode = 1;
+}
+
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 // Only auto-run the pipeline when invoked directly (npm run triage / tsx CLI / CI).
@@ -614,5 +821,14 @@ function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 // eval harness without triggering a full triage run. Behavior-preserving for every
 // real invocation \u2014 require.main === module is true when run directly.
 if (require.main === module) {
-  main().catch(err => { console.error('\n\u274c Fatal:', err); process.exit(1); });
+  if (process.argv.includes('--ci-decision')) {
+    try {
+      runCiDecisionCli();
+    } catch (err) {
+      console.error('\n\u274c Fatal:', err);
+      process.exit(1);
+    }
+  } else {
+    main().catch(err => { console.error('\n\u274c Fatal:', err); process.exit(1); });
+  }
 }
