@@ -175,7 +175,10 @@ test('TD183-9 exact valid pre-016 state migrates successfully', async () => {
 
 test('TD183-10 Migration 016 followed by 017 succeeds in order', async () => {
   const db = await openDatabase(copyTemplate('016-then-017'))
-  assert.deepEqual(await runSqliteMigrationCoordinator(db, allMigrations), ['016_app_models_single_active', '017_app_models_operation_identity'])
+  assert.deepEqual(
+    await runSqliteMigrationCoordinator(db, through('017_app_models_operation_identity')),
+    ['016_app_models_single_active', '017_app_models_operation_identity'],
+  )
   assert.equal((await columns(db)).includes('operation_id'), true)
   assert.equal((await columns(db)).includes('candidate_hash'), true)
   assert.equal((await indexes(db)).includes('idx_models_one_active'), true)
