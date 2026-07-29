@@ -13,9 +13,10 @@
  */
 
 import express from 'express'
-import cors from 'cors'
+import cors, { type CorsOptions } from 'cors'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+import type { Request, Response, NextFunction } from 'express'
 import { authMiddleware } from './context/AuthContext'
 import { tenantMiddleware } from './context/TenantContext'
 import { migrateFixtures } from './scripts/migrateFixtures'
@@ -32,6 +33,46 @@ import streamRouter from './routes/stream'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+/** Local-owner mode is safe only while the control plane is loopback-bound. */
+export const LOCAL_ONLY_HOST = '127.0.0.1'
+
+/** Browser origins accepted by the local control plane, including IPv6 loopback. */
+export function isAllowedLocalOrigin(origin: string | undefined): boolean {
+  if (origin === undefined) return true
+
+  try {
+    const parsed = new URL(origin)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    return parsed.hostname === 'localhost'
+      || parsed.hostname === '127.0.0.1'
+      || parsed.hostname === '[::1]'
+      || parsed.hostname === '::1'
+  } catch {
+    return false
+  }
+}
+
+/** Reject cross-origin browser requests before they can reach privileged routes. */
+export function localOriginGuard(req: Request, res: Response, next: NextFunction): void {
+  const origin = req.get('origin')
+  if (isAllowedLocalOrigin(origin)) {
+    next()
+    return
+  }
+
+  res.status(403).json({
+    error: 'FORGE UI accepts browser requests only from a local loopback origin.',
+    code: 'LOCAL_ORIGIN_REQUIRED',
+    timestamp: new Date().toISOString(),
+  })
+}
+
+export const localCorsOptions: CorsOptions = {
+  origin(origin, callback) {
+    callback(null, isAllowedLocalOrigin(origin))
+  },
+}
+
 /** Next port to try — ruling C: skip 3001 (reserved for platform-server). */
 export function nextPort(port: number): number {
   return port === 3000 ? 3002 : port + 1
@@ -44,7 +85,8 @@ export async function startServer(port = 3000): Promise<number> {
 
   const app = express()
 
-  app.use(cors())
+  app.use(localOriginGuard)
+  app.use(cors(localCorsOptions))
   app.use(express.json())
   app.use(authMiddleware)
   app.use(tenantMiddleware)
@@ -77,8 +119,8 @@ export async function startServer(port = 3000): Promise<number> {
   })
 
   return new Promise<number>((resolve, reject) => {
-    const server = app.listen(port, () => {
-      console.log(`[FORGE UI] Server running at http://localhost:${port}`)
+    const server = app.listen(port, LOCAL_ONLY_HOST, () => {
+      console.log(`[FORGE UI] Server bound to http://${LOCAL_ONLY_HOST}:${port}`)
       resolve(port)   // actual bound port (may differ from requested after auto-detect)
     })
 

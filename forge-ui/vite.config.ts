@@ -11,9 +11,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:3000',
+      '/api': 'http://127.0.0.1:3000',
       // Brand asset served by the Express control-plane (dev + prod).
-      '/forge-logo.png': { target: 'http://localhost:3000', changeOrigin: true },
+      '/forge-logo.png': { target: 'http://127.0.0.1:3000', changeOrigin: true },
     },
   },
   build: {

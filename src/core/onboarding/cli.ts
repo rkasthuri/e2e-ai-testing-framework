@@ -246,7 +246,7 @@ async function main() {
       const uiServerPath = '../../../forge-ui/server/index'
       const { startServer } = (await import(uiServerPath)) as { startServer: (p?: number) => Promise<number> }
       const actualPort = await startServer(requestedPort)
-      const url = `http://localhost:${actualPort}`
+      const url = `http://127.0.0.1:${actualPort}`
       // Ruling B: open the browser via platform exec — no 'open' dependency.
       const { exec } = await import('child_process')
       const opener = process.platform === 'win32' ? `start "" "${url}"`

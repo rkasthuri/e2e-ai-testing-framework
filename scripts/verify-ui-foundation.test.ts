@@ -25,11 +25,20 @@ import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { once } from 'node:events'
+import express from 'express'
+import cors from 'cors'
 import { LOCAL_USER } from '../forge-ui/src/contexts/AuthContext'
 import { LOCAL_TENANT } from '../forge-ui/src/contexts/TenantContext'
 import { ExecutionContext } from '../forge-ui/server/context/ExecutionContext'
 import { WorkspaceResolver } from '../forge-ui/server/context/WorkspaceResolver'
-import { nextPort } from '../forge-ui/server/index'
+import {
+  LOCAL_ONLY_HOST,
+  isAllowedLocalOrigin,
+  localCorsOptions,
+  localOriginGuard,
+  nextPort,
+} from '../forge-ui/server/index'
 import { notImplemented } from '../forge-ui/server/http'
 
 const ROOT = path.resolve(__dirname, '..')
@@ -104,4 +113,86 @@ test('T8 cli.ts has the ui command wired to startServer', () => {
   const cli = read('src/core/onboarding/cli.ts')
   assert.match(cli, /case 'ui':/)
   assert.match(cli, /startServer/)
+  assert.match(cli, /http:\/\/127\.0\.0\.1:\$\{actualPort\}/)
+})
+
+// T9 - the local browser-origin policy accepts loopback only.
+test('T9 local origin policy accepts IPv4/IPv6 loopback and rejects other origins', () => {
+  assert.equal(isAllowedLocalOrigin(undefined), true)
+  assert.equal(isAllowedLocalOrigin('http://localhost:5173'), true)
+  assert.equal(isAllowedLocalOrigin('http://127.0.0.1:3000'), true)
+  assert.equal(isAllowedLocalOrigin('http://[::1]:5173'), true)
+  assert.equal(isAllowedLocalOrigin('https://localhost:3000'), true)
+  assert.equal(isAllowedLocalOrigin('https://example.com'), false)
+  assert.equal(isAllowedLocalOrigin('http://127.0.0.1.example.com'), false)
+  assert.equal(isAllowedLocalOrigin('null'), false)
+  assert.equal(isAllowedLocalOrigin('file:///tmp/forge.html'), false)
+})
+
+// T10 - live proof that the socket is loopback-only and the origin guard runs
+// before a representative mutating route.
+test('T10 local server boundary binds loopback and blocks unsafe-origin mutation', async () => {
+  const app = express()
+  let mutations = 0
+  app.use(localOriginGuard)
+  app.use(cors(localCorsOptions))
+  app.use(express.json())
+  app.post('/mutate', (_req, res) => {
+    mutations += 1
+    res.status(200).json({ ok: true })
+  })
+
+  const server = app.listen(0, LOCAL_ONLY_HOST)
+  await once(server, 'listening')
+  try {
+    const address = server.address()
+    assert.ok(address && typeof address !== 'string')
+    assert.equal(address.address, LOCAL_ONLY_HOST)
+
+    const allowed = await fetch(`http://${LOCAL_ONLY_HOST}:${address.port}/mutate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'http://localhost:5173',
+      },
+      body: '{}',
+    })
+    assert.equal(allowed.status, 200)
+    assert.equal(allowed.headers.get('access-control-allow-origin'), 'http://localhost:5173')
+
+    const rejected = await fetch(`http://${LOCAL_ONLY_HOST}:${address.port}/mutate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://example.com',
+      },
+      body: '{}',
+    })
+    assert.equal(rejected.status, 403)
+    assert.equal(rejected.headers.get('access-control-allow-origin'), null)
+    assert.equal(mutations, 1)
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve())
+    })
+  }
+})
+
+// T11 - all three launch surfaces enforce an explicit loopback host, and the
+// auxiliary servers reject unsafe browser origins before routing.
+test('T11 primary and auxiliary servers wire the local-only boundary', () => {
+  const ui = read('forge-ui/server/index.ts')
+  assert.match(ui, /app\.listen\(port,\s*LOCAL_ONLY_HOST/)
+  assert.match(ui, /app\.use\(localOriginGuard\)/)
+  assert.doesNotMatch(ui, /app\.use\(cors\(\)\)/)
+
+  const vite = read('forge-ui/vite.config.ts')
+  assert.match(vite, /http:\/\/127\.0\.0\.1:3000/)
+  assert.doesNotMatch(vite, /http:\/\/localhost:3000/)
+
+  for (const rel of ['src/platform/dashboard-server.ts', 'src/platform/query-server.ts']) {
+    const source = read(rel)
+    assert.match(source, /server\.listen\(PORT,\s*LOCAL_ONLY_HOST/)
+    assert.match(source, /if \(rejectUnsafeBrowserOrigin\(req,\s*res\)\) return/)
+  }
 })

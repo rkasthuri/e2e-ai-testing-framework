@@ -37,8 +37,35 @@ import { getAppName, getBaseUrl } from '../core/config/appConfig'
 dotenv.config();
 
 const PORT     = 4242;
+const LOCAL_ONLY_HOST = '127.0.0.1';
 const INDEX    = 'reports/knowledge-index.json';
 const API_KEY  = process.env.ANTHROPIC_API_KEY ?? '';
+
+function isAllowedLocalOrigin(origin: string | undefined): boolean {
+  if (origin === undefined) return true;
+  try {
+    const parsed = new URL(origin);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && (
+        parsed.hostname === 'localhost'
+        || parsed.hostname === '127.0.0.1'
+        || parsed.hostname === '[::1]'
+        || parsed.hostname === '::1'
+      );
+  } catch {
+    return false;
+  }
+}
+
+function rejectUnsafeBrowserOrigin(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  if (isAllowedLocalOrigin(req.headers.origin)) return false;
+  res.writeHead(403, { 'Content-Type': 'application/json', 'Vary': 'Origin' });
+  res.end(JSON.stringify({
+    error: 'FORGE query UI accepts browser requests only from a local loopback origin.',
+    code: 'LOCAL_ORIGIN_REQUIRED',
+  }));
+  return true;
+}
 
 // ── Build knowledge index if missing ─────────────────────────
 
@@ -292,6 +319,7 @@ async function main() {
   const ui    = buildUI(index);
 
   const server = http.createServer((req, res) => {
+    if (rejectUnsafeBrowserOrigin(req, res)) return;
     if (req.method === 'GET' && req.url === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(ui);
@@ -304,7 +332,7 @@ async function main() {
     }
   });
 
-  server.listen(PORT, () => {
+  server.listen(PORT, LOCAL_ONLY_HOST, () => {
     console.log(`\n🧠 Knowledge Base UI — running at http://localhost:${PORT}\n`);
     console.log(`  ${index.totalRuns} runs indexed · ${(index.topFailures ?? []).length} failure patterns`);
     console.log('\n  Press Ctrl+C to stop.\n');

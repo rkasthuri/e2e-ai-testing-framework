@@ -35,7 +35,34 @@ import { resolveOverallHealth, healthBadgeLabel, healthBadgeColors } from './hea
 dotenv.config();
 
 const PORT    = 4243;
+const LOCAL_ONLY_HOST = '127.0.0.1';
 const API_KEY = process.env.ANTHROPIC_API_KEY ?? '';
+
+function isAllowedLocalOrigin(origin: string | undefined): boolean {
+  if (origin === undefined) return true;
+  try {
+    const parsed = new URL(origin);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && (
+        parsed.hostname === 'localhost'
+        || parsed.hostname === '127.0.0.1'
+        || parsed.hostname === '[::1]'
+        || parsed.hostname === '::1'
+      );
+  } catch {
+    return false;
+  }
+}
+
+function rejectUnsafeBrowserOrigin(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  if (isAllowedLocalOrigin(req.headers.origin)) return false;
+  res.writeHead(403, { 'Content-Type': 'application/json', 'Vary': 'Origin' });
+  res.end(JSON.stringify({
+    error: 'FORGE dashboard accepts browser requests only from a local loopback origin.',
+    code: 'LOCAL_ORIGIN_REQUIRED',
+  }));
+  return true;
+}
 
 // ── Data loaders ──────────────────────────────────────────────
 
@@ -628,6 +655,7 @@ function main() {
   if (!API_KEY) { console.error('❌ ANTHROPIC_API_KEY not set in .env\n'); process.exit(1); }
 
   const server = http.createServer((req, res) => {
+    if (rejectUnsafeBrowserOrigin(req, res)) return;
     if (req.method === 'GET' && req.url === '/') {
       res.writeHead(200,{'Content-Type':'text/html'});
       buildHTML().then(html => res.end(html)).catch(e => { res.writeHead(500); res.end(String(e)); });
@@ -638,7 +666,7 @@ function main() {
     } else { res.writeHead(404); res.end(); }
   });
 
-  server.listen(PORT, () => {
+  server.listen(PORT, LOCAL_ONLY_HOST, () => {
     console.log('\n🚀 FORGE — Autonomous Quality Engineering\n');
     console.log(`   http://localhost:${PORT}\n`);
     console.log('   • Click metric cards  → drill into details');
