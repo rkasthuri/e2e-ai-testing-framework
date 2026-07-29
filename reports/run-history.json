@@ -2,34 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-02T23-46-46",
-      "timestamp": "2026-07-02T23:46:53.527Z",
-      "durationMs": 490073,
-      "stats": {
-        "total": 316,
-        "passed": 315,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Fixture setup timeout before test execution indicates infrastructure/environment failure, not app or test logic.",
-          "suggestedAction": "Check CI network connectivity, browser launch reliability, and orangehrm environment availability; verify adminUser fixture implementation for network dependencies or slow external calls.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": []
-    },
-    {
       "runId": "2026-07-03T08-52-36",
       "timestamp": "2026-07-03T08:52:47.915Z",
       "durationMs": 546851,
@@ -2035,6 +2007,23 @@
       "runId": "2026-07-29T13-16-04",
       "timestamp": "2026-07-29T13:17:05.943Z",
       "durationMs": 433563,
+      "stats": {
+        "total": 316,
+        "passed": 316,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-07-29T16-21-14",
+      "timestamp": "2026-07-29T16:22:13.854Z",
+      "durationMs": 474203,
       "stats": {
         "total": 316,
         "passed": 316,
