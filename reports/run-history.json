@@ -2,36 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-03T20-10-43",
-      "timestamp": "2026-07-03T20:10:54.103Z",
-      "durationMs": 527056,
-      "stats": {
-        "total": 316,
-        "passed": 315,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Fixture setup timeout before test execution indicates infrastructure or environment failure, not app or test defect.",
-          "suggestedAction": "Verify CI environment resources, network connectivity to orangehrm, browser launch stability, and consider increasing fixture setup timeout if consistently needed.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
       "runId": "2026-07-04T08-27-33",
       "timestamp": "2026-07-04T08:27:48.000Z",
       "durationMs": 539992,
@@ -2002,6 +1972,31 @@
       },
       "failures": [],
       "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-07-30T08-11-24",
+      "timestamp": "2026-07-30T08:12:19.461Z",
+      "durationMs": 437983,
+      "stats": {
+        "total": 320,
+        "passed": 319,
+        "failed": 0,
+        "flaky": 1,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [
+        {
+          "testTitle": "TC040 - Session persists after page refresh and browser navigation",
+          "file": "desktop/ui/saucedemo/tests/login.spec.ts",
+          "browser": "webkit",
+          "retries": 1,
+          "durationMs": 8750
+        }
+      ],
       "inputHealth": "healthy",
       "inputHealthReason": null
     }
