@@ -1,172 +1,156 @@
-# CURRENT_MILESTONE.md
-<!-- version: 1.0 | status: ACTIVE | owner: Raj Kasthuri (AnvilQ Technologies LLC) -->
-<!-- Last updated: 2026-07-22 — sourced from CC repo verification + on-disk ledger + git state -->
-
-> The active milestone scope, objectives, and completion criteria.
-> This document must be updated at the start and end of every milestone.
-> Verify against PROJECT_STATE.md and on-disk TECH_DEBT.md before citing.
+# Current Milestone
 
 ---
 
-## Active Milestone
+Document Authority:
+C — Status/Snapshot
 
-**Name:** Bootstrap Signal Integrity + Platform UI Completion
-**Phase:** Phase 4 (Platform UI) / Phase 5 (Agentic / Bootstrap)
-**Status:** 🔄 In Progress
+Owner:
+Milestone Owner
 
----
+Source of Truth:
+Roadmap decisions, completed commits, commit-matched validation evidence, and
+the current approved milestone scope
 
-## 1. Context — How We Got Here
+Refresh Trigger:
+Milestone transition, approved scope change, gate completion, or material
+blocker change
 
-The core pipeline (Crawl → Model → Verify → Generate → Execute → Triage → Heal →
-Learn) is operational across multiple live test targets. The forge-ui platform UI
-has the **Crawl** tab at GREEN; the **Onboard** tab's TD-173 blocker is now **RESOLVED**
-(2026-07-23, `7e2783f` — `detectRenderingModel` emits `'unknown'` at the floor after a delayed
-sample; `'static-rendered'` retired). Onboard is not yet declared GREEN: TD-166 (multi-writer
-authType) remains open with a bounded mitigation only. Correct-and-honest rule: an area with an
-open High defect is not GREEN. Work is active on two parallel fronts:
-
-**Front A — Platform UI (forge-ui):**
-The Tests tab (TD-UI-003) design is approved and build is in progress.
-Results, Insights, and Settings tabs remain as stubs.
-
-**Front B — Bootstrap Signal Integrity:**
-Bootstrap Mode (auto-config from URL) surfaced signal integrity defects during
-validation work. TD-162 and TD-163 were logged 2026-07-20; TD-166, TD-167, and
-TD-168 were logged 2026-07-21. **TD-162 is now closed** (works-as-designed,
-2026-07-21) and **TD-163's refactor landed** (2026-07-22, 0c81b4d/845e513). **2026-07-23:
-TD-173 RESOLVED (`7e2783f`), TD-168 L1/L2/L3 shipped (L4 WAD), TD-166 bounded mitigation shipped
-(multi-writer defect stays open).** Only **TD-167** remains flagged investigation-before-fix.
-This front must not be patched without root cause diagnosis.
-
-Additionally, a standing rule was established 2026-07-20: **no current GREEN
-status has been verified for correctness** — all prior scoring was on honesty
-alone. GREEN requires both HONEST and CORRECT.
+Last Verified:
+2026-07-29
 
 ---
 
-## 2. Active Objectives
+This document tracks the current milestone. It does not define architecture,
+governance, or technical-debt status. Verify implementation claims against Git,
+CI, code, tests, and root [`TECH_DEBT.md`](../../TECH_DEBT.md).
 
-### Objective 1 — Resolve Bootstrap Signal Integrity Defects
+## Milestone
 
-| TD | Description | Gate |
-|---|---|---|
-| TD-162 | StrategyDetector zero-signal counting fault (Wikipedia realLinks=0 on a 376-link page) | ✅ CLOSED 2026-07-21 — works as designed; realLinks=0 is accurate (375/376 anchors cross-origin; realLinks = same-origin navigable). NOT a counting failure. |
-| TD-163 | appType claimed navigation architecture (`'spa'`) from a rendering-only marker (`spaDom=1`) | ✅ Refactor landed 2026-07-22 (0c38a31/0c81b4d/845e513) — ADR-021: emit observed rendering; appType leaves the evidence model. |
-| TD-173 | detectRenderingModel floored to `'static-rendered'` with no framework marker | ✅ RESOLVED 2026-07-23 (`7e2783f`) — floor emits `'unknown'` after a delayed sample; `'static-rendered'` retired from the schema enum. No longer blocks Onboard GREEN. |
-| TD-166 | authType.value non-deterministic across onboarding runs | 🟠 Bounded mitigation shipped 2026-07-23 (`6f55ddd`); the multi-writer ownership defect stays OPEN (containment test M7). |
-| TD-167 | loginUrl can contradict authType in persisted config | Investigate after TD-166 |
-| TD-168 | Bootstrap.detect() logs nothing — decisions invisible | 🟠 L1/L2/L3 shipped 2026-07-23 (`a675167`/`55668eb`); L4 = WAD; open on the coverage sweep only. |
+**Name:** Stabilization and Product-Readiness Preparation
 
-**Constraint:** Investigation before fix on the still-open item **TD-167**. No patch on
-contact. Root cause first, Aiden design sign-off, Nova if structural. (TD-173/168 addressed
-and TD-166's mitigation shipped 2026-07-23 — the multi-writer TD-166 defect remains open.)
+**Phase:** Stabilization and product-readiness preparation
 
----
+**Status:** Active
 
-### Objective 2 — Complete forge-ui Tests Tab (TD-UI-003)
+The stabilization implementation has landed and passed its milestone CI run.
+The current objective is to convert that technical reality into trustworthy
+operational knowledge, close documentation authority gaps, and prepare the next
+product/UI work without beginning feature implementation in this milestone.
 
-| Item | Status |
-|---|---|
-| Design | ✅ Approved — "Generation Review" surface, not a file browser |
-| Nova review | ✅ Complete |
-| Finn gaps identified | ✅ Three gaps logged (filter clear state, rollback dependency warnings, generating in-progress state) |
-| Build | 🔄 In progress |
-| CI green | ⏳ Pending build completion |
-| Manual verification | ⏳ Pending CI green |
+## Current Objective
 
----
+Establish a documentation and validation surface that lets a human or future
+FORGE Expert Agent determine:
 
-### Objective 3 — Ground-Truth Harness ✅ Complete
+- where to start;
+- which source governs a decision or workflow;
+- which behavior must be verified from executable evidence;
+- which current-state claims are dated snapshots; and
+- which material is historical only.
 
-| Item | Status |
-|---|---|
-| Commit | ✅ 6d52a47 (rebased from b6adb5b) + human-attested fixtures (845e513) |
-| Aiden diff review | ✅ Complete |
-| Rule 9 | ✅ Given 2026-07-21 |
-| CI | ✅ Green — on origin (origin/main = 845e513) |
+This work is documentation alignment. It must not change application behavior,
+tests, CI configuration, package scripts, or architectural decisions.
 
----
+## Completed Gates
 
-### Objective 4 — TD-064 Generation Validity (FC catalogue ✅ resolved; residual R2 design-stage)
+### Stabilization implementation
 
-| Item | Status |
-|---|---|
-| FC-001 | ✅ Resolved |
-| FC-002 | ✅ Resolved |
-| FC-003 | ✅ Resolved |
-| FC-004a | ✅ Resolved — honest omission (`8f3e9ca` Stage 1, `75aabd8` Stage 2+3) |
-| FC-004b | ✅ Resolved — auth-failed role omitted |
-| R2 — assertion-strength mechanism | 🔄 Design-stage (evidence layer; NOT FC-004a) |
-| TD-140 (vacuous-green) | ✅ Resolved 2026-07-23 (`185af42`) — generation-time refusal → `test.skip` + could-not-verify → run `unknown` |
+- **CI evidence enforcement:** current-run identity is required; missing, stale,
+  malformed, unhealthy, or unavailable reporting evidence fails closed.
+- **TD-184A:** Migration 018 and durable paired recovery provenance shipped.
+- **TD-184B:** invalid-active inspection, guarded recovery execution, repository
+  persistence ownership, focused tests, and disposable rehearsal shipped.
+- **Legacy platform containment:** legacy launch commands and direct server
+  execution fail closed; `forge ui` is canonical.
+- **Local-only boundary:** forge-ui and relevant auxiliary servers enforce
+  loopback binding and local browser-origin restrictions.
 
----
+### Stabilization validation
 
-## 3. Out of Scope for This Milestone
+- Automated unit suite passed at the milestone's dated 684/684 baseline.
+- Root/eval TypeScript passed.
+- forge-ui TypeScript passed locally.
+- E2E AI Testing Pipeline run `30492630035` succeeded against
+  `3a1022f35992378d96cb273452042c5585f98ccc`.
+- The workflow's current-run evidence evaluation and reporting-completeness
+  checks passed.
 
-The following are parked by design — do not start without Raj's explicit
-authorisation:
+These results belong to that source state. Later changes require fresh evidence.
 
-- Results tab, Insights tab, Settings tab (after Tests tab)
-- Multi-model cost routing (gate: TD-080 first)
-- Calibration Engine (parked research lane)
-- Mobile / IoT surface support
-- Governance / approval workflow (Phase 6)
+### Documentation truth foundation
 
----
+- `START_HERE.md` establishes human and AI navigation and trust order.
+- `DOCUMENTATION_INDEX.md` maps authority class, owner, refresh trigger, and
+  source of truth.
+- The document-authority metadata template exists.
+- Primary build/run and CI operational guides have been aligned with executable
+  behavior.
+- Codex onboarding has been reduced to role-specific operational guidance.
+- The validation contract reflects Migration 018 and guarded-recovery
+  ownership.
+- Project-state and milestone snapshots reflect the stabilization milestone.
 
-## 4. Completion Criteria
+## Active Gates
 
-This milestone is complete when **all** of the following are true:
+- Validate documentation links, whitespace, scope, and preservation.
+- Review the resulting documentation diff before any commit decision.
 
-```
-☑ TD-162 — CLOSED works-as-designed (2026-07-21); no code change needed
-☑ TD-163 — Refactor landed + CI green (0c81b4d/845e513, on origin)
-☑ TD-173 — RESOLVED 2026-07-23 (`7e2783f`), CI green — floor emits `'unknown'`, `'static-rendered'` retired
-◐ TD-166 — bounded mitigation shipped 2026-07-23 (`6f55ddd`), CI green; multi-writer ownership defect OPEN
-□ TD-167 — Resolved or explicitly deferred with documented reason
-◐ TD-168 — L1/L2/L3 shipped 2026-07-23 (`a675167`/`55668eb`), CI green; L4 WAD; open on the coverage sweep
-□ TD-UI-003 (Tests tab) — CI green + Raj manual verification complete
-☑ b6adb5b — Pushed as 6d52a47, CI green (on origin)
-☑ TD-064 FC catalogue (FC-001..004b) — Resolved via honest omission; residual R2 (assertion-strength) is design-stage
-□ TECH_DEBT.md updated for all resolved TDs (real hashes, not placeholders)
-□ GREEN status re-verified for correctness (not just honesty) for any
-  capability marked GREEN in this milestone
-```
+## Remaining Gates
 
----
+### Documentation readiness
 
-## 5. Sequencing Constraints
+- Modernize remaining high-value architecture and reference maps under approved
+  scope.
+- Reconcile known limitations and technical-debt summaries with root
+  `TECH_DEBT.md`.
+- Decide whether the dated handover should be archived; do not use it as current
+  operational guidance.
+- Remove or derive remaining fragile counts and duplicated status claims.
 
-TD-162/163 are resolved (162 closed WAD 2026-07-21; 163 refactor landed 2026-07-22).
-The remaining signal-integrity work follows the same gate:
+### Product readiness
 
-```
-TD-167 investigation (TD-173/166/168 addressed 2026-07-23)
-        ↓
-Root cause confirmed with evidence
-        ↓
-Aiden design proposal → Nova review (if structural) → Raj approval
-        ↓
-Fix implemented → Aiden diff review → Rule 9 → push → CI green
-        ↓
-TD-167 investigated after TD-166 (may share a root cause)
-        ↓
-TD-168 (ADR decision → design → fix)
-```
+- Scope and complete TD-UI-062 UI parity work.
+- Validate remaining forge-ui surfaces against current product claims.
+- Define the production-readiness gate after UI parity and documentation truth
+  are established.
 
-Tests tab build runs in parallel and does not block the signal integrity work.
+### Repository milestone
 
----
+- Keep documentation changes isolated from pre-existing image changes.
+- Obtain the required review and commit authority.
+- Push only when explicitly authorized, then verify CI behavior for the exact
+  committed SHA if the workflow is triggered.
 
-## 6. Active Blockers
+## Next Strategic Priorities
 
-| Blocker | Blocking what | Owner |
-|---|---|---|
-| TD-166 (High) — authType multi-writer non-determinism (bounded mitigation only) | Onboard tab honest GREEN | Raj + Aiden (TD-173 false-floor RESOLVED 2026-07-23) |
-| TD-064 R2 (assertion-strength mechanism) — design-stage | Full generation-validity milestone | Aiden/Nova to scope (evidence layer) |
+1. Complete and review the documentation truth modernization.
+2. Reconcile remaining limitation and debt summaries with their authorities.
+3. Scope TD-UI-062 using current architecture and operational boundaries.
+4. Execute UI parity work with focused product validation.
+5. Perform a production-readiness assessment using commit-matched evidence.
 
----
+## Out of Scope for This Milestone
 
-*FORGE™ — AI-Augmented Quality Engineering Platform*
-*AnvilQ Technologies LLC — Copyright © 2026 Raj Kasthuri*
+- New product features or TD-UI-062 implementation.
+- Authentication or remote-access design.
+- Recovery architecture changes.
+- Migration changes.
+- CI workflow changes.
+- Legacy platform deletion or modernization.
+- Reclassification of technical debt without ledger authority.
+
+## Completion Criteria
+
+This milestone is complete when:
+
+1. The approved documentation-truth scope is internally consistent and
+   link-valid.
+2. Operational guides identify executable sources of truth and avoid stale
+   success assumptions.
+3. Agent guidance routes to governance instead of duplicating it.
+4. Snapshot documents clearly separate completed, active, and planned work.
+5. No code, tests, CI workflow, storage, App Model, or unrelated working-tree
+   state was changed by documentation work.
+6. The documentation diff receives the required review and repository action is
+   explicitly authorized.

@@ -1,109 +1,119 @@
 # CI Review Prompt
-<!-- FORGE prompt template — version 1.0 -->
-<!-- Use: After every CI run concludes — Job 1 + Job 2 results -->
 
 ---
 
-## FORGE CI Review
+Document Authority:
+E — Reference
 
-**CI Run:** [run number / URL]
-**Commit:** [hash]
-**Date:** [YYYY-MM-DD]
-**Triggered by:** [push / manual / scheduled]
+Owner:
+CI Owner
+
+Source of Truth:
+`.github/workflows/e2e-pipeline.yml`, CI decision code, and the exact workflow
+run under review
+
+Refresh Trigger:
+CI jobs, gates, evidence schema, run identity, or reporting-decision behavior
+changes
+
+Last Verified:
+2026-07-30
 
 ---
 
-## Job 1 — test
+Use this prompt after a workflow run completes. It is a review aid, not a CI
+authority. Verify every answer against the exact run, tested SHA, workflow YAML,
+and current-run evidence.
 
-### Gate Results
+## Run Identity
 
-| Gate | Result | Notes |
+```text
+Workflow:       [name / URL]
+Run ID:         [run number / URL]
+Commit SHA:     [exact tested SHA]
+Triggered by:   [push / pull request / manual / scheduled]
+CURRENT_RUN_ID: [value expected by the reporting decision]
+Date:           [YYYY-MM-DD]
+```
+
+Confirm the tested SHA is the intended source state and that reporting evidence
+belongs to the same `CURRENT_RUN_ID`. A successful old run cannot validate a new
+commit.
+
+## Job 1 — Test
+
+| Gate | Result | Evidence / notes |
 |---|---|---|
-| `npm run check` (tsc) | [✅ PASS / ❌ FAIL] | |
-| `npm run test:unit` | [✅ NNN/NNN / ❌ NNN/NNN] | |
-| Playwright stable suite | [✅ NNN/NNN / ❌ NNN failed] | continue-on-error |
-| Reports uploaded | [✅ / ❌] | |
+| Dependencies and migrations | [PASS / FAIL] | |
+| `npm run test:unit` | [PASS / FAIL] | Record actual output count; do not use a fixed baseline |
+| `npm run check` | [PASS / FAIL] | Root and eval TypeScript |
+| Selected Playwright suite | [PASS / FAIL / DEFERRED] | Note `continue-on-error` and actual failures |
+| Provenance sidecar | [PASS / FAIL] | Confirm run ID and Git SHA |
+| Reports artifact | [PASS / FAIL] | |
 
-### Regression Check
+## Job 2 — AI Pipeline
 
-```
-□ Did test:unit count change from baseline (531)?
-  Previous: 531    Current: [N]
-  Change: [+N / -N / same]
-  If changed: [explain why — new tests added / tests removed / unexpected]
-
-□ Did Playwright count change from baseline (320)?
-  Previous: 320    Current: [N]
-  Change: [+N / -N / same]
-  If changed: [explain why]
-
-□ Any new failures compared to last green run?
-  [List any tests that were passing before and are now failing]
-
-□ Any previously failing tests now passing?
-  [List — confirm this is expected]
-```
-
----
-
-## Job 2 — ai-pipeline
-
-### Step Results
-
-| Step | Result | Notes |
+| Step | Result | Evidence / notes |
 |---|---|---|
-| triage | [✅ / ❌ / ⚠️] | |
-| results-store | [✅ / ❌ / ⚠️] | |
-| adaptive-fixes | [✅ / ❌ / ⚠️] | |
-| trend-analysis | [✅ / ❌ / ⚠️] | continue-on-error (TD-051) |
-| release-notes | [✅ / ❌ / ⚠️] | continue-on-error (TD-051) |
-| notifier | [✅ / ❌ / ⚠️] | |
-| run-history.json committed | [✅ / ❌] | |
-| PR comment posted | [✅ / ❌] | |
-| Bug gate | [✅ / ⚠️ informational] | non-blocking (ADR-010) |
+| AI triage | [PASS / FAIL] | |
+| Results store | [PASS / FAIL] | |
+| Adaptive-fix dry run | [PASS / FAIL] | |
+| Trend analysis | [PASS / ALLOWED FAILURE] | Check current workflow policy |
+| Release notes | [PASS / ALLOWED FAILURE] | Check current workflow policy |
+| Notifications | [PASS / ALLOWED FAILURE] | No positive claim from a skipped/unavailable notification |
+| Run-history writeback | [PASS / FAIL / NOT RUN] | Record whether a commit was created |
+| Current-run evidence evaluation | [PASS / FAIL / BLOCKED] | Must match `CURRENT_RUN_ID` |
+| Reporting completeness enforcement | [PASS / FAIL] | `PASS` or `FAIL` required; `BLOCKED` fails closed |
+| PR comment | [POSTED / SKIPPED / FAILED] | Skipped on non-PR runs is expected |
 
-### Triage Summary
+## Evidence Decision
 
-```
-app-bug:               [N]
-test-defect:           [N]
-infra-defect:          [N]
-flaky:                 [N]
-insufficient-evidence: [N]
-```
+The CI evaluator has three states:
 
----
+- `PASS`: complete, healthy, current-run evidence reports zero failures;
+- `FAIL`: complete, healthy, current-run evidence reports one or more failures;
+- `BLOCKED`: evidence is missing, stale, malformed, unhealthy, inconsistent,
+  unreadable, or not tied to the current run.
 
-## Overall CI Status
+Check specifically for:
 
-```
-□ Is this CI run GREEN for milestone purposes?
+- missing or empty `CURRENT_RUN_ID`;
+- missing, unreadable, empty, or malformed triage report;
+- report run ID different from the expected run ID;
+- unhealthy input evidence;
+- invalid counts, missing categories, or inconsistent result totals; and
+- positive merge or success claims emitted for `BLOCKED` evidence.
 
-GREEN requires ALL of:
-  □ npm run check passes
-  □ test:unit 531/0
-  □ Playwright 320/0 (or expected count if suite changed)
-  □ Job 2 completes without crash
-  □ No new regressions introduced
+## Overall Assessment
 
-Status: [GREEN / RED / YELLOW — explain]
-```
+Do not equate a green GitHub workflow conclusion with a zero-failure result.
+Record both independently:
 
----
-
-## Action Required
-
-```
-□ No action — CI is green, milestone is clear to proceed
-□ Investigation needed — [describe]
-□ Fix required before next push — [describe]
-□ TD to log — [draft TD entry]
-□ Rule 9 withheld — [reason]
+```text
+Workflow conclusion:        [SUCCESS / FAILURE / CANCELLED]
+Reporting decision:         [PASS / FAIL / BLOCKED]
+Blocking gates passed:      [YES / NO]
+Current-run evidence valid: [YES / NO]
+New regression:             [YES / NO / UNKNOWN]
+Release-ready:              [YES / NO / REVIEW REQUIRED]
 ```
 
----
+`BLOCKED` means the run cannot support a safe positive claim. `FAIL` is
+evidence-complete but requires review under the current policy. A release-ready
+`PASS` still requires the intended SHA, applicable local gates, and any focused
+capability rehearsal required by the task.
 
-## Notes
+## Action
 
-[Any observations about the CI run that are not captured above.
-Patterns in triage output. Unexpected job behaviour. Known TD confirmation.]
+```text
+[ ] No action — evidence-complete PASS and required gates are clear
+[ ] Review required — evidence-complete FAIL
+[ ] Blocked — missing/stale/malformed/unhealthy evidence
+[ ] New defect or regression to investigate
+[ ] Technical debt or documentation drift to record
+[ ] Push/merge authorization withheld
+```
+
+Record the exact evidence, not a copied count or summary. Consult
+[`CI_PIPELINE.md`](../project/CI_PIPELINE.md), the workflow YAML, and root
+[`TECH_DEBT.md`](../../TECH_DEBT.md) for current policy.

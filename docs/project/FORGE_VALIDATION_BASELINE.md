@@ -1,5 +1,26 @@
 # FORGE Validation Baseline
 
+---
+
+Document Authority:
+B — Operational Contract
+
+Owner:
+Validation Owner
+
+Source of Truth:
+Validation scripts, validation tests, CI workflows, and commit-matched execution
+evidence
+
+Refresh Trigger:
+Validation profiles, gates, report schema, storage inspection, recovery
+validation, or CI evidence behavior changes
+
+Last Verified:
+2026-07-29
+
+---
+
 The validation baseline is a thin orchestrator over existing FORGE checks. It
 does not replace their logic, repair failures, apply migrations, generate tests,
 or invoke the adaptive execution pipeline.
@@ -8,6 +29,15 @@ Its purpose is to answer one bounded question honestly:
 
 > What evidence passed, failed, could not run, or was outside this validation
 > profile for this exact repository and database state?
+
+Validation follows evidence before confidence:
+
+- a claim is no stronger than the evidence produced for the exact source and
+  storage state under review;
+- executable validation and its persisted report outrank this explanation;
+- missing, blocked, stale, or malformed evidence is never converted into a
+  success claim; and
+- historical counts are context only—report the output from the current run.
 
 ## Profiles
 
@@ -72,14 +102,69 @@ It checks:
 
 - database availability and SQLite `quick_check`
 - foreign-key integrity
-- migration-history readability and Migration 016 status
-- the Migration 016 unique partial index
+- migration-history readability and the storage invariants implemented by the
+  current inspector
 - duplicate active rows using exact, case-sensitive `app_name`
 - parsing and current-schema validity of active and historical `model_json`
 - before/after table row counts and database-file SHA-256
 
 Storage mutation behavior is tested only against disposable databases created by
 `scripts/verify-forge-validation-baseline.test.ts`.
+
+## Validation Ownership
+
+FORGE separates routine validation from explicit operator rehearsals.
+
+### Routine automated validation
+
+Routine evidence is owned by:
+
+- root/eval typechecks;
+- automated unit discovery;
+- forge-ui typecheck when applicable;
+- the selected validation-baseline profile;
+- focused contract tests; and
+- commit-matched CI workflow evidence.
+
+The offline baseline orchestrates the first three gates plus read-only SQLite
+inspection. CI has its own current-run provenance and evidence-completeness
+contract; see [`CI_PIPELINE.md`](CI_PIPELINE.md).
+
+### Recovery contracts
+
+[Migration 018](../../src/core/storage/migrations/018_app_models_recovery_provenance.ts)
+adds durable guarded-recovery provenance to `app_models`. Its two
+recovery-source fields are paired nullable: normal and historical rows retain
+`NULL`/`NULL`, while a guarded recovery write must persist both the source row
+identity and source fingerprint.
+
+Focused automated tests cover:
+
+- Migration 018 schema and migration-history behavior;
+- invalid-active inspection without returning invalid JSON as an App Model;
+- explicit acknowledgement and matching provenance;
+- guarded recovery execution, conflicts, replay, candidate validation,
+  projection failure, and history preservation; and
+- repository ownership of persistence.
+
+These focused tests are part of normal `scripts/*.test.ts` unit discovery.
+
+### Operator recovery rehearsal
+
+The SauceDemo TD-184B rehearsal is intentionally not a normal unit-test file. It
+is an explicit operator workflow:
+
+```text
+npm run test:rehearsal:td184b3
+```
+
+The rehearsal uses disposable storage, migrates its disposable snapshot through
+Migration 018, and exercises guarded recovery and provenance behavior. It must
+not target the live SQLite database or live App Model JSON.
+
+Passing the rehearsal does not replace routine unit, typecheck, baseline, or CI
+evidence. Routine validation also does not imply that the operator rehearsal ran;
+report each evidence source separately.
 
 ## Deterministic report
 
@@ -130,5 +215,7 @@ produce a report.
 - The report is the persisted system of record. Console output is supporting
   evidence, not the only home for a result.
 - Human evidence is governed by
-  `docs/project/FORGE_HUMAN_VALIDATION_CHECKLIST.md` and must match the exact Git
-  commit under validation.
+  [`FORGE_HUMAN_VALIDATION_CHECKLIST.md`](FORGE_HUMAN_VALIDATION_CHECKLIST.md)
+  and must match the exact Git commit under validation.
+- Recovery rehearsal evidence must identify its disposable storage and must not
+  be presented as proof that live storage was mutated or repaired.

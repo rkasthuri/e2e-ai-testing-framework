@@ -1,232 +1,113 @@
 # RELEASE_PROCESS.md
-<!-- version: 1.0 | status: ACTIVE | owner: Raj Kasthuri (AnvilQ Technologies LLC) -->
-<!-- Last updated: 2026-07-21 -->
-
-> Versioning, release workflow, and deployment process for FORGE.
->
-> ⚠️ Honest status note: FORGE does not currently have a formal versioning
-> scheme or published release process. This document describes:
-> (a) what the release process actually is today — the push/commit discipline
->     and CI gate that governs every change to main
-> (b) what a formal release process would look like when FORGE reaches that
->     milestone, flagged clearly as not-yet-implemented
->
-> Do not treat the "future" sections as current practice.
 
 ---
 
-## 1. Current Reality — How Changes Reach main
+Document Authority:
+B — Operational
 
-FORGE does not have numbered releases today. Every push to `main` is the
-current version of the framework. The release process is the push discipline.
+Owner:
+Release Owner
 
-### The Current Release Sequence
+Source of Truth:
+`AGENTS.md`, `AI_WORKFLOW.md`, package scripts, Git state, and
+`.github/workflows/e2e-pipeline.yml`
 
-```
-1. Raj identifies work → states goal to Aiden
+Refresh Trigger:
+Authorization rules, validation gates, CI behavior, branch policy, or release
+tooling changes
 
-2. Aiden designs → Nova reviews (if structural) → Raj approves
-
-3. Implementation Agent (CC or Codex) implements from Aiden brief
-   → stops at every checkpoint
-   → reports with evidence
-
-4. Aiden reviews diff
-   → reads actual diff (not summary)
-   → verifies scope, copyright headers, paths, boundaries
-   → approves or requests changes
-
-5. Raj issues Rule 9 ("Go")
-   → explicit push authorisation
-   → required before every push without exception
-
-6. Implementation Agent pushes
-   → git stash / pull --rebase / stash pop / push
-   → reports new hash and CI run number
-
-7. CI runs (e2e-pipeline.yml — 3 jobs)
-   → Job 1: tsc + unit (531) + Playwright (320)
-   → Job 2: triage + store + fixes + trends + notes + notify
-   → Job 3: failure notification
-
-8. CI green confirmed
-   → milestone marked complete
-   → TECH_DEBT.md updated with resolved TDs and real commit hashes
-```
-
-### What "Released" Means Today
-
-A capability is released when:
-```
-□ Commit hash exists on main
-□ CI is green against that commit
-□ TECH_DEBT.md updated with resolved TDs
-□ GREEN verified for both HONEST and CORRECT (standing rule 2026-07-20)
-```
+Last Verified:
+2026-07-30
 
 ---
 
-## 2. Commit Discipline
+FORGE does not currently publish numbered packages or maintain a formal release
+registry. A release is an approved change on `main` whose required validation
+and evidence are complete. This document describes the current commit-and-push
+discipline; future versioning is not current practice.
 
-### Batching Rule
+Read [START_HERE.md](../START_HERE.md) for authority routing and
+[BUILD_AND_RUN.md](BUILD_AND_RUN.md) for commands. Governance and authorization
+remain in [`AGENTS.md`](../../AGENTS.md) and
+[`AI_WORKFLOW.md`](../governance/AI_WORKFLOW.md).
 
-Commits are batched by logical milestone. Never push:
-- Docs-only commits in isolation from related code changes
-- Single-file changes that belong to a larger logical unit
-- Anything that has not passed `npm run check` locally
-- Anything with a failing unit or Playwright test
+## Current Release Sequence
 
-**Why:** Each CI run in Job 2 costs real Claude API calls.
-One CI run per logical milestone.
+1. Define an approved, scoped task. Do not begin implementation from an
+   unapproved idea or a stale snapshot.
+2. Inspect repository state, relevant architecture, storage boundaries, and
+   preservation-sensitive files.
+3. Implement the approved change with surgical scope. Keep unrelated working
+   tree changes separate.
+4. Run focused tests and the applicable repository gates:
 
-### Commit Message Format
+   ```text
+   npm run check
+   npm run test:unit
+   cd forge-ui && npm run check       # when forge-ui is affected
+   npm run validate:baseline -- --profile offline --db .forge/forge.db
+   git diff --check
+   ```
 
-```
-<type>(<scope>): <short description>
+5. Review the actual diff. Confirm paths, assertions, ownership boundaries,
+   generated artifacts, and preservation checks.
+6. Obtain the required design/diff approval and explicit Rule 9 push
+   authorization. An implementation agent must not self-authorize a push.
+7. Stage only explicitly approved paths, verify the staged diff, and commit with
+   a scoped message.
+8. Push the authorized commit without rewriting history. Record the new SHA and
+   inspect branch divergence.
+9. Verify the CI run for that exact SHA when the workflow is triggered. Confirm
+   blocking gates, current-run evidence, and the reporting decision.
+10. Update the authoritative technical-debt ledger only when closure evidence and
+    approval exist.
 
-Types:   feat | fix | refactor | docs | test | chore
-Scopes:  ui | engine | triage | healing | crawl | generate | ci | deps
+## What Release Evidence Means
 
-Examples:
-  feat(ui): Tests tab — generation review surface (TD-UI-003)
-  fix(engine): VerificationRunner prerequisite state setup (TD-013)
-  fix(crawl): StrategyDetector signal counting fault (TD-162)
-  docs: AI_CONSTITUTION.md + AI_WORKFLOW.md
-  chore(deps): bump @playwright/test to 1.58.0
-```
+CI workflow success alone is not a sufficient release claim. A release-ready
+result requires:
 
-### Push Sequence
+- the intended commit SHA was tested;
+- required unit and typecheck gates passed;
+- current-run provenance matches `CURRENT_RUN_ID`;
+- missing, stale, malformed, unhealthy, or unavailable evidence did not produce
+  a positive claim;
+- the reporting decision is `PASS` when the release requires a no-failure result;
+- required local-only validation, including forge-ui typecheck, passed; and
+- focused capability tests or explicit operator rehearsals passed when the task
+  requires them.
 
-```bash
-git stash           # Park uncommitted work
-git pull --rebase   # Sync with remote
-git stash pop       # Restore parked work
-git push
-```
+The CI workflow may produce an evidence-complete `FAIL` without a workflow
+failure under its current informational Playwright policy. Treat that as a
+review result, not as a release-ready PASS.
 
-After push:
-1. Report new hash (post-rebase — may differ from pre-push hash)
-2. Report CI run number
-3. Report CI result when concluded with exact counts
+## Commit and Push Discipline
 
----
+- Batch changes by logical milestone.
+- Never use `git add -A` for scoped work.
+- Never reset, clean, discard, or overwrite unrelated work.
+- Verify no SQLite, WAL/SHM, App Model JSON, or unrelated image changes are
+  staged.
+- Do not push documentation or code without the required explicit authorization.
+- Do not force-push or rewrite existing history.
 
-## 3. Quality Gates Before Any Push
+The workflow ignores Markdown-only changes for its push and pull-request
+triggers. A documentation-only change therefore still requires diff review and
+authorization, but it should not be described as having passed a new CI run
+unless a workflow was actually executed.
 
-All must pass locally before Rule 9 is requested:
+## Current Non-Goals
 
-```bash
-npm run check           # tsc --noEmit — root + must pass
-cd forge-ui && npm run check  # forge-ui tsc — local only (TD-UI-052)
-npm run test:unit       # 531/0 — must pass
-cd forge-ui && npm run build  # Vite production build — must exit 0
-```
+FORGE does not currently have a package registry, semantic-version automation,
+release artifact signing, deployment promotion, or rollback automation. Those
+would require separately approved design and governance work.
 
-Playwright suite (`npm run test:all`) should be run locally for any change
-that touches test files, the crawler, or the generator.
+## Rollback
 
----
+If an authorized change must be reverted:
 
-## 4. TECH_DEBT.md Update at Release
-
-Every push that resolves a TD must update `TECH_DEBT.md` in the same commit
-or a same-milestone docs commit:
-
-```
-□ Move resolved TD row to the Resolved table
-□ Add the real commit hash — not "this commit", not a placeholder
-□ Add CI confirmation note
-□ Do not mark resolved without hash + CI evidence
-```
-
-This is a release requirement, not optional housekeeping.
-
----
-
-## 5. What Does Not Exist Yet (Honest)
-
-The following are not currently implemented. They are listed here so anyone
-reading this document understands the gap between current practice and a
-full release process:
-
-| Capability | Status | Notes |
-|---|---|---|
-| Semantic versioning (v1.0.0, etc.) | ❌ Not implemented | No `npm version` discipline or git tags |
-| Published npm package | ❌ Not implemented | FORGE is not published to npm registry |
-| Changelog (CHANGELOG.md) | ❌ Not implemented | Release notes are run-level, not version-level |
-| Git release tags | ❌ Not implemented | No `git tag v1.0.0` convention |
-| GitHub Releases | ❌ Not implemented | No drafted releases on GitHub |
-| Deployment pipeline | ❌ Not applicable | FORGE is a local/CI framework, not a deployed service |
-| Staging environment | ❌ Not applicable | Tests run against live public demo apps |
-| Rollback procedure | 🔄 Partial | `git revert` is available; no formal rollback runbook |
-
----
-
-## 6. When Formal Versioning Would Be Added
-
-If FORGE moves toward:
-- Public release as an npm package
-- Distribution to other teams or organisations
-- A published plugin or extension model
-
-Then the following would be needed:
-
-```
-1. Semantic versioning — major.minor.patch
-   - Major: breaking pipeline or API changes
-   - Minor: new capabilities shipped, backward-compatible
-   - Patch: bug fixes, TD resolutions
-
-2. CHANGELOG.md — maintained alongside TECH_DEBT.md
-   One entry per version with: added / changed / fixed / removed
-
-3. Git release tags — git tag -a v1.0.0 -m "Initial release"
-
-4. GitHub Release — drafted with release notes from npm run release:notes
-
-5. npm publish — if distributing as a package
-```
-
-This section is forward-looking — none of it is current practice.
-
----
-
-## 7. Rollback
-
-If a push introduces a regression:
-
-```bash
-# Option A — Revert the commit
-git revert <commit-hash>
-git push
-# → CI runs against the revert
-# → Aiden reviews the revert diff before push
-# → Rule 9 required
-
-# Option B — Fix forward
-# → Preferred when the regression is well-understood
-# → Fix in a new commit following the full workflow
-# → Do not bypass diff review or Rule 9 under urgency
-```
-
-**There is no "emergency" exception to Rule 9 or Aiden diff review.**
-Urgency is not grounds for bypassing the approval gates.
-
----
-
-## 8. Communication After Push
-
-After CI green, the following happen automatically via Job 2:
-
-- Run summary committed to `run-history.json` on main
-- PR comment posted with run summary
-- Notifier sends Slack / email summary (if configured)
-- Release notes generated (`npm run release:notes`)
-
-No manual communication step is required for routine pushes.
-Raj is notified via CI Job 3 on main branch failures.
-
----
-
-*FORGE™ — AI-Augmented Quality Engineering Platform*
-*AnvilQ Technologies LLC — Copyright © 2026 Raj Kasthuri*
+1. Prefer a new, reviewed revert commit on `main`.
+2. Re-run the applicable validation and inspect CI for the revert SHA.
+3. Use fix-forward when the defect is understood and the new change remains
+   within approved scope.
+4. Do not rewrite history or bypass diff review and push authorization.

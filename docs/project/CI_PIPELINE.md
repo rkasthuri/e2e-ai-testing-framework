@@ -1,186 +1,215 @@
 # CI_PIPELINE.md
-<!-- version: 1.0 | status: ACTIVE | owner: Raj Kasthuri (AnvilQ Technologies LLC) -->
-<!-- Last updated: 2026-07-21 — sourced from CC read of e2e-pipeline.yml (453 lines) -->
-
-> CI/CD workflow, quality gates, and pipeline job breakdown.
-> Workflow file: `.github/workflows/e2e-pipeline.yml`
-> Note: the workflow file is NOT `ci.yml` — it is `e2e-pipeline.yml`.
 
 ---
 
-## 1. Overview
+Document Authority:
+B — Operational
 
-The CI pipeline runs on every push to `main`. It has three jobs:
+Owner:
+CI Owner
 
-```
-Job 1: test          ← Unit + Playwright suite + provenance
-       ↓
-Job 2: ai-pipeline   ← Triage → store → fixes → trends → notes → notify
-       (if: always() — runs even if Job 1 has failures)
-       ↓
-Job 3: notify        ← Failure notification on main
-```
+Source of Truth:
+`.github/workflows/e2e-pipeline.yml`, CI validation scripts, and execution
+evidence from the exact workflow run
 
----
+Refresh Trigger:
+Workflow triggers, jobs, gates, run identity, evidence validation, artifacts,
+or reporting-decision behavior change
 
-## 2. Job 1 — test
-
-**Runner:** Playwright Docker container (`mcr.microsoft.com/playwright:v1.58.0-jammy`)
-**Purpose:** Type check, unit tests, Playwright suite, provenance sidecar
-
-### Gate Sequence (in order)
-
-```
-1. npm run check          ← tsc --noEmit (root + evals)
-                            Must pass — pre-suite gate (TD-096 closed)
-
-2. npm run test:unit      ← 531 tests — must pass
-                            Pre-suite gate before Playwright runs
-
-3. Playwright stable suite ← --grep-invert '@slow|@flaky'
-                             continue-on-error: true
-                             (failures flow to Job 2 for triage, not hard-stop)
-
-4. Provenance sidecar     ← Writes run provenance metadata
-
-5. Upload reports/        ← Run reports uploaded as CI artifact
-```
-
-**Important:** The Playwright suite uses `continue-on-error: true`. This means
-Job 1 completes even with failing Playwright tests — failures are intentionally
-passed to Job 2 for AI triage rather than immediately failing the build.
-
-**What is NOT in CI (local only):**
-- `forge-ui/` TypeScript check — local gate only (TD-UI-052)
-- WebKit browser — local only to reduce CI install time
-- `@slow` and `@flaky` tagged tests — excluded from stable suite
-
-### Run ID
-
-CI mints a canonical run ID at the start of Job 1 (TD-070). Local runs use a
-different scheme. This means local and CI run IDs do not match — do not assume
-they do.
+Last Verified:
+2026-07-29
 
 ---
 
-## 3. Job 2 — ai-pipeline
+This document explains the current E2E AI Testing Pipeline. The executable
+workflow remains the source of truth:
+[`../../.github/workflows/e2e-pipeline.yml`](../../.github/workflows/e2e-pipeline.yml).
 
-**Runner:** Bare runner (not Playwright container) — by design (TD-053 egress fix)
-**Condition:** `if: always()` — runs even when Job 1 has Playwright failures
-**Purpose:** AI triage, result storage, adaptive fixes, trends, release notes, notification
+Do not infer CI behavior from old run summaries, job names, comments, or test
+counts. Verify the workflow file and the run attached to the exact commit.
 
-### Execution Sequence
+## 1. Triggers and Execution Model
 
-```
-1. triage              ← npm run triage
-                          AI classifies failures from Job 1
+The workflow is named **E2E AI Testing Pipeline**. It runs for:
 
-2. results-store       ← npm run store
-                          Persists run results to SQLite
+- pushes to `main` and `develop`;
+- pull requests targeting `main`;
+- the nightly `06:00 UTC` schedule; and
+- manual dispatch with `stable`, `full`, `flaky`, or `smoke` suite selection.
 
-3. adaptive-fixes      ← npm run fixes
-                          Applies AI-generated selector fixes
+Markdown-only and `reports/**` changes are ignored for push and pull-request
+triggers. A newer run for the same workflow and Git ref cancels an in-progress
+older run.
 
-4. trend-analysis      ← npm run trends
-                          continue-on-error: true (TD-051 schema mismatch)
+The workflow has three jobs:
 
-5. release-notes       ← npm run release:notes
-                          continue-on-error: true (TD-051 schema mismatch)
-
-6. notifier            ← npm run notify
-                          Sends run summary
-
-7. Commit writeback    ← Commits run-history.json back to main
-
-8. PR comment          ← Posts run summary as PR comment
-
-9. Bug gate            ← Informational / non-blocking (TD-078 / ADR-010)
+```text
+test
+  -> ai-pipeline (always evaluates after test)
+       -> notify-on-failure (main only, when the workflow fails)
 ```
 
-**Known issues in Job 2:**
-- `trend-analysis` and `release-notes` carry `continue-on-error` — TD-051
-  (schema mismatch) is unresolved
-- `steps.suite.outputs.label` is referenced at line 395 where it cannot resolve
-  (TD-055) — this is a known silent failure
+## 2. Job 1 — Test (Playwright suite)
 
----
+The `test` job runs in the pinned Playwright container on `ubuntu-latest`.
+Its current sequence is:
 
-## 4. Job 3 — notify
+1. Check out the repository.
+2. Establish one canonical run ID and export it as `CURRENT_RUN_ID`.
+3. Set up Node.js and install dependencies with `npm ci`.
+4. Apply database migrations to the job's ephemeral database.
+5. Run `npm run test:unit`.
+6. Run `npm run check` for root/core and eval TypeScript.
+7. Select and run the requested Playwright suite.
+8. Write `reports/provenance.json` with the canonical run ID and Git SHA.
+9. Upload the Playwright report and the `reports/` handoff artifact.
 
-**Condition:** On failure of main branch
-**Purpose:** Team notification when the main branch CI fails
+The unit suite and root/eval typechecks are blocking steps. The Playwright step
+currently uses `continue-on-error: true` so its evidence can reach the AI
+pipeline for classification. That setting does not turn a failed test into a
+pass; it defers interpretation to the current-run evidence decision.
 
----
+The routine CI job does not run the forge-ui TypeScript check. Run it locally
+when validating forge-ui work:
 
-## 5. Quality Gates Summary
+```bash
+cd forge-ui && npm run check
+```
 
-| Gate | Job | Blocks build? | Notes |
+The operator-only TD-184B recovery rehearsal is also not part of automated unit
+discovery or this workflow.
+
+## 3. Canonical Run Identity and Provenance
+
+Job 1 creates `CURRENT_RUN_ID` once. It exposes the same value as a job output,
+writes it into the provenance sidecar, and passes it to Job 2.
+
+All CI reporting decisions must be tied to this identity. A report from a prior
+run cannot establish the health of the current run, even if its contents appear
+otherwise successful.
+
+The provenance sidecar also records the tested Git SHA. When reporting CI status,
+confirm both:
+
+- the workflow run's tested SHA matches the intended commit; and
+- the evidence run ID matches `CURRENT_RUN_ID`.
+
+## 4. Job 2 — AI Pipeline
+
+The `ai-pipeline` job runs on a bare `ubuntu-latest` runner and has
+`if: always()`. The bare runner is intentional: AI network calls were not
+reliable in the hardened Playwright container.
+
+The job:
+
+1. Checks out the repository, installs dependencies, and migrates its ephemeral
+   database.
+2. Downloads Job 1's `reports/` artifact.
+3. Runs AI triage.
+4. Stores results.
+5. Generates adaptive-fix suggestions in dry-run mode.
+6. Runs trend analysis, release-note generation, and notifications.
+7. Attempts the existing run-history writeback behavior.
+8. Uploads available triage, trend, suggested-fix, and release-note artifacts.
+9. Evaluates the triage report against the expected `CURRENT_RUN_ID`.
+10. Posts a report comment for pull-request runs.
+11. Prints the test outcome and enforces reporting-evidence completeness.
+
+AI triage, results storage, and adaptive-fix generation are ordinary blocking
+steps. Trend analysis, release-note generation, and notifications currently
+carry `continue-on-error: true`; consult the on-disk
+[`TECH_DEBT.md`](../../TECH_DEBT.md) before changing or interpreting those
+boundaries.
+
+The bug-attribution summary remains informational. An `app-bug` classification
+does not independently fail the workflow under the current policy.
+
+## 5. Current-Run Evidence Enforcement
+
+The CI decision evaluator reads the triage report with the expected current run
+ID. It produces one of:
+
+- `PASS` — complete, healthy, current-run evidence reports zero failures;
+- `FAIL` — complete, healthy, current-run evidence reports one or more failures;
+- `BLOCKED` — the required reporting evidence cannot support either conclusion.
+
+The evaluator fails closed. `BLOCKED` includes:
+
+- missing `CURRENT_RUN_ID`;
+- a report without run provenance;
+- a run ID that does not match the current run;
+- missing, empty, unreadable, or malformed report data;
+- unhealthy input evidence; and
+- inconsistent or incomplete totals, categories, or result rows.
+
+The evaluator exits non-zero for `BLOCKED`. A final workflow step independently
+requires the exported decision to be exactly `PASS` or `FAIL`; missing or
+unavailable decision output also fails the job. Therefore stale, malformed,
+missing, or unavailable evidence cannot become a success claim.
+
+## 6. Gates and Decision Boundaries
+
+| Check | Location | Workflow-blocking behavior | Meaning |
 |---|---|---|---|
-| `npm run check` (tsc) | Job 1 | ✅ Yes | Hard stop if fails |
-| `npm run test:unit` | Job 1 | ✅ Yes | Hard stop if fails |
-| Playwright stable suite | Job 1 | ❌ No | continue-on-error — flows to triage |
-| `forge-ui/` tsc | Local only | N/A | TD-UI-052 — not in CI |
-| AI triage | Job 2 | ❌ No | Informational |
-| Bug gate | Job 2 | ❌ No | Informational / non-blocking (ADR-010) |
+| Dependency install and migrations | Both main jobs | Blocking | CI environment and schema must initialize |
+| Automated unit suite | Job 1 | Blocking | Unit regressions stop the normal test sequence |
+| Root/eval typechecks | Job 1 | Blocking | Type errors fail Job 1 |
+| Playwright suite | Job 1 | Deferred by `continue-on-error` | Test evidence flows to triage |
+| AI triage, result storage, adaptive-fix dry run | Job 2 | Blocking | Core reporting pipeline must execute |
+| Current-run evidence evaluation | Job 2 | Blocking when `BLOCKED` | Evidence must be present, healthy, well-formed, and current |
+| Reporting-evidence completeness | Job 2 | Blocking | Decision output must be `PASS` or `FAIL` |
+| Bug attribution | Job 2 | Informational | Classification does not independently block |
+| forge-ui typecheck | Local validation | Not in workflow | Required locally when applicable |
 
----
+## 7. Interpreting GREEN Correctly
 
-## 6. What GREEN Means in CI
+GitHub's workflow conclusion and FORGE's evidence decision are related but not
+identical:
 
-A CI run is GREEN for milestone purposes when:
+- **Workflow success** means all workflow-blocking steps completed.
+- **Reporting `PASS`** means complete current-run evidence reports zero test
+  failures.
+- **Reporting `FAIL`** is a valid, evidence-complete conclusion, not missing
+  evidence. Because Playwright failure attribution remains informational under
+  current policy, verify the reporting decision instead of treating a green
+  GitHub badge alone as proof that all tests passed.
+- **Reporting `BLOCKED`** means merge safety cannot be established and the
+  workflow fails closed.
 
-```
-□ Job 1: npm run check passes
-□ Job 1: npm run test:unit passes (531/0)
-□ Job 1: Playwright suite passes (320/0)
-□ Job 2: Completes without crash
-□ No new test regressions introduced
-□ forge-ui production build passes (run locally — not in CI)
-```
+For a stabilization or release claim, confirm:
 
-> **Reminder (standing rule 2026-07-20):** CI GREEN means honest — it does not
-> automatically mean correct. Capabilities must be verified for correctness
-> via eval harnesses separately.
+1. The workflow completed for the intended Git SHA.
+2. Blocking unit and typecheck gates passed.
+3. The reporting decision is `PASS`, not merely available.
+4. Current-run provenance and evidence checks passed.
+5. Any required local-only gates, such as forge-ui typecheck, passed against the
+   same source state.
+6. Relevant capability-specific evals or rehearsals passed separately when
+   required.
 
----
+Historical test counts are not CI gates. Use actual run output and
+commit-matched evidence; do not copy an old count forward.
 
-## 7. One CI Run Per Milestone
+## 8. Artifacts and Reporting
 
-CI runs cost real API calls and time (Job 2 runs triage, fixes, trends, and
-release notes against the Claude API on every push).
+The workflow may upload:
 
-**Batch commits by logical milestone.** Never push:
-- Docs-only changes in isolation
-- Single-file changes that belong to a larger logical unit
-- Anything that has not passed `npm run check` locally first
+- Playwright HTML reports;
+- the reports handoff artifact;
+- triage JSON and Markdown;
+- trend dashboard output;
+- suggested fixes; and
+- release notes.
 
----
+Artifact presence alone is not proof of success. Use the canonical run identity,
+tested SHA, reporting decision, and job conclusions together.
 
-## 8. Known CI Issues (Open TDs)
+## 9. Maintenance Rules
 
-| TD | Description |
-|---|---|
-| TD-UI-052 | forge-ui tsc not in CI — local-only gate |
-| TD-051 | Schema mismatch in trend-analysis and release-notes — continue-on-error workaround |
-| TD-055 | steps.suite.outputs.label referenced in Job 2 where it cannot resolve |
-| TD-070 | CI mints its own run ID — local runs use a different scheme |
-| TD-003 | CI trend dashboard always shows 1 run — Docker path mismatch |
-| TD-078 | Bug gate is informational / non-blocking |
-
----
-
-## 9. Workflow File Reference
-
-```
-File:    .github/workflows/e2e-pipeline.yml
-Lines:   453
-Jobs:    3 (test, ai-pipeline, notify)
-Trigger: push to main
-```
-
-To read the full workflow: `cat .github/workflows/e2e-pipeline.yml`
-
----
-
-*FORGE™ — AI-Augmented Quality Engineering Platform*
-*AnvilQ Technologies LLC — Copyright © 2026 Raj Kasthuri*
+- Read the workflow before updating this guide.
+- Keep executable commands and step order synchronized with the YAML.
+- Do not weaken a blocking gate to make documentation claims pass.
+- Preserve the distinction between workflow execution, evidence completeness,
+  and test outcome.
+- Verify open CI debt in root `TECH_DEBT.md`; do not maintain a competing TD
+  status list here.

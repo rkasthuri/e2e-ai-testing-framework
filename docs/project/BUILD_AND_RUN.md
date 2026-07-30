@@ -1,10 +1,30 @@
 # BUILD_AND_RUN.md
-<!-- version: 1.0 | status: ACTIVE | owner: Raj Kasthuri (AnvilQ Technologies LLC) -->
-<!-- Last updated: 2026-07-21 — sourced from package.json + CC repo verification -->
+
+---
+
+Document Authority:
+B — Operational
+
+Owner:
+Engineering Operations
+
+Source of Truth:
+Actual CLI behavior, `package.json` scripts, server configuration, and executable
+validation behavior
+
+Refresh Trigger:
+Prerequisites, package scripts, CLI commands, launch paths, ports, server
+boundaries, validation commands, or troubleshooting behavior change
+
+Last Verified:
+2026-07-29
+
+---
 
 > Instructions for setting up, building, running, and debugging FORGE locally.
-> Commands verified against the live repo where possible.
-> Items marked ⚠️ need verification from CC if behaviour is unexpected.
+> This is the primary operational guide, but executable behavior remains the
+> source of truth. Verify commands against `package.json`, the current CLI, and
+> current CI evidence before reporting a result.
 
 ---
 
@@ -42,8 +62,13 @@ npm run db:migrate
 
 # 6. Verify setup
 npm run check           # TypeScript — must pass
-npm run test:unit       # Unit tests — expect 531/0
+npm run test:unit       # Unit tests — confirm the current count from real output
+cd forge-ui && npm run check
 ```
+
+The stabilization milestone passed 684/684 unit tests. Treat that as a dated
+reference, not a permanent expected count: run the current suite and use its
+actual output plus commit-matched CI evidence.
 
 ---
 
@@ -95,9 +120,33 @@ npm run check           # Must pass before any test run
 npm run test            # Smoke — fast critical-path check
 npm run test:all        # Stable suite — excludes @slow / @flaky
 npm run test:full       # Everything including slow tests
-npm run test:unit       # Unit tests only (531 tests)
+npm run test:unit       # Automated unit discovery
+npm run test:rehearsal:td184b3
+                         # Explicit operator-only recovery rehearsal
 npm run test:flaky      # @slow and @flaky tagged tests in isolation
 ```
+
+The TD-184B recovery rehearsal is intentionally outside normal
+`scripts/*.test.ts` unit discovery. Run it only through its explicit command; it
+uses disposable storage and does not authorize mutation of live App Model data.
+
+### Validation Baseline
+
+Use the repository validation orchestrator when you need a bounded,
+evidence-bearing assessment:
+
+```bash
+npm run validate:baseline -- --profile offline --db .forge/forge.db
+```
+
+The offline profile runs root/eval TypeScript checks, the complete automated unit
+suite, the forge-ui TypeScript check, and read-only SQLite integrity checks.
+Additional profiles and evidence semantics are documented in
+[`FORGE_VALIDATION_BASELINE.md`](FORGE_VALIDATION_BASELINE.md).
+
+Do not infer success from a historical count or a command merely completing.
+Confirm the current command output, aggregate decision, repository commit, and
+applicable CI evidence.
 
 ### Area-Specific (SauceDemo)
 
@@ -209,7 +258,7 @@ npm run gaps:preview    # Preview gap-filling tests — no files written
 
 ## 7. Platform UI (forge-ui)
 
-### Start the platform
+### Canonical launch path
 
 ```bash
 forge ui                # Start the canonical forge-ui platform
@@ -223,7 +272,22 @@ forgeUI.bat             # Double-click — portable Windows launcher
 
 The deprecated `src/platform` server is retired. Its former `npm run platform`,
 `npm run platform:dev`, and `npm run platform:stop` entry points fail closed;
-use `forge ui` instead.
+direct execution of `src/platform/platform-server.ts` also fails before binding
+a port. Use `forge ui` instead.
+
+### Local-only security boundary
+
+FORGE UI is a local development surface, not a remotely hosted service.
+
+- The forge-ui server explicitly binds to a loopback interface.
+- Browser requests are accepted only from expected local loopback origins.
+- Unsafe external browser origins are rejected intentionally.
+- Remote access and remote binding are unsupported. They require a separately
+  designed and reviewed security model; do not bypass the boundary or suggest
+  exposure workarounds.
+
+Use the local URL reported by `forge ui`. A log message that says “localhost” is
+not the security control—the enforced bind host and origin checks are.
 
 ### forge-ui local type check
 

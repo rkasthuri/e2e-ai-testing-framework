@@ -1,325 +1,150 @@
-# CODEX_ONBOARDING.md
-<!-- version: 1.0 | status: ACTIVE | owner: Raj Kasthuri (AnvilQ Technologies LLC) -->
-
-> Codex-specific onboarding guide for OpenAI Codex as an implementation agent
-> on FORGE. This document is distinct from AI_ONBOARDING_CHECKLIST.md, which
-> is universal and mandatory for every AI agent. Read that first.
->
-> This document explains how Codex should consume context, receive work,
-> execute tasks, and interact with the FORGE team — specifically optimised
-> for how Codex works best.
+# Codex Onboarding
 
 ---
 
-## 1. Before You Read This
+Document Authority:
+B — Operational
 
-You must have already completed `AI_ONBOARDING_CHECKLIST.md` in full.
-If you have not, stop and do that first. This document assumes that checklist
-is complete and confirmed.
+Owner:
+Codex Workflow Owner
 
-The universal rules in `AI_CONSTITUTION.md` apply to Codex without exception.
-This document does not relax any of those rules — it explains how to apply
-them in the context of how Codex receives and executes work.
+Source of Truth:
+[`AI_CONSTITUTION.md`](AI_CONSTITUTION.md),
+[`AI_WORKFLOW.md`](AI_WORKFLOW.md), and root
+[`AGENTS.md`](../../AGENTS.md)
 
----
+Refresh Trigger:
+Agent workflow, Codex execution behavior, or role-specific operating boundaries
+change
 
-## 2. How Codex Is Different From Claude Code
-
-Codex and CC (Claude Code) fill the same role in the FORGE workflow —
-implementation agent. The workflow, approval gates, and constitutional rules
-are identical for both. What differs is how each agent best receives context
-and instructions.
-
-| Dimension | Claude Code (CC) | Codex |
-|---|---|---|
-| Context delivery | Conversational — can reference prior chat history | Document-first — works best from explicit files and scoped inputs |
-| Project history | Can reference prior conversation turns | Should not be expected to reconstruct months of history from conversation |
-| Brief format | Conversational brief in chat, checkpointed | Structured document with explicit file list, constraints, and definition of done |
-| Best at | Iterative back-and-forth, exploratory investigation | Focused, well-scoped implementation tasks |
-
-**The practical implication:** When Codex receives a task, it must be given
-everything it needs in that task package. It should not need to ask "what
-does TD-013 mean?" or "what is the engine boundary?" — those answers must
-be in the task package or in the documents it is told to read.
+Last Verified:
+2026-07-29
 
 ---
 
-## 3. What Codex Needs For Every Task
+This document contains Codex-specific operational guidance only. It does not
+restate or replace FORGE governance.
 
-Every task given to Codex must include:
+Before contributing, start at [`AGENTS.md`](../../AGENTS.md) and complete the
+universal [`AI_ONBOARDING_CHECKLIST.md`](AI_ONBOARDING_CHECKLIST.md). If this
+guide conflicts with an authoritative source, stop and report the conflict.
 
-```
-1. Relevant project documents (links or content)
-   → The specific docs that apply to this task
-   → Not all docs — only the ones that matter
+## Trust Order
 
-2. The specific files to modify
-   → Explicit file paths
-   → Not "somewhere in src/core/healing/" — exact paths
+Use sources in this order:
 
-3. A clearly scoped objective
-   → One thing to accomplish
-   → Not "improve the crawler" — one specific, verifiable change
+1. Root [`AGENTS.md`](../../AGENTS.md) for repository routing and active
+   implementation instructions.
+2. [`AI_CONSTITUTION.md`](AI_CONSTITUTION.md) for non-negotiable rules and
+   authority.
+3. [`AI_WORKFLOW.md`](AI_WORKFLOW.md) for collaboration, checkpoints, approval,
+   commit, and push semantics.
+4. Applicable [`ADRs`](../ADR/) and durable architecture documents for decisions
+   and constraints.
+5. Executable evidence: current code, tests, migrations, configuration, CI
+   workflows, Git state, and commit-matched validation results.
+6. Operational guides such as
+   [`BUILD_AND_RUN.md`](../project/BUILD_AND_RUN.md) and
+   [`CI_PIPELINE.md`](../project/CI_PIPELINE.md), checked against executable
+   evidence.
 
-4. Constraints
-   → What must not change
-   → What boundaries must be respected
-   → What patterns must be followed
+Archives, old handovers, dated snapshots, comments, console messages, and
+unverified counts are context—not proof of current behavior.
 
-5. Definition of done
-   → How Codex and Raj know the task is complete
-   → Specific, verifiable criteria
-```
+## Codex Role
 
-This is different from how Claude Code has operated — CC can reference
-prior conversation context. Codex cannot and should not be expected to.
-The task package is the complete context.
+Codex is an implementation agent. Within an approved task, Codex should:
 
----
+- inspect the repository before acting;
+- implement only the approved scope;
+- preserve unrelated working-tree changes and sensitive storage;
+- follow existing ownership boundaries instead of creating parallel paths;
+- report ambiguity, contradictions, uncertainty, and blocked evidence;
+- validate changes in proportion to risk;
+- return command results, real counts, diffs, and preservation evidence; and
+- stop when additional authority or an architectural decision is required.
 
-## 4. The Task Package Format
+Codex must not:
 
-Every task Codex receives must follow this structure. Aiden prepares this
-package. Codex does not begin work until the full package is provided.
+- invent or approve architecture decisions;
+- silently broaden a task;
+- treat documentation or remembered summaries as executable evidence;
+- weaken tests, validation, or failure behavior to obtain a pass;
+- stage, commit, push, reset, clean, or discard work without the authority
+  required by [`AI_WORKFLOW.md`](AI_WORKFLOW.md); or
+- claim success when required validation did not run or its evidence is stale,
+  missing, malformed, or tied to another source state.
 
-```markdown
-## FORGE Implementation Task
+## Working Method
 
-### Objective
-[One sentence. What will be true when this task is complete that is not
-true now.]
+### Before changing files
 
-### Background
-[Why this work is needed. What problem it solves. Reference the relevant
-TD number if this resolves a logged defect.]
+1. Confirm the repository root, branch, HEAD, status, and staged state.
+2. Read the applicable authority and the files that enforce current behavior.
+3. Identify approved paths and preservation-sensitive artifacts.
+4. Capture before-state evidence when the task could touch storage, generated
+   models, or other mutable state.
+5. Stop if the requested change conflicts with an ADR or exceeds the approved
+   brief.
 
-### Relevant ADRs
-[List only the ADRs that constrain or inform this task.
-Include the decision, not just the number.]
+### While changing files
 
-### Relevant TDs
-[List open TDs this task resolves or must not disturb.
-Include a one-line description of each.]
+- Make surgical edits traceable to the task.
+- Do not overwrite or normalize unrelated changes.
+- Keep persistence, business logic, transport, and UI ownership with their
+  existing owners.
+- Prefer explicit failure and uncertainty over silent fallback.
+- When implementation and documentation disagree, use executable evidence for
+  current behavior and report the documentation drift.
 
-### Files to Modify
-[Explicit file paths — relative to repo root.
-One path per line.]
+### Validation
 
-### Files NOT to Modify
-[Explicit file paths that must not change.
-Include why, e.g. "engine boundary — src/ never imports from forge-ui/".]
+Use the smallest focused proof first, then the applicable repository gates.
+Common gates are:
 
-### Constraints
-[Numbered list of rules that apply to this specific task:
-- Path resolution rules
-- Copyright header requirement
-- Engine boundary
-- No business logic in routes
-- Any task-specific constraints]
-
-### Acceptance Criteria
-[Numbered, verifiable list. Each item must be checkable with evidence.
-e.g. "npm run check passes" not "code looks correct".]
-
-### Definition of Done
-[What Codex must produce before reporting completion:
-- List of files modified
-- Terminal output confirming each acceptance criterion
-- Diff summary (actual diff, not description)
-- Any questions or divergences found]
-
-### Validation Required
-[Which tests to run. Expected pass counts.
-e.g. "npm run test:unit — expect 531/0"
-     "npm run check — must pass clean"]
-
-### Rollback Considerations
-[What a revert of this change would affect.
-If the change is low-risk and easily reverted, state that.
-If it touches schema or persistent state, state what rollback would require.]
-
-### Checkpoint Schedule
-[Where Codex must stop and report before continuing.
-e.g. "Stop after Step 2 and report before implementing Step 3."]
+```text
+npm run check
+npm run test:unit
+cd forge-ui && npm run check
+npm run validate:baseline -- --profile offline --db .forge/forge.db
+git diff --check
 ```
 
----
+These are examples, not a permanent claim about every task. Follow
+[`BUILD_AND_RUN.md`](../project/BUILD_AND_RUN.md), the task brief, and current
+package scripts. Report actual output and counts; do not copy a historical
+baseline forward.
 
-## 5. Session Start Protocol
+Operator-only rehearsals are not substitutes for normal validation. Run one only
+when the task explicitly requires it and verify that it uses disposable
+resources.
 
-At the start of every Codex session, before touching any file:
+### Handoff
 
-```
-1. Confirm repo state:
-   git status
-   git log --oneline -5
+Return:
 
-2. Confirm test baseline:
-   npm run check
-   npm run test:unit
+- the outcome and remaining risks;
+- exact files changed;
+- validation commands, exit results, and observed counts;
+- scope and preservation checks;
+- staged, committed, and pushed state; and
+- any evidence that was unavailable or could not be established.
 
-3. Confirm task understanding:
-   - Restate the objective in one sentence
-   - List the files you will modify
-   - List the files you will not modify
-   - State the first step you will take
+Never describe a skipped, blocked, or unavailable check as passing.
 
-4. Wait for go-ahead before proceeding
-```
+## Current FORGE-Specific Boundaries
 
-Report all four outputs to Raj. Do not begin implementation until Raj
-confirms go-ahead.
+- `forge-ui` is the canonical UI. The monolithic legacy platform server is
+  retired and must not be revived.
+- Local development servers enforce a loopback-only boundary. Do not propose
+  remote exposure as a convenience change.
+- The App Model and SQLite repositories retain their documented persistence
+  authority. Do not create alternate write paths.
+- Guarded App Model recovery requires its inspection, acknowledgement, and
+  provenance contracts. The explicit recovery rehearsal remains outside normal
+  unit-test discovery.
+- CI reporting evidence must match `CURRENT_RUN_ID`; unavailable or invalid
+  current-run evidence fails closed.
 
----
-
-## 6. Checkpoint Reporting Format
-
-At every checkpoint, Codex reports in this format:
-
-```
-✅ COMPLETED
-   [What was done — specific, not vague]
-
-📋 EVIDENCE
-   [Terminal output or diff — actual, not summarised]
-
-🔍 FINDINGS
-   [Anything unexpected, any divergence from the task package,
-   any file that does not match the brief's description.
-   If nothing unexpected: "None."]
-
-⏭ NEXT STEP
-   [What comes next, if there is a next step]
-
-⛔ STOP — AWAITING INSTRUCTION
-   [Always end with this. Codex does not continue without explicit
-   instruction from Raj.]
-```
-
----
-
-## 7. When to Stop Unscheduled
-
-Codex must stop immediately — outside of scheduled checkpoints — when:
-
-- A file listed in "Files to Modify" does not exist at the expected path
-- A file listed in "Files NOT to Modify" would need to change to complete the task
-- Tests fail unexpectedly
-- The repo state at session start does not match what the task package describes
-- Any constraint in the task package cannot be satisfied as written
-- Any doubt arises about whether the next action is in scope
-
-When stopping unscheduled:
-```
-⚠️ UNSCHEDULED STOP
-
-Reason: [specific — what was found, what diverged, what is missing]
-Evidence: [actual output]
-Question: [what Codex needs to proceed]
-```
-
-Do not attempt to resolve the divergence autonomously. Report and wait.
-
----
-
-## 8. What Codex Must Never Do
-
-These are the same as `AI_CONSTITUTION.md` Section 8, restated here
-in the context of how Codex operates:
-
-- **Never begin a task without a complete task package.** If the package
-  is missing files, constraints, or definition of done — ask before starting.
-- **Never expand scope beyond the task package.** If fixing a bug reveals
-  a related bug, log it as a new TD — do not fix it in the same commit.
-- **Never commit without Aiden diff review.** Complete the task, produce
-  the evidence, stop — then Aiden reviews before any commit is made.
-- **Never push without Rule 9.** After Aiden approves, Raj issues "Go."
-  No push happens without it.
-- **Never invent a file path, flag, or API signature.** If the task package
-  references something that does not exist in the repo — stop and report.
-- **Never summarise a diff.** Aiden reads the actual diff. Produce it.
-- **Never mark a TD resolved.** Codex implements and reports. Aiden and Raj
-  confirm resolution. Codex does not update TECH_DEBT.md without instruction.
-
----
-
-## 9. Receiving Documentation Context
-
-For any task that touches engine architecture, Codex should be provided
-with the relevant subset of this documentation — not all of it. Aiden
-will specify which docs apply in the task package.
-
-**Minimum docs for any implementation task:**
-- `AI_CONSTITUTION.md` — always
-- `CODEBASE_MAP.md` §1 (the two boundaries) — always
-- The relevant section of `CODEBASE_MAP.md` for the module being touched
-
-**Additional docs by task type:**
-
-| Task type | Additional docs |
-|---|---|
-| Crawl / Bootstrap work | KNOWN_LIMITATIONS.md L-001, L-002, L-003 |
-| forge-ui tab work | CODEBASE_MAP.md §3 (forge-ui) |
-| Triage / eval work | TESTING_STRATEGY.md Section 6 (eval harnesses) |
-| Healing work | GLOSSARY.md (SmartLocator, HealStore, confidence hierarchy) |
-| Storage / migration | CODEBASE_MAP.md Section 2.7 |
-| Any TD resolution | TECH_DEBT_SUMMARY.md entry for that TD |
-
----
-
-## 10. First Task Recommendation
-
-Before taking on a complex task, Codex should complete one small,
-well-scoped task first to validate that:
-- The repo setup is correct
-- The task package format works
-- The checkpoint protocol is working
-- The diff review process is understood
-
-A good first task: add a missing copyright header to one file, confirm
-with `git diff`, stop for Aiden review. Simple, verifiable, zero risk.
-
----
-
-## 11. Onboarding Confirmation
-
-Before beginning any work on FORGE, Codex must deliver this confirmation
-to Raj:
-
-```
-CODEX ONBOARDING COMPLETE
-
-I have read:
-  ✅ AI_CONSTITUTION.md
-  ✅ AI_WORKFLOW.md
-  ✅ AI_ONBOARDING_CHECKLIST.md (all parts complete)
-  ✅ CODEX_ONBOARDING.md
-  ✅ CODEBASE_MAP.md (§1 — architecture / the two boundaries)
-  ✅ GLOSSARY.md
-
-My role:        Implementation Agent (Codex)
-Authority:      Implementation only — no design decisions, no self-approval
-
-I understand:
-  - I work from task packages, not conversational history
-  - I stop at every checkpoint and report with evidence
-  - I do not commit without Aiden diff review
-  - I do not push without Rule 9
-  - I do not expand scope beyond the task package
-  - I do not resolve divergences autonomously
-
-First task:     [state the task as given]
-First step:     [state what I will do first]
-Questions:      [any questions before I start, or 'None']
-
-Repo state at session start:
-  git status:     [output]
-  git log -5:     [output]
-  npm run check:  [PASS / FAIL]
-  test:unit:      [X/X]
-```
-
----
-
-*FORGE™ — AI-Augmented Quality Engineering Platform*
-*AnvilQ Technologies LLC — Copyright © 2026 Raj Kasthuri*
+Use the applicable ADRs, code, tests, migrations, and operational guides for the
+details behind these boundaries.
