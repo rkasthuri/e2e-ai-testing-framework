@@ -2,36 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-04T18-47-08",
-      "timestamp": "2026-07-04T18:47:21.014Z",
-      "durationMs": 500276,
-      "stats": {
-        "total": 316,
-        "passed": 315,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Fixture setup timeouts before test execution point to infrastructure problems: slow page load, network issues, or environment unavailability.",
-          "suggestedAction": "Check CI logs for network latency, verify OrangeHRM environment availability, and consider increasing fixture timeout if environment is consistently slow.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
       "runId": "2026-07-04T23-29-32",
       "timestamp": "2026-07-04T23:29:42.029Z",
       "durationMs": 480819,
@@ -1984,6 +1954,31 @@
       },
       "failures": [],
       "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-01T08-08-12",
+      "timestamp": "2026-08-01T08:09:03.141Z",
+      "durationMs": 460931,
+      "stats": {
+        "total": 320,
+        "passed": 319,
+        "failed": 0,
+        "flaky": 1,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [
+        {
+          "testTitle": "TC039 - error_user and visual_user login functionality",
+          "file": "desktop/ui/saucedemo/tests/migrated/tc039-login.spec.ts",
+          "browser": "webkit",
+          "retries": 2,
+          "durationMs": 68050
+        }
+      ],
       "inputHealth": "healthy",
       "inputHealthReason": null
     }
