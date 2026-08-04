@@ -2,36 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-05T08-44-24",
-      "timestamp": "2026-07-05T08:44:41.934Z",
-      "durationMs": 530398,
-      "stats": {
-        "total": 320,
-        "passed": 319,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Fixture setup timeout points to infrastructure/environment problems preventing the test from even starting.",
-          "suggestedAction": "Check network connectivity to OrangeHRM instance, verify environment variables for admin credentials are set, and review CI logs for browser launch or page navigation failures during fixture initialization.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
       "runId": "2026-07-05T17-08-40",
       "timestamp": "2026-07-05T17:09:03.391Z",
       "durationMs": 645507,
@@ -1951,6 +1921,23 @@
       "runId": "2026-08-03T09-29-43",
       "timestamp": "2026-08-03T09:30:42.546Z",
       "durationMs": 429507,
+      "stats": {
+        "total": 320,
+        "passed": 320,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-04T08-25-18",
+      "timestamp": "2026-08-04T08:26:06.715Z",
+      "durationMs": 436037,
       "stats": {
         "total": 320,
         "passed": 320,
