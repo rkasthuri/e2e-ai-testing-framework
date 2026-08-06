@@ -2,203 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-04T08-27-33",
-      "timestamp": "2026-07-04T08:27:48.000Z",
-      "durationMs": 539992,
-      "stats": {
-        "total": 320,
-        "passed": 319,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Fixture setup timeout before test execution indicates infrastructure or environment failure, not application or test logic issues.",
-          "suggestedAction": "Check CI environment health, network connectivity to OrangeHRM instance, and verify 'adminUser' fixture implementation for blocking operations or missing environment variables.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
-      "runId": "2026-07-04T18-47-08",
-      "timestamp": "2026-07-04T18:47:21.014Z",
-      "durationMs": 500276,
-      "stats": {
-        "total": 316,
-        "passed": 315,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Fixture setup timeouts before test execution point to infrastructure problems: slow page load, network issues, or environment unavailability.",
-          "suggestedAction": "Check CI logs for network latency, verify OrangeHRM environment availability, and consider increasing fixture timeout if environment is consistently slow.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
-      "runId": "2026-07-04T23-29-32",
-      "timestamp": "2026-07-04T23:29:42.029Z",
-      "durationMs": 480819,
-      "stats": {
-        "total": 316,
-        "passed": 315,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Timeout during fixture setup indicates infrastructure or environment problem, not application or test logic defect.",
-          "suggestedAction": "Investigate the 'adminUser' fixture implementation: check network connectivity to orangehrm, verify authentication endpoints are reachable, review fixture timeout configuration, and examine CI logs for environment-specific issues during the setup phase.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
-      "runId": "2026-07-04T23-50-48",
-      "timestamp": "2026-07-04T23:51:05.889Z",
-      "durationMs": 484228,
-      "stats": {
-        "total": 316,
-        "passed": 315,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Fixture setup timeout indicates the test environment failed to initialize before test execution began.",
-          "suggestedAction": "Check OrangeHRM server availability, network connectivity, and verify the adminUser fixture URL/configuration is accessible.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
-      "runId": "2026-07-05T08-44-24",
-      "timestamp": "2026-07-05T08:44:41.934Z",
-      "durationMs": 530398,
-      "stats": {
-        "total": 320,
-        "passed": 319,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Fixture setup timeout points to infrastructure/environment problems preventing the test from even starting.",
-          "suggestedAction": "Check network connectivity to OrangeHRM instance, verify environment variables for admin credentials are set, and review CI logs for browser launch or page navigation failures during fixture initialization.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
-      "runId": "2026-07-05T17-08-40",
-      "timestamp": "2026-07-05T17:09:03.391Z",
-      "durationMs": 645507,
-      "stats": {
-        "total": 316,
-        "passed": 315,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC-GEN-001 Admin logs in and lands on dashboard smoke test",
-          "suiteName": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts > admin-login",
-          "file": "desktop/ui/orangehrm/generated/specs/admin-login.generated.spec.ts",
-          "browser": "generated",
-          "priority": "Unknown",
-          "verdict": "infra-defect",
-          "confidence": "High",
-          "reasoning": "Fixture setup timeout indicates environment/infrastructure problem preventing test initialization, not an app or test logic defect.",
-          "suggestedAction": "Check network connectivity to OrangeHRM instance, verify environment variables/credentials for adminUser fixture, and review CI pipeline logs for resource constraints or authentication service availability.",
-          "errorMessage": "\u001b[31mTest timeout of 30000ms exceeded while setting up \"adminUser\".\u001b[39m"
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
-      "runId": "2026-07-05T18-37-07",
-      "timestamp": "2026-07-05T18:37:27.633Z",
-      "durationMs": 465707,
-      "stats": {
-        "total": 316,
-        "passed": 316,
-        "failed": 0,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "100.0%"
-      },
-      "failures": [],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
       "runId": "2026-07-05T21-05-22",
       "timestamp": "2026-07-05T21:05:40.331Z",
       "durationMs": 437251,
@@ -1997,6 +1800,141 @@
           "durationMs": 8750
         }
       ],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-07-31T08-38-18",
+      "timestamp": "2026-07-31T08:39:17.240Z",
+      "durationMs": 448925,
+      "stats": {
+        "total": 320,
+        "passed": 320,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-01T08-08-12",
+      "timestamp": "2026-08-01T08:09:03.141Z",
+      "durationMs": 460931,
+      "stats": {
+        "total": 320,
+        "passed": 319,
+        "failed": 0,
+        "flaky": 1,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [
+        {
+          "testTitle": "TC039 - error_user and visual_user login functionality",
+          "file": "desktop/ui/saucedemo/tests/migrated/tc039-login.spec.ts",
+          "browser": "webkit",
+          "retries": 2,
+          "durationMs": 68050
+        }
+      ],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-02T08-09-48",
+      "timestamp": "2026-08-02T08:10:47.789Z",
+      "durationMs": 490034,
+      "stats": {
+        "total": 320,
+        "passed": 319,
+        "failed": 0,
+        "flaky": 1,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [
+        {
+          "testTitle": "TC041 - Logout functionality and session termination @webkit-timing",
+          "file": "desktop/ui/saucedemo/tests/login.spec.ts",
+          "browser": "webkit",
+          "retries": 1,
+          "durationMs": 37763
+        }
+      ],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-03T09-29-43",
+      "timestamp": "2026-08-03T09:30:42.546Z",
+      "durationMs": 429507,
+      "stats": {
+        "total": 320,
+        "passed": 320,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-04T08-25-18",
+      "timestamp": "2026-08-04T08:26:06.715Z",
+      "durationMs": 436037,
+      "stats": {
+        "total": 320,
+        "passed": 320,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-05T08-23-25",
+      "timestamp": "2026-08-05T08:24:26.662Z",
+      "durationMs": 447734,
+      "stats": {
+        "total": 320,
+        "passed": 320,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-06T08-20-32",
+      "timestamp": "2026-08-06T08:21:26.706Z",
+      "durationMs": 432273,
+      "stats": {
+        "total": 320,
+        "passed": 320,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
       "inputHealth": "healthy",
       "inputHealthReason": null
     }
