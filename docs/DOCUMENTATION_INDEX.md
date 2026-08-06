@@ -56,6 +56,7 @@ reading order, architecture, operational behavior, or project status.
 | [`architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md`](architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md) | Crawl-to-persisted-observation request, truth, and provenance contract | A — Authoritative | Architecture Authority | Crawl request, observation persistence, credential-status, progress, or result contracts change | Crawl API, observation store, Crawl UI, and focused tests |
 | [`architecture/CODEBASE_MAP.md`](architecture/CODEBASE_MAP.md) | Module, dependency, and implementation ownership map | E — Reference | Engineering Documentation Owner | Modules, ownership, entry points, or dependencies change | Current source tree, imports, scripts, and tests |
 | [`architecture/REPOSITORY_STRUCTURE.md`](architecture/REPOSITORY_STRUCTURE.md) | Directory-level repository map | E — Reference | Engineering Documentation Owner | Repository layout changes | Current tracked repository tree |
+| [`architecture/TD-UI-064B_LIVE_APPLICATION_OBSERVATIONS.md`](architecture/TD-UI-064B_LIVE_APPLICATION_OBSERVATIONS.md) | Bounded immutable observation-history read and Application Observations contract | A - Authoritative | Architecture Authority | Observation-history validation, ordering, safe projection, pagination, or presentation changes | Observation store history reader, crawl API, Observations adapter/UI, and focused tests |
 
 ## Operations and Validation
 
@@ -115,6 +116,9 @@ The authoritative TD-UI-063D Application Evidence contract is documented in
 The authoritative TD-UI-064A Crawl and Observation vertical-slice contract is
 documented in
 [`architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md`](architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md).
+The authoritative TD-UI-064B live Application Observations vertical-slice
+contract is documented in
+[`architecture/TD-UI-064B_LIVE_APPLICATION_OBSERVATIONS.md`](architecture/TD-UI-064B_LIVE_APPLICATION_OBSERVATIONS.md).
 
 1. Current code, tests, migrations, configuration, and CI workflows outrank
    explanatory documents for implemented behavior.

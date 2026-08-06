@@ -212,4 +212,6 @@ guard duplicate starts, and did not expose pre-crawl credential/access truth.
 Failures from App Model reads could also leave polling without a durable terminal
 record.
 
-The Application Observations tab is intentionally not wired by this task.
+TD-UI-064A did not wire the Application Observations tab. TD-UI-064B now reads
+these immutable artifacts through a separate bounded, read-only history path;
+it does not change this task's writers or status behavior.

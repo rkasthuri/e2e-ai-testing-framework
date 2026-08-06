@@ -16,7 +16,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
 import type {
   OnboardRequest, OnboardResponse, Project, Detection, CrawlRequest, CrawlStatus,
-  CrawlProjectContext, ObservationRecord, GenerationManifest, TestFileContent,
+  CrawlProjectContext, ObservationRecord, ObservationHistoryResponse, GenerationManifest, TestFileContent,
 } from '../api/types'
 
 /** GET /api/v1/projects — the project switcher + lists consume this. */
@@ -75,6 +75,35 @@ export function useLatestObservation(appName: string | null) {
       `/api/v1/crawl/projects/${encodeURIComponent(appName!)}/latest`,
     ),
     enabled: !!appName,
+    retry: false,
+  })
+}
+
+export interface ObservationHistoryRequest {
+  cursor: string | null
+  startedFrom: string | null
+  startedThrough: string | null
+  observationId: string | null
+}
+
+export function useObservationHistory(
+  appName: string | null,
+  request: ObservationHistoryRequest,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['observation-history', appName, request],
+    queryFn: () => {
+      const query = new URLSearchParams({ limit: '25' })
+      if (request.cursor) query.set('cursor', request.cursor)
+      if (request.startedFrom) query.set('startedFrom', request.startedFrom)
+      if (request.startedThrough) query.set('startedThrough', request.startedThrough)
+      if (request.observationId) query.set('observation', request.observationId)
+      return apiClient.get<ObservationHistoryResponse>(
+        `/api/v1/crawl/projects/${encodeURIComponent(appName!)}/observations?${query}`,
+      )
+    },
+    enabled: !!appName && enabled,
     retry: false,
   })
 }

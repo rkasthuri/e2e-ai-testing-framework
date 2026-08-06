@@ -10,46 +10,48 @@ const types = read('forge-ui/src/components/application-workspace/observationsTy
 const workspace = read('forge-ui/src/components/application-workspace/ApplicationWorkspace.tsx')
 const app = read('forge-ui/src/App.tsx')
 
-test('no observations yet is explicit and does not imply healthy completeness', () => {
-  assert.match(component, /No observations yet/)
-  assert.match(component, /coverage, and completeness remain unknown/)
+test('no observation history is explicit and does not imply application truth', () => {
+  assert.match(component, /No observation history/)
+  assert.match(component, /no application conclusion is presented/i)
 })
 
-test('current successful observation shows identity, context, timestamps, scope, and evidence', () => {
-  assert.match(component, /Current observation/)
+test('latest observation shows identity, context, semantic timestamps, scope, and evidence', () => {
+  assert.match(component, /observation\.position === 'latest' \? 'Latest' : 'Historical'/)
   assert.match(component, /Started/)
   assert.match(component, /Completed/)
   assert.match(component, /Context/)
-  assert.match(component, /Observed scope/)
-  assert.match(component, /Evidence/)
-  assert.match(types, /startedAt: string \| null/)
+  assert.match(component, /Observed subjects/)
+  assert.match(component, /Evidence records/)
+  assert.match(component, /<time dateTime=\{value\} title=\{value\}>/)
+  assert.match(types, /startedAt: string/)
 })
 
-test('multiple observations distinguish current from historical observations', () => {
-  assert.match(component, /Historical observation/)
-  assert.match(component, /observation\.isCurrent/)
-  assert.match(component, /Observation history/)
-  assert.match(component, /history\.map/)
+test('multiple observations distinguish latest position from historical position', () => {
+  assert.match(component, /observation\.position === 'latest' \? 'Latest' : 'Historical'/)
+  assert.match(component, /observation\.position === 'latest'/)
+  assert.match(component, /Latest describes ordering only/)
+  assert.match(component, /observations\.map/)
 })
 
 test('blocked authentication/access observations keep blockers and unobserved scope visible', () => {
-  assert.match(types, /blocked/)
+  assert.match(component, /blocked/)
   assert.match(component, /Blockers/)
   assert.match(component, /Unobserved scope/)
-  assert.match(component, /prevents a stronger state/i)
+  assert.match(component, /Authentication outcome/)
 })
 
-test('stale, failed, incomplete, conflicting, and integrity-failed evidence states remain visible', () => {
-  assert.match(types, /stale.*failed.*blocked.*incomplete/s)
-  assert.match(types, /evidenceStates: OverviewEvidenceState\[\]/)
-  assert.match(component, /States:/)
-  assert.match(component, /Limitations/)
+test('terminal outcomes, unknown freshness, and evidence integrity remain independent', () => {
+  assert.match(component, /completed.*partially_completed.*blocked.*failed.*unknown.*interrupted/s)
+  assert.match(types, /state: 'not_evaluated'/)
+  assert.match(types, /integrity: 'valid' \| 'failed' \| 'unknown'/)
+  assert.match(component, /Freshness/)
+  assert.match(component, /Not evaluated/)
+  assert.match(component, /Integrity:/)
 })
 
 test('unknowns and explainability remain visible without domain reconstruction', () => {
   assert.match(component, /Unknowns/)
-  assert.match(component, /Why this state/)
-  assert.match(component, /Prevents a stronger state/)
+  assert.match(component, /Terminal outcome explanation/)
   assert.doesNotMatch(component, /healthScore|health score|numeric KPI/i)
 })
 
@@ -61,5 +63,4 @@ test('no safe recommendation is explicit', () => {
 test('Observations is enabled in the existing workspace and has a stable route', () => {
   assert.match(workspace, /slug: 'observations', label: 'Observations', available: true/)
   assert.match(app, /path="\/application\/observations"/)
-  assert.doesNotMatch(app, /api\/.*observ/i)
 })

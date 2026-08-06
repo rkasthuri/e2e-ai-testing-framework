@@ -164,12 +164,87 @@ export type ObservationLookup =
   | { kind: 'ownership_mismatch' }
   | { kind: 'not_found' }
 
+export type ObservationHistoryState = ObservationTerminalState | 'interrupted'
+
+export interface ObservationHistoryItem {
+  observationId: string
+  orderingTimestamp: string
+  position: 'latest' | 'historical'
+  state: ObservationHistoryState
+  start: ObservationStartRecord
+  terminal: ObservationTerminalRecord | null
+}
+
+export type ObservationHistoryLookup =
+  | {
+      kind: 'ok'
+      observations: ObservationHistoryItem[]
+      nextCursor: string | null
+      previousCursor: string | null
+      hasPrevious: boolean
+      filteredTotal: number
+      projectTotal: number
+      requestedObservation: {
+        observationId: string
+        status: 'on_page' | 'outside_page' | 'outside_filter' | 'not_found'
+      } | null
+    }
+  | { kind: 'malformed' }
+  | { kind: 'ownership_mismatch' }
+  | { kind: 'invalid_cursor' }
+  | { kind: 'invalid_filter' }
+
 type JsonRead =
   | { kind: 'missing' }
   | { kind: 'malformed' }
   | { kind: 'value'; value: unknown }
 
 const OBSERVATION_ID = /^[a-zA-Z0-9-]+$/
+
+export const DEFAULT_OBSERVATION_HISTORY_LIMIT = 20
+export const MAX_OBSERVATION_HISTORY_LIMIT = 50
+const OBSERVATION_HISTORY_ORDER = 'terminal-or-start-desc-id-asc-v1'
+
+interface ObservationHistoryCursor {
+  version: 1
+  projectId: string
+  startedFrom: string | null
+  startedThrough: string | null
+  ordering: typeof OBSERVATION_HISTORY_ORDER
+  afterObservationId: string
+}
+
+export interface ObservationHistoryOptions {
+  limit?: number
+  cursor?: string | null
+  startedFrom?: string | null
+  startedThrough?: string | null
+  requestedObservationId?: string | null
+}
+
+function encodeObservationHistoryCursor(cursor: ObservationHistoryCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
+}
+
+function decodeObservationHistoryCursor(value: string): ObservationHistoryCursor | null {
+  if (!/^[A-Za-z0-9_-]{1,1024}$/.test(value)) return null
+  try {
+    const decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown
+    if (!isRecord(decoded) || !hasOnlyKeys(decoded, [
+      'version', 'projectId', 'startedFrom', 'startedThrough', 'ordering', 'afterObservationId',
+    ])) return null
+    if (decoded.version !== 1
+      || typeof decoded.projectId !== 'string'
+      || (decoded.startedFrom !== null && typeof decoded.startedFrom !== 'string')
+      || (decoded.startedThrough !== null && typeof decoded.startedThrough !== 'string')
+      || decoded.ordering !== OBSERVATION_HISTORY_ORDER
+      || typeof decoded.afterObservationId !== 'string'
+      || !OBSERVATION_ID.test(decoded.afterObservationId)) return null
+    return decoded as unknown as ObservationHistoryCursor
+  } catch {
+    return null
+  }
+}
 
 function readJson(file: string): JsonRead {
   if (!fs.existsSync(file)) return { kind: 'missing' }
@@ -430,6 +505,49 @@ function sameStartRecord(start: ObservationStartRecord, terminal: ObservationTer
     && JSON.stringify(start.observationContext) === JSON.stringify(terminal.observationContext)
 }
 
+function isExactIsoTimestamp(value: string): boolean {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value
+}
+
+function hasUniqueStringIds(items: Array<{ id: string }>): boolean {
+  return new Set(items.map(item => item.id)).size === items.length
+}
+
+function isHistorySafeStart(start: ObservationStartRecord): boolean {
+  return isExactIsoTimestamp(start.startedAt)
+}
+
+function isHistorySafeTerminal(terminal: ObservationTerminalRecord): boolean {
+  if (!isHistorySafeStart(terminal)
+    || !isExactIsoTimestamp(terminal.completedAt)
+    || terminal.completedAt < terminal.startedAt
+    || !terminal.evidence.every(item => isExactIsoTimestamp(item.capturedAt))
+    || !hasUniqueStringIds(terminal.observedSubjects)
+    || !hasUniqueStringIds(terminal.evidence)
+    || !hasUniqueStringIds(terminal.unknowns)
+    || !hasUniqueStringIds(terminal.blockers)) {
+    return false
+  }
+
+  const evidenceIds = new Set(terminal.evidence.map(item => item.id))
+  if (!terminal.observedSubjects.every(item => evidenceIds.has(item.evidenceId))
+    || !terminal.evidence.every(item => item.provenance.reference === terminal.observationId)) {
+    return false
+  }
+
+  if (terminal.authentication.attempts?.some(attempt => {
+    const stages = attempt.stages.map(item => item.stage)
+    return new Set(stages).size !== stages.length
+  })) {
+    return false
+  }
+
+  return (terminal.modelRecovery === undefined || isExactIsoTimestamp(terminal.modelRecovery.detectedAt))
+    && (terminal.modelRecoveryFailure === undefined
+      || isExactIsoTimestamp(terminal.modelRecoveryFailure.detectedAt))
+}
+
 /**
  * Append-only observation persistence. A run owns one immutable start record
  * and one immutable terminal record. Prior runs are never replaced.
@@ -488,6 +606,165 @@ export class ObservationStore {
       .map(result => result.terminal)
       .sort((a, b) => b.completedAt.localeCompare(a.completedAt))
     return records[0] ?? null
+  }
+
+  /**
+   * Read a bounded, immutable project history. Unlike latest(), collection
+   * reads fail closed when any persisted observation directory is malformed,
+   * belongs to another project, duplicates an identity, or has invalid time or
+   * evidence references. Ordering is newest persisted completion/start time
+   * first, with ascending observation ID as the stable tie-breaker.
+   */
+  history(
+    projectId: string,
+    options: ObservationHistoryOptions = {},
+  ): ObservationHistoryLookup {
+    assertValidAppName(projectId)
+    const limit = options.limit ?? DEFAULT_OBSERVATION_HISTORY_LIMIT
+    const cursor = options.cursor ?? null
+    const startedFrom = options.startedFrom ?? null
+    const startedThrough = options.startedThrough ?? null
+    const requestedObservationId = options.requestedObservationId ?? null
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_OBSERVATION_HISTORY_LIMIT) {
+      return { kind: 'invalid_cursor' }
+    }
+    if ((startedFrom !== null && !isExactIsoTimestamp(startedFrom))
+      || (startedThrough !== null && !isExactIsoTimestamp(startedThrough))
+      || (startedFrom !== null && startedThrough !== null && startedFrom > startedThrough)) {
+      return { kind: 'invalid_filter' }
+    }
+    if (requestedObservationId !== null && !OBSERVATION_ID.test(requestedObservationId)) {
+      return { kind: 'invalid_filter' }
+    }
+    const decodedCursor = cursor === null ? null : decodeObservationHistoryCursor(cursor)
+    if (cursor !== null && (!decodedCursor
+      || decodedCursor.projectId !== projectId
+      || decodedCursor.startedFrom !== startedFrom
+      || decodedCursor.startedThrough !== startedThrough
+      || decodedCursor.ordering !== OBSERVATION_HISTORY_ORDER)) {
+      return { kind: 'invalid_cursor' }
+    }
+
+    const root = path.join(this.workspaces.resolve(projectId).forgeDir, 'observations')
+    if (!fs.existsSync(root)) {
+      return cursor === null
+        ? {
+            kind: 'ok',
+            observations: [],
+            nextCursor: null,
+            previousCursor: null,
+            hasPrevious: false,
+            filteredTotal: 0,
+            projectTotal: 0,
+            requestedObservation: requestedObservationId === null
+              ? null
+              : { observationId: requestedObservationId, status: 'not_found' },
+          }
+        : { kind: 'invalid_cursor' }
+    }
+
+    let directories: string[]
+    try {
+      directories = fs.readdirSync(root, { withFileTypes: true })
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name)
+    } catch {
+      return { kind: 'malformed' }
+    }
+
+    const observations: Array<Omit<ObservationHistoryItem, 'position'>> = []
+    const identities = new Set<string>()
+    for (const observationId of directories) {
+      if (!OBSERVATION_ID.test(observationId) || identities.has(observationId)) {
+        return { kind: 'malformed' }
+      }
+      const resolved = this.resolveInProject(projectId, observationId)
+      if (resolved.kind === 'ownership_mismatch') return { kind: 'ownership_mismatch' }
+      if (resolved.kind === 'malformed' || resolved.kind === 'not_found') return { kind: 'malformed' }
+      if (!isHistorySafeStart(resolved.start)) return { kind: 'malformed' }
+      if (resolved.kind === 'terminal' && !isHistorySafeTerminal(resolved.terminal)) {
+        return { kind: 'malformed' }
+      }
+
+      identities.add(observationId)
+      observations.push({
+        observationId,
+        orderingTimestamp: resolved.kind === 'terminal'
+          ? resolved.terminal.completedAt
+          : resolved.start.startedAt,
+        state: resolved.kind === 'terminal' ? resolved.terminal.terminalState : 'interrupted',
+        start: resolved.start,
+        terminal: resolved.kind === 'terminal' ? resolved.terminal : null,
+      })
+    }
+
+    observations.sort((left, right) => {
+      const byTimestamp = right.orderingTimestamp.localeCompare(left.orderingTimestamp)
+      return byTimestamp !== 0 ? byTimestamp : left.observationId.localeCompare(right.observationId)
+    })
+
+    const positioned: ObservationHistoryItem[] = observations.map((item, index) => ({
+      ...item,
+      position: index === 0 ? 'latest' : 'historical',
+    }))
+    const filtered = positioned.filter(item => (
+      (startedFrom === null || item.start.startedAt >= startedFrom)
+      && (startedThrough === null || item.start.startedAt <= startedThrough)
+    ))
+    const startIndex = decodedCursor === null
+      ? 0
+      : filtered.findIndex(item => item.observationId === decodedCursor.afterObservationId) + 1
+    if (decodedCursor !== null && startIndex === 0) return { kind: 'invalid_cursor' }
+
+    const page = filtered.slice(startIndex, startIndex + limit)
+    const hasMore = startIndex + page.length < filtered.length
+    const previousStartIndex = Math.max(0, startIndex - limit)
+    const previousCursor = startIndex === 0 || previousStartIndex === 0
+      ? null
+      : encodeObservationHistoryCursor({
+          version: 1,
+          projectId,
+          startedFrom,
+          startedThrough,
+          ordering: OBSERVATION_HISTORY_ORDER,
+          afterObservationId: filtered[previousStartIndex - 1].observationId,
+        })
+    const requested = requestedObservationId === null
+      ? null
+      : (() => {
+          const inProject = positioned.some(item => item.observationId === requestedObservationId)
+          const inFilter = filtered.some(item => item.observationId === requestedObservationId)
+          const onPage = page.some(item => item.observationId === requestedObservationId)
+          return {
+            observationId: requestedObservationId,
+            status: !inProject
+              ? 'not_found' as const
+              : !inFilter
+                ? 'outside_filter' as const
+                : onPage
+                  ? 'on_page' as const
+                  : 'outside_page' as const,
+          }
+        })()
+    return {
+      kind: 'ok',
+      observations: page,
+      nextCursor: hasMore && page.length > 0
+        ? encodeObservationHistoryCursor({
+            version: 1,
+            projectId,
+            startedFrom,
+            startedThrough,
+            ordering: OBSERVATION_HISTORY_ORDER,
+            afterObservationId: page[page.length - 1].observationId,
+          })
+        : null,
+      previousCursor,
+      hasPrevious: startIndex > 0,
+      filteredTotal: filtered.length,
+      projectTotal: positioned.length,
+      requestedObservation: requested,
+    }
   }
 
   private resolveInProject(projectId: string, observationId: string): ObservationLookup {

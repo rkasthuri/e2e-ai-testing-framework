@@ -24,6 +24,8 @@ import { projectRegistry } from '../registry/ProjectRegistry'
 import { executionContext } from '../context/ExecutionContext'
 import { credentialStore, CredentialStore } from '../context/credentials/CredentialStore'
 import {
+  DEFAULT_OBSERVATION_HISTORY_LIMIT,
+  MAX_OBSERVATION_HISTORY_LIMIT,
   observationStore,
   type AuthenticationOutcome,
   type AuthenticationAttemptRecord,
@@ -32,6 +34,7 @@ import {
   type ObservationTerminalRecord,
   type ObservationTerminalState,
 } from '../registry/ObservationStore'
+import { projectObservationHistoryItem } from '../registry/ObservationHistoryPresenter'
 import { checkReachability } from './validate'
 
 /**
@@ -171,6 +174,101 @@ type CrawlProjectContext = {
   canEstablish: string[]
   cannotEstablish: string[]
   blockers: string[]
+}
+
+export type ObservationHistoryQuery =
+  | {
+      ok: true
+      limit: number
+      cursor: string | null
+      startedFrom: string | null
+      startedThrough: string | null
+      requestedObservationId: string | null
+    }
+  | {
+      ok: false
+      message: string
+      code:
+        | 'INVALID_OBSERVATION_HISTORY_LIMIT'
+        | 'INVALID_OBSERVATION_HISTORY_CURSOR'
+        | 'INVALID_OBSERVATION_HISTORY_DATE'
+        | 'INVALID_OBSERVATION_HISTORY_RANGE'
+        | 'INVALID_OBSERVATION_ID'
+    }
+
+const HISTORY_CURSOR = /^[A-Za-z0-9_-]{1,1024}$/
+const HISTORY_OBSERVATION_ID = /^[A-Za-z0-9-]+$/
+
+function isExactIsoTimestamp(value: string): boolean {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value
+}
+
+export function parseObservationHistoryQuery(query: Record<string, unknown>): ObservationHistoryQuery {
+  const rawLimit = query.limit
+  const rawCursor = query.cursor
+  const rawStartedFrom = query.startedFrom
+  const rawStartedThrough = query.startedThrough
+  const rawObservation = query.observation
+  if (rawLimit !== undefined && (typeof rawLimit !== 'string' || !/^[1-9][0-9]*$/.test(rawLimit))) {
+    return {
+      ok: false,
+      message: `limit must be an integer from 1 through ${MAX_OBSERVATION_HISTORY_LIMIT}.`,
+      code: 'INVALID_OBSERVATION_HISTORY_LIMIT',
+    }
+  }
+  const limit = rawLimit === undefined ? DEFAULT_OBSERVATION_HISTORY_LIMIT : Number(rawLimit)
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_OBSERVATION_HISTORY_LIMIT) {
+    return {
+      ok: false,
+      message: `limit must be an integer from 1 through ${MAX_OBSERVATION_HISTORY_LIMIT}.`,
+      code: 'INVALID_OBSERVATION_HISTORY_LIMIT',
+    }
+  }
+  if (rawCursor !== undefined && (typeof rawCursor !== 'string' || !HISTORY_CURSOR.test(rawCursor))) {
+    return {
+      ok: false,
+      message: 'cursor must be a previously returned cursor for this project and filter.',
+      code: 'INVALID_OBSERVATION_HISTORY_CURSOR',
+    }
+  }
+  for (const [name, value] of [
+    ['startedFrom', rawStartedFrom],
+    ['startedThrough', rawStartedThrough],
+  ] as const) {
+    if (value !== undefined && (typeof value !== 'string' || !isExactIsoTimestamp(value))) {
+      return {
+        ok: false,
+        message: `${name} must be an exact ISO-8601 timestamp.`,
+        code: 'INVALID_OBSERVATION_HISTORY_DATE',
+      }
+    }
+  }
+  if (typeof rawStartedFrom === 'string'
+    && typeof rawStartedThrough === 'string'
+    && rawStartedFrom > rawStartedThrough) {
+    return {
+      ok: false,
+      message: 'startedFrom must not be later than startedThrough.',
+      code: 'INVALID_OBSERVATION_HISTORY_RANGE',
+    }
+  }
+  if (rawObservation !== undefined
+    && (typeof rawObservation !== 'string' || !HISTORY_OBSERVATION_ID.test(rawObservation))) {
+    return {
+      ok: false,
+      message: 'observation must be a valid observation identifier.',
+      code: 'INVALID_OBSERVATION_ID',
+    }
+  }
+  return {
+    ok: true,
+    limit,
+    cursor: typeof rawCursor === 'string' ? rawCursor : null,
+    startedFrom: typeof rawStartedFrom === 'string' ? rawStartedFrom : null,
+    startedThrough: typeof rawStartedThrough === 'string' ? rawStartedThrough : null,
+    requestedObservationId: typeof rawObservation === 'string' ? rawObservation : null,
+  }
 }
 
 const observationStarts = new Map<string, ObservationStartRecord>()
@@ -783,6 +881,57 @@ router.get('/projects/:appName/latest', (req, res) => {
   if (!observation)
     return res.status(404).json(fail('No completed observation is available for this project.', 'OBSERVATION_NOT_FOUND'))
   res.json(ok({ observation }))
+})
+
+router.get('/projects/:appName/observations', (req, res) => {
+  const { appName } = req.params
+  if (!isValidAppName(appName)) {
+    return res.status(400).json(fail('Invalid project name.', 'INVALID_APP_NAME'))
+  }
+  const context = projectContext(appName)
+  if (!context) {
+    return res.status(404).json(fail(`Project '${appName}' was not found.`, 'NOT_FOUND'))
+  }
+  const query = parseObservationHistoryQuery(req.query as Record<string, unknown>)
+  if (!query.ok) return res.status(400).json(fail(query.message, query.code))
+
+  const history = observationStore.history(appName, query)
+  if (history.kind === 'invalid_cursor') {
+    return res.status(400).json(fail(
+      'cursor is not valid for this project, ordering, and date-filter set.',
+      'INVALID_OBSERVATION_HISTORY_CURSOR',
+    ))
+  }
+  if (history.kind === 'invalid_filter') {
+    return res.status(400).json(fail(
+      'The observation date filter is invalid.',
+      'INVALID_OBSERVATION_HISTORY_RANGE',
+    ))
+  }
+  if (history.kind === 'ownership_mismatch' || history.kind === 'malformed') {
+    return res.status(500).json(fail(
+      'Persisted observation history failed validation and cannot be presented safely.',
+      'OBSERVATION_HISTORY_INVALID',
+    ))
+  }
+
+  res.json(ok({
+    project: { id: context.projectId, name: context.projectName },
+    observations: history.observations.map(projectObservationHistoryItem),
+    page: {
+      limit: query.limit,
+      nextCursor: history.nextCursor,
+      previousCursor: history.previousCursor,
+      hasPrevious: history.hasPrevious,
+      filteredTotal: history.filteredTotal,
+      projectTotal: history.projectTotal,
+    },
+    filter: {
+      startedFrom: query.startedFrom,
+      startedThrough: query.startedThrough,
+    },
+    requestedObservation: history.requestedObservation,
+  }))
 })
 
 router.post('/', async (req, res) => {

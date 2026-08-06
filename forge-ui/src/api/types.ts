@@ -204,6 +204,118 @@ export interface AuthenticationAttempt {
   stages: AuthenticationStageDiagnostic[]
 }
 
+export type ObservationHistoryTerminalState =
+  | 'completed'
+  | 'partially_completed'
+  | 'blocked'
+  | 'failed'
+  | 'unknown'
+  | 'interrupted'
+
+export type SafeObservationCategory =
+  | 'authentication-prerequisite'
+  | 'authentication-acceptance'
+  | 'model-compatibility'
+  | 'guarded-persistence'
+  | 'observation-scope'
+  | 'observation-blocked'
+  | 'observation-failed'
+  | 'observation-outcome-unknown'
+  | 'observation-interrupted'
+
+export interface SafeCategorizedExplanation {
+  category: SafeObservationCategory
+  explanation: string
+  count: number
+}
+
+export interface ObservationHistoryItem {
+  observationId: string
+  projectId: string
+  projectName: string
+  observationContext: {
+    id: string
+    label: string
+    declaredScope: string
+    strategy: string
+  }
+  sourceKind: 'crawl-engine'
+  position: 'latest' | 'historical'
+  orderingTimestamp: string
+  startedAt: string
+  completedAt: string | null
+  terminalState: ObservationHistoryTerminalState
+  stateExplanation: string
+  authentication: {
+    expectation: string
+    credentialAvailability: 'available' | 'missing' | 'not_required' | 'unknown'
+    outcome: 'succeeded' | 'failed' | 'not_evaluated' | 'not_required' | null
+    explanation: string | null
+    attempts: AuthenticationAttempt[]
+  }
+  observedSubjects: Array<{
+    id: string
+    kind: 'page' | 'route'
+    routePath: string | null
+    evidenceId: string
+  }>
+  unobservedScope: SafeCategorizedExplanation[]
+  unknowns: SafeCategorizedExplanation[]
+  blockers: SafeCategorizedExplanation[]
+  limitations: SafeCategorizedExplanation[]
+  evidence: Array<{
+    id: string
+    subjectPath: string | null
+    summary: string
+    capturedAt: string
+    provenance: { kind: 'crawl-run'; reference: string }
+    integrity: 'valid' | 'failed' | 'unknown'
+  }>
+  recommendation: {
+    category: SafeObservationCategory
+    action: string
+    because: string
+  } | null
+  modelRecovery: {
+    sourceRowId: number
+    sourceVersion: string
+    sourceFingerprint: string
+    detectedAt: string
+    decision: 'force-guarded-recovery'
+    replacementRowId: number
+    replacementVersion: string
+  } | null
+  modelRecoveryFailure: {
+    sourceRowId: number
+    sourceVersion: string
+    sourceFingerprint: string
+    detectedAt: string
+    safeStage: string | null
+    phases: NonNullable<ObservationRecord['modelRecoveryFailure']>['phases']
+  } | null
+}
+
+export interface ObservationHistoryResponse {
+  project: { id: string; name: string }
+  observations: ObservationHistoryItem[]
+  page: {
+    limit: number
+    nextCursor: string | null
+    previousCursor: string | null
+    hasPrevious: boolean
+    filteredTotal: number
+    projectTotal: number
+  }
+  filter: {
+    startedFrom: string | null
+    startedThrough: string | null
+  }
+  requestedObservation: {
+    observationId: string
+    status: 'on_page' | 'outside_page' | 'outside_filter' | 'not_found'
+  } | null
+}
+
 /** A page from the SQLite App Model, mapped for the table (audit ruling; no depth). */
 export interface DiscoveredPage {
   id:               string

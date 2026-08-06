@@ -71,8 +71,15 @@ extension without creating a second domain policy.
 
 The Application workspace Observations presentation is owned by
 `forge-ui/src/components/application-workspace/ApplicationObservations.tsx`.
-It renders supplied observation history and limitations; it does not create,
-sort, refresh, or interpret observation domain records.
+It renders the typed immutable history supplied by
+`applicationObservationsAdapter.ts`; `applicationObservationSelection.ts` owns
+the fail-closed deep-link selection rule, while
+`observationHistoryDateFilter.ts` owns deterministic local-calendar boundary
+materialization. `ObservationHistoryFilterToolbar.tsx` owns filter controls.
+The server presentation allowlist and legacy-safe category mapping are owned by
+`forge-ui/server/registry/ObservationHistoryPresenter.ts`. These modules do not
+create observations, sort persisted records, or infer freshness and terminal
+outcomes.
 
 The Application Model presentation is owned by
 `forge-ui/src/components/application-workspace/ApplicationModel.tsx`. It
@@ -90,8 +97,10 @@ The Crawl observation vertical slice is owned by
 truth, submits engine work through `ExecutionContext`, and projects terminal
 engine/App Model output into append-only observation start and terminal records.
 These records are run-scoped provenance artifacts; they do not replace or write
-the SQLite App Model. The Application Observations tab remains presentation-only
-and is not connected by TD-UI-064A.
+the SQLite App Model. TD-UI-064B extends `ObservationStore` with the sole
+validated project-history reader and exposes it through the bounded read-only
+crawl API. The UI consumes that projection without consulting JobRunner memory
+or the mutable App Model.
 
 `src/core/storage/` owns schema evolution and App Model persistence. Repository
 operations remain the only durable App Model write authority.
