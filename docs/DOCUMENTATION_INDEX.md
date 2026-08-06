@@ -52,6 +52,8 @@ reading order, architecture, operational behavior, or project status.
 | [`architecture/ARCHITECTURE_NORTH_STAR.md`](architecture/ARCHITECTURE_NORTH_STAR.md) | Architectural direction and system spine | A — Authoritative | Architecture Authority | Approved architectural direction changes | ADRs and approved architecture decisions |
 | [`architecture/ARCHITECTURE_TARGET_EVIDENCE_LAYER.md`](architecture/ARCHITECTURE_TARGET_EVIDENCE_LAYER.md) | Target evidence-layer design | A — Authoritative | Architecture Authority | Target design or implementation status changes | Approved design decisions; code/tests for shipped state |
 | [`architecture/OBSERVATION_MODEL.md`](architecture/OBSERVATION_MODEL.md) | Observation semantics and ownership boundaries | A — Authoritative | Architecture Authority | Observation contract changes | ADRs, approved design, schemas, and contract tests |
+| [`architecture/TD-UI-062B_DOMAIN_CONTRACT.md`](architecture/TD-UI-062B_DOMAIN_CONTRACT.md) | Project lifecycle, evidence, explainable state, and Truth Confidence contract | A — Authoritative | Architecture Authority | Lifecycle, evidence, confidence, or project-identity policy changes | `src/core/domain/tdUi062b.ts` and its contract tests |
+| [`architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md`](architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md) | Crawl-to-persisted-observation request, truth, and provenance contract | A — Authoritative | Architecture Authority | Crawl request, observation persistence, credential-status, progress, or result contracts change | Crawl API, observation store, Crawl UI, and focused tests |
 | [`architecture/CODEBASE_MAP.md`](architecture/CODEBASE_MAP.md) | Module, dependency, and implementation ownership map | E — Reference | Engineering Documentation Owner | Modules, ownership, entry points, or dependencies change | Current source tree, imports, scripts, and tests |
 | [`architecture/REPOSITORY_STRUCTURE.md`](architecture/REPOSITORY_STRUCTURE.md) | Directory-level repository map | E — Reference | Engineering Documentation Owner | Repository layout changes | Current tracked repository tree |
 
@@ -97,6 +99,22 @@ reading order, architecture, operational behavior, or project status.
 | [`archive/`](archive/) | Preserved legacy contracts, handoffs, and implementation briefs | D — Historical | Documentation Owner | Historical material is added or its archival label is unclear | Original documents in their historical context |
 
 ## Trust and Verification Rules
+
+The authoritative TD-UI-062C Truth Board read-model contract is documented in
+[`architecture/TD-UI-062C_TRUTH_BOARD_READ_MODEL.md`](architecture/TD-UI-062C_TRUTH_BOARD_READ_MODEL.md).
+The authoritative TD-UI-062D Truth Board presentation contract is documented in
+[`architecture/TD-UI-062D_TRUTH_BOARD_PRESENTATION_SLICE.md`](architecture/TD-UI-062D_TRUTH_BOARD_PRESENTATION_SLICE.md).
+The authoritative TD-UI-063A Application Overview contract is documented in
+[`architecture/TD-UI-063A_APPLICATION_OVERVIEW.md`](architecture/TD-UI-063A_APPLICATION_OVERVIEW.md).
+The authoritative TD-UI-063B Application Observations contract is documented in
+[`architecture/TD-UI-063B_APPLICATION_OBSERVATIONS.md`](architecture/TD-UI-063B_APPLICATION_OBSERVATIONS.md).
+The authoritative TD-UI-063C Application Model contract is documented in
+[`architecture/TD-UI-063C_APPLICATION_MODEL.md`](architecture/TD-UI-063C_APPLICATION_MODEL.md).
+The authoritative TD-UI-063D Application Evidence contract is documented in
+[`architecture/TD-UI-063D_APPLICATION_EVIDENCE.md`](architecture/TD-UI-063D_APPLICATION_EVIDENCE.md).
+The authoritative TD-UI-064A Crawl and Observation vertical-slice contract is
+documented in
+[`architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md`](architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md).
 
 1. Current code, tests, migrations, configuration, and CI workflows outrank
    explanatory documents for implemented behavior.

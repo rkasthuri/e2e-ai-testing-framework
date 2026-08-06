@@ -14,20 +14,43 @@
 
 import type { Envelope } from './types'
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | null = null,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 /**
  * Typed fetch wrapper. Unwraps the server envelope (returns `data`); throws
  * with the envelope's `error` message on non-2xx. Vite proxies /api to the
  * Express control-plane (:3000).
  */
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  let res: Response
+  try {
+    res = await fetch(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch {
+    throw new ApiError('FORGE backend is unavailable. Start the control plane and try again.', 0, 'BACKEND_UNAVAILABLE')
+  }
   const json = (await res.json().catch(() => null)) as Envelope<T> | { error?: string } | null
   if (!res.ok) {
-    throw new Error((json as { error?: string })?.error ?? `HTTP ${res.status}`)
+    if (!json && res.status >= 500) {
+      throw new ApiError('FORGE backend is unavailable or returned an unreadable error. Start the control plane and try again.', res.status, 'BACKEND_UNAVAILABLE')
+    }
+    throw new ApiError(
+      (json as { error?: string })?.error ?? `HTTP ${res.status}`,
+      res.status,
+      (json as { code?: string })?.code ?? null,
+    )
   }
   return (json as Envelope<T>).data
 }

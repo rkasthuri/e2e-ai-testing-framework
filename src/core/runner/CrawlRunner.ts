@@ -34,10 +34,18 @@ import { AgentRunner } from '../agent/AgentRunner'
 import { Missions } from '../agent/Mission'
 import { GoalDefinition } from '../agent/AgentPlanner'
 import { AgentMode } from '../agent/types'
-import { AiBudgetTracker, AppModelCandidate, OnboardingConfig } from '../onboarding/types'
+import { AiBudgetTracker, AppModelCandidate, CrawlDiagnostic, OnboardingConfig } from '../onboarding/types'
 import { synthesizeAndPersistGoals } from '../onboarding/goalResolution'
-import { AppModelCommitOutcome } from '../storage/repositories/AppModelRepository'
+import {
+  AppModelCommitOutcome,
+  AppModelCommitResult,
+  AppModelPersistenceDiagnostic,
+  AppModelPersistenceError,
+  appModelPersistenceDiagnostic,
+} from '../storage/repositories/AppModelRepository'
 import { AppModelService, requireProjectedCommit } from '../storage/AppModelService'
+import { AppModelRecoveryOrchestrator } from '../storage/AppModelRecoveryOrchestrator'
+import type { InvalidActiveRecoveryRequest } from '../storage/AppModelRecoveryContract'
 import { ModelEnrichmentPipeline } from '../pipeline/ModelEnrichmentPipeline'
 import { ModuleClassifierStage } from '../pipeline/stages/ModuleClassifierStage'
 import { AiResidueStage } from '../pipeline/stages/AiResidueStage'
@@ -80,6 +88,122 @@ export interface CrawlResult {
     rowId: number;
     version: string;
   };
+  appModelRecovery?: {
+    sourceRowId: number;
+    sourceVersion: string;
+    sourceFingerprint: string;
+    detectedAt: string;
+    validationErrors: string[];
+    decision: 'force-guarded-recovery';
+    replacementRowId: number;
+    replacementVersion: string;
+  };
+}
+
+export interface GuardedRecoveryFailureEvidence {
+  kind: 'guarded-app-model-recovery-failed'
+  sourceRowId: number
+  sourceVersion: string
+  sourceFingerprint: string
+  detectedAt: string
+  capturedAt: string
+  observedSubjects: Array<{
+    id: string
+    kind: 'page' | 'route'
+    value: string
+  }>
+  crawlDiagnostics: CrawlDiagnostic[]
+  roleAuthOutcomes: Array<{
+    roleId: string
+    outcome: 'succeeded' | 'failed' | 'unknown'
+  }>
+  phases: {
+    crawlExecution: 'completed'
+    authentication: 'succeeded' | 'failed' | 'unknown'
+    modelGeneration: 'validated' | 'failed'
+    guardedPersistence: 'succeeded' | 'failed' | 'not_attempted'
+    compatibilityProjection: 'failed' | 'not_attempted'
+  }
+  persistenceDiagnostic: AppModelPersistenceDiagnostic
+}
+
+export class GuardedRecoveryExecutionError extends AppModelPersistenceError {
+  constructor(
+    cause: AppModelPersistenceError,
+    readonly safeCrawlFailure: GuardedRecoveryFailureEvidence,
+  ) {
+    const persistence = safeCrawlFailure.phases.guardedPersistence
+    const projection = safeCrawlFailure.phases.compatibilityProjection
+    super(
+      `[CrawlRunner] Guarded App Model recovery failed after crawl execution: ` +
+      `model generation '${safeCrawlFailure.phases.modelGeneration}', guarded ` +
+      `persistence '${persistence}', compatibility projection '${projection}'. ` +
+      `The source row remains authoritative unless the diagnostic states that ` +
+      `persistence succeeded.`,
+      { cause, diagnostic: safeCrawlFailure.persistenceDiagnostic },
+    )
+    this.name = 'GuardedRecoveryExecutionError'
+  }
+}
+
+function guardedRecoveryFailureEvidence(
+  candidate: AppModelCandidate,
+  source: NonNullable<Awaited<ReturnType<AppModelService['findInvalidActiveForRecovery']>>>,
+  detectedAt: string,
+  result: Exclude<Awaited<ReturnType<AppModelRecoveryOrchestrator['recover']>>, { status: 'commit_and_projection_succeeded' }>,
+): GuardedRecoveryFailureEvidence {
+  const roleAuthOutcomes = candidate.roles.map(role => ({
+    roleId: role.id,
+    outcome: role.authOutcome ?? 'unknown' as const,
+  }))
+  const authentication = roleAuthOutcomes.some(role => role.outcome === 'failed')
+    ? 'failed' as const
+    : roleAuthOutcomes.some(role => role.outcome === 'succeeded')
+      ? 'succeeded' as const
+      : 'unknown' as const
+  const modelGeneration = result.error.name === 'InvalidAppModelCandidateError'
+    ? 'failed' as const
+    : 'validated' as const
+  const guardedPersistence = modelGeneration === 'failed'
+    ? 'not_attempted' as const
+    : result.status === 'commit_failed'
+      ? 'failed' as const
+      : 'succeeded' as const
+  const compatibilityProjection = result.status === 'commit_succeeded_projection_failed'
+    ? 'failed' as const
+    : 'not_attempted' as const
+  const observedSubjects: GuardedRecoveryFailureEvidence['observedSubjects'] = [
+    ...(candidate.pages ?? []).map(page => ({
+      id: page.id,
+      kind: 'page' as const,
+      value: page.urlPattern,
+    })),
+    ...(candidate.endpoints ?? []).map(endpoint => ({
+      id: `${endpoint.method}:${endpoint.path}`,
+      kind: 'route' as const,
+      value: endpoint.path,
+    })),
+  ]
+  return {
+    kind: 'guarded-app-model-recovery-failed',
+    sourceRowId: source.row_id,
+    sourceVersion: source.version,
+    sourceFingerprint: source.raw_model_json_fingerprint,
+    detectedAt,
+    capturedAt: candidate.app.crawlMetadata?.crawledAt ?? candidate.generatedAt,
+    observedSubjects,
+    crawlDiagnostics: candidate.app.crawlMetadata?.crawlDiagnostics ?? [],
+    roleAuthOutcomes,
+    phases: {
+      crawlExecution: 'completed',
+      authentication,
+      modelGeneration,
+      guardedPersistence,
+      compatibilityProjection,
+    },
+    persistenceDiagnostic: result.error.diagnostic
+      ?? appModelPersistenceDiagnostic('service-boundary', result.error),
+  }
 }
 
 export interface CrawlProducer {
@@ -247,48 +371,99 @@ export class CrawlRunner {
     // output (workspace root), session tokens are secrets (.forge/auth/).
     // Both runtime-resolved from the workspace; Crawler still never sees
     // the Workspace itself (path-scoping, Option A).
-    const previousModel = await this.appModels.findActive(config.appName)
-    const crawler = this.createCrawler(onboardingConfig, {
-      authStateDir: path.join(workspace.forgeDir, 'auth'),
-      headed:       options.headed ?? false,   // TD-131: headless unless --headed
-      previousModel,
-    })
-    const model   = await crawler.crawl()
+    const produceCandidate = async (previousModel: Awaited<ReturnType<AppModelService['findActive']>>) => {
+      const crawler = this.createCrawler(onboardingConfig, {
+        authStateDir: path.join(workspace.forgeDir, 'auth'),
+        headed:       options.headed ?? false,   // TD-131: headless unless --headed
+        previousModel,
+      })
+      const model = await crawler.crawl()
 
-    // 6. TD-112: enrichment — the pipeline classifies every page (rule pass)
-    //    then AI-classifies the unknown residue, budget-gated, BEFORE the
-    //    model is persisted. One crawl = one immutable, fully-enriched
-    //    snapshot (Nova ruling). Classification budget is a SEPARATE pool
-    //    from the crawl's internal tracker (Step-0 finding D) — fresh limit,
-    //    runId/appName bound for ai_usage attribution.
-    // TD-132 (ruling B): Pool B is decoupled from Pool A's dynamic aiCalls —
-    // it uses its own constant so the Pool-A sizing above never resizes it.
-    const classificationBudget = this.buildClassificationBudget(
-      DEFAULT_CLASSIFICATION_BUDGET, runId, config.appName,
-    )
-    await new ModelEnrichmentPipeline()
-      .addStage(new ModuleClassifierStage())
-      .addStage(new AiResidueStage())
-      .run(model, { runId, appName: config.appName, budgetTracker: classificationBudget })
-
-    const pages = model.pages ?? []
-    const unassigned = pages.filter(p => p.module?.confidence === 'unknown').map(p => p.id)
-    if (pages.length > 0) {
-      console.log(
-        `[CrawlRunner] Module classification: ${pages.length - unassigned.length}/${pages.length} page(s) assigned` +
-        (unassigned.length > 0 ? `, ${unassigned.length} unknown (honest)` : ''),
+      // 6. TD-112: enrichment — classify before the candidate crosses the
+      // persistence boundary. Recovery uses this exact same fresh producer.
+      const classificationBudget = this.buildClassificationBudget(
+        DEFAULT_CLASSIFICATION_BUDGET, runId, config.appName,
       )
+      await new ModelEnrichmentPipeline()
+        .addStage(new ModuleClassifierStage())
+        .addStage(new AiResidueStage())
+        .run(model, { runId, appName: config.appName, budgetTracker: classificationBudget })
+
+      const candidatePages = model.pages ?? []
+      const candidateUnassigned = candidatePages
+        .filter(p => p.module?.confidence === 'unknown')
+        .map(p => p.id)
+      if (candidatePages.length > 0) {
+        console.log(
+          `[CrawlRunner] Module classification: ` +
+          `${candidatePages.length - candidateUnassigned.length}/${candidatePages.length} page(s) assigned` +
+          (candidateUnassigned.length > 0 ? `, ${candidateUnassigned.length} unknown (honest)` : ''),
+        )
+      }
+      return model
     }
 
-    // 7. TD-181: SQLite commits the candidate and allocates its version in one
-    // transaction. Only the returned committed snapshot may be projected to
-    // compatibility JSON. Any SQLite or projection failure aborts the crawl.
-    const commit = requireProjectedCommit(await this.appModels.commitAndProject(
-      model,
-      operationId,
-      snapshot => workspace.saveModelProjection(config.appName, snapshot),
-    ))
+    // Force has one additional, explicit meaning when the sole active App Model
+    // is schema-invalid: acknowledge guarded recovery and crawl with no prior
+    // model. A normal crawl still fails closed at findActive(); valid active
+    // models retain the established incremental-crawl behavior.
+    const invalidActive = options.force
+      ? await this.appModels.findInvalidActiveForRecovery(config.appName)
+      : null
+    let recoveryRequest: InvalidActiveRecoveryRequest | null = null
+    let recoveryDetectedAt: string | null = null
+    let commit: AppModelCommitResult
+    if (invalidActive) {
+      recoveryDetectedAt = new Date().toISOString()
+      recoveryRequest = {
+        app_name: config.appName,
+        operation_id: operationId,
+        expected_row_id: invalidActive.row_id,
+        expected_source_fingerprint: invalidActive.raw_model_json_fingerprint,
+        operator_acknowledgement: true,
+      }
+      console.warn(
+        `[CrawlRunner] Force re-crawl selected guarded recovery for preserved ` +
+        `schema-invalid App Model row ${invalidActive.row_id} ` +
+        `v${invalidActive.version}. The fresh crawler receives no prior model.`,
+      )
+      let recoveryCandidate: AppModelCandidate | null = null
+      const recoveryResult = await new AppModelRecoveryOrchestrator(this.appModels).recover(
+        recoveryRequest,
+        async ({ previousModel }) => {
+          recoveryCandidate = await produceCandidate(previousModel)
+          return recoveryCandidate
+        },
+        snapshot => workspace.saveModelProjection(config.appName, snapshot),
+      )
+      if (recoveryResult.status !== 'commit_and_projection_succeeded') {
+        if (!recoveryCandidate) throw recoveryResult.error
+        throw new GuardedRecoveryExecutionError(
+          recoveryResult.error,
+          guardedRecoveryFailureEvidence(
+            recoveryCandidate,
+            invalidActive,
+            recoveryDetectedAt,
+            recoveryResult,
+          ),
+        )
+      }
+      commit = recoveryResult.commit
+    } else {
+      const previousModel = await this.appModels.findActive(config.appName)
+      const model = await produceCandidate(previousModel)
+      commit = requireProjectedCommit(await this.appModels.commitAndProject(
+        model,
+        operationId,
+        snapshot => workspace.saveModelProjection(config.appName, snapshot),
+      ))
+    }
+
+    // 7. TD-181: SQLite validates and commits before compatibility projection.
+    // Guarded recovery atomically supersedes—but never rewrites—the invalid row.
     const committed = commit.committed.snapshot
+    const pages = committed.pages ?? []
+    const unassigned = pages.filter(p => p.module?.confidence === 'unknown').map(p => p.id)
     console.log(
       `[CrawlRunner] App Model ${commit.outcome} in SQLite as row ` +
       `${commit.committed.rowId} v${committed.app.modelVersion}; compatibility ` +
@@ -329,6 +504,18 @@ export class CrawlRunner {
         rowId: commit.committed.rowId,
         version: committed.app.modelVersion,
       },
+      appModelRecovery: recoveryRequest && invalidActive && recoveryDetectedAt
+        ? {
+            sourceRowId: invalidActive.row_id,
+            sourceVersion: invalidActive.version,
+            sourceFingerprint: invalidActive.raw_model_json_fingerprint,
+            detectedAt: recoveryDetectedAt,
+            validationErrors: [...invalidActive.validation_errors],
+            decision: 'force-guarded-recovery',
+            replacementRowId: commit.committed.rowId,
+            replacementVersion: committed.app.modelVersion,
+          }
+        : undefined,
     }
   }
 

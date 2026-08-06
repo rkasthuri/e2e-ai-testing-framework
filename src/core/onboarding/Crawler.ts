@@ -18,14 +18,12 @@ import * as crypto             from 'crypto'
 import {
   OnboardingConfig, RoleConfig, RoleCrawlResult,
   PageDiscovery, StateGraph, StateEdge, PageNode,
-  AiBudgetTracker, AppModel, AppModelCandidate, RoleDefinition, PageDefinition, FlowStep, CrawlDiagnostic
+  AiBudgetTracker, AppModel, AppModelCandidate, RoleDefinition, PageDefinition, FlowStep, CrawlDiagnostic,
+  AuthenticationStageDiagnostic,
 } from './types'
 import { FlowDetector }        from './FlowDetector'
-import {
-  shouldObserveLoginSurface, observeLoginSurface, buildAllNotObservedDiagnostic,
-} from './LoginSurfaceObservation'
 import { ApiSpecCrawler }      from './ApiSpecCrawler'
-import { AuthManager }         from './AuthManager'
+import { AuthManager, summarizeAuthenticationStages } from './AuthManager'
 import { StrategyDetector }    from './StrategyDetector'
 import { BFSStrategy }         from './BFSStrategy'
 import { SPAStrategy }         from './SPAStrategy'
@@ -148,6 +146,8 @@ export class Crawler {
     // crawl-loop scope so it survives to the mergeRoleCrawls call — failed roles `continue`
     // out of the loop, so their outcome must be recorded BEFORE the continue below.
     const roleAuthOutcomes: Record<string, 'succeeded' | 'failed' | 'unknown'> = {}
+    const roleAuthenticationStages: Record<string, AuthenticationStageDiagnostic[]> = {}
+    const authenticationCrawlDiagnostics: CrawlDiagnostic[] = []
     // successUrl fix: per-role OBSERVED post-auth landing URL (AuthManager's real
     // startUrl) — recorded only on auth SUCCESS. Direct observation, not a guess;
     // consumed by FixtureGenerator when no explicit successUrl is configured.
@@ -163,6 +163,7 @@ export class Crawler {
         // 1. Authenticate — get context + real post-auth startUrl
         const authResult = await new AuthManager(this.config, { authStateDir: this.authStateDir }).authenticate(role, browser)
         const { context, startUrl, authenticated } = authResult
+        roleAuthenticationStages[role.id] = authResult.authenticationStages
 
         // TD-064 FC-004b: record the OBSERVED auth outcome from the real `authenticated`
         // flag + authFlow (NEVER from reachablePageIds). Recorded here so the FAILED branch
@@ -179,12 +180,28 @@ export class Crawler {
         }
 
         if (!authenticated && role.authFlow !== 'none') {
-          // TD-168 L2: carry the RAW INPUTS that produced this conclusion so the line is
-          // reconstructable alone — role, its authFlow, the authenticated=false result, and the
-          // URL the attempt targeted. The root auth ERROR is a separate producer (logged by
-          // [AuthManager] on its own line: "Auth error for role …"); this line owns the Crawler's
-          // skip DECISION with its inputs.
-          console.warn(`[FORGE Crawler] auth-failed: role=${role.id} authFlow=${role.authFlow} authenticated=false startUrl=${startUrl} → skipping role (root cause on the [AuthManager] line above)`)
+          const postSubmit = authResult.authenticationStages.find(
+            stage => stage.stage === 'post-submit-login-surface-evaluation',
+          )
+          authenticationCrawlDiagnostics.push({
+            scope: 'role',
+            target: role.id,
+            reason: 'auth-failed',
+            detail: summarizeAuthenticationStages(authResult.authenticationStages),
+            remedy: postSubmit?.loginSurfaceRetained === true
+              ? {
+                  tier: 2,
+                  action: 'Review target-side authentication acceptance, policy, and anti-automation evidence before another observation; credential resolution alone does not establish acceptance.',
+                }
+              : {
+                  tier: 2,
+                  action: 'Review the failed authentication stage and onboarding selector strategy before another observation.',
+                },
+          })
+          // Keep the operational line structural: stage identity and outcome are
+          // sufficient to explain the skip without emitting URLs, selector text,
+          // field values, or credential material.
+          console.warn(`[FORGE Crawler] auth-failed: role=${role.id} authFlow=${role.authFlow} authenticated=false deepestStage=${postSubmit?.stage ?? 'not-established'}; skipping role`)
           await context.close()
           continue
         }
@@ -254,7 +271,12 @@ export class Crawler {
       await browser.close()
     }
 
-    const { pages, roles } = this.mergeRoleCrawls(roleCrawls, roleAuthOutcomes, rolePostAuthUrls)
+    const { pages, roles } = this.mergeRoleCrawls(
+      roleCrawls,
+      roleAuthOutcomes,
+      rolePostAuthUrls,
+      roleAuthenticationStages,
+    )
     this.applyPagePrerequisites(pages)
     this.deduplicateSharedElements(pages)
     const stateGraph       = this.buildStateGraph(roleCrawls)
@@ -268,7 +290,7 @@ export class Crawler {
     // remedy, built ONLY from signals FORGE actually computed. If neither known
     // condition holds, crawlDiagnostics stays empty → null: FORGE does not claim
     // to know why the crawl came back empty.
-    const crawlDiagnostics: CrawlDiagnostic[] = []
+    const crawlDiagnostics: CrawlDiagnostic[] = [...authenticationCrawlDiagnostics]
     if (pages.length === 0) {
       if (this.config.roles.length === 0 && this.config.unmetAuth) {
         // Instance (iv): auth required, no credentials → no role was crawlable,
@@ -292,22 +314,6 @@ export class Crawler {
           detail: `The start page exposed 0 navigable links and 0 JS clickables — likely a login wall or an unrendered SPA.`,
           remedy: { tier: 1, action: `Let FORGE attempt agentic exploration of the start page; if it stays empty, provide credentials and re-crawl.` },
         })
-      }
-    }
-
-    // TD-148: login-surface OBSERVATION — FAILURE-TRIGGERED ONLY (a crawl that already
-    // failed on auth), never proactive. It only ever observes a PRE-AUTH login surface, so
-    // it draws NO conclusion (the identity-divergence comparison was retired by TD-148 — it
-    // concluded about the application behind a door it never opened). It records what the
-    // login surface showed and asserts nothing. Non-fatal by construction: observeLoginSurface
-    // records 'not observed' internally; the outer catch is belt-and-suspenders and still
-    // emits an all-'not observed' record rather than silence (Rule 2).
-    if (shouldObserveLoginSurface(roleAuthOutcomes, this.config)) {
-      try {
-        crawlDiagnostics.push(await observeLoginSurface(this.config))
-      } catch (e: any) {
-        console.warn(`[Crawler] login-surface observation failed (non-fatal): ${e?.message ?? e}`)
-        crawlDiagnostics.push(buildAllNotObservedDiagnostic(this.config, e?.message ?? String(e)))
       }
     }
 
@@ -430,6 +436,7 @@ export class Crawler {
     roleCrawls: RoleCrawlResult[],
     roleAuthOutcomes: Record<string, 'succeeded' | 'failed' | 'unknown'>,
     rolePostAuthUrls: Record<string, string> = {},
+    roleAuthenticationStages: Record<string, AuthenticationStageDiagnostic[]> = {},
   ): {
     pages: PageDefinition[]
     roles: RoleDefinition[]
@@ -485,6 +492,9 @@ export class Crawler {
         // here from reachablePageIds). '?? unknown' is a defensive default for a role somehow
         // absent from the map — should not happen.
         authOutcome:       roleAuthOutcomes[r.id] ?? 'unknown',
+        ...(roleAuthenticationStages[r.id]
+          ? { authenticationStages: roleAuthenticationStages[r.id] }
+          : {}),
         // successUrl fix: the observed landing URL, when auth succeeded (else absent).
         ...(rolePostAuthUrls[r.id] ? { observedPostAuthUrl: rolePostAuthUrls[r.id] } : {}),
       }
@@ -515,7 +525,15 @@ export class Crawler {
         targetPageId: null,
         value:        s.value ?? null,
       }))
-      page.prerequisites = [...(page.prerequisites ?? []), { roleId: hint.roleId, steps }]
+      page.prerequisites = [
+        ...(page.prerequisites ?? []),
+        {
+          // roleId is optional. Omit it when the app-agnostic prerequisite
+          // applies to every role; never materialize an undefined value.
+          ...(hint.roleId ? { roleId: hint.roleId } : {}),
+          steps,
+        },
+      ]
     }
   }
 

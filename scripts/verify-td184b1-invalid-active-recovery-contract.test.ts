@@ -241,3 +241,25 @@ test('TD184B1-6 valid AppModel reads and persistence remain unchanged', async ()
   )
   assert.equal(row.candidate_hash, committed.committed.candidateHash)
 })
+
+test('TD-UI-064A-R discovers invalid active recovery evidence without exposing payload', async () => {
+  const appName = 'forced-recovery-discovery'
+  const raw = '{"legacy":true}'
+  const rowId = await insertRawActive(appName, raw, '1.0.4')
+  const inspection = await new AppModelService().findInvalidActiveForRecovery(appName)
+
+  assert.equal(inspection?.row_id, rowId)
+  assert.equal(inspection?.version, '1.0.4')
+  assert.equal(inspection?.raw_model_json_fingerprint, rawFingerprint(raw))
+  assert.equal((inspection?.validation_errors.length ?? 0) > 0, true)
+  assert.equal('model_json' in (inspection ?? {}), false)
+})
+
+test('TD-UI-064A-R discovery is null for no prior model and a valid current model', async () => {
+  const service = new AppModelService()
+  assert.equal(await service.findInvalidActiveForRecovery('no-prior-model'), null)
+
+  const appName = 'valid-recovery-discovery'
+  await new AppModelRepository().commitCandidate(candidate(appName), 'valid-recovery-discovery')
+  assert.equal(await service.findInvalidActiveForRecovery(appName), null)
+})

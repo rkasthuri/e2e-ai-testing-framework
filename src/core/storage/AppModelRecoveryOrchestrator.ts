@@ -12,8 +12,7 @@
  * prohibited.
  */
 
-import { validateAppModelObject } from '../onboarding/ModelValidator'
-import type { AppModel, AppModelCandidate } from '../onboarding/types'
+import type { AppModelCandidate } from '../onboarding/types'
 import type {
   InvalidActiveRecoveryCrawlOptions,
   InvalidActiveRecoveryRequest,
@@ -23,18 +22,13 @@ import {
   AppModelProjector,
   AppModelService,
 } from './AppModelService'
-import { AppModelPersistenceError } from './repositories/AppModelRepository'
+export {
+  InvalidAppModelCandidateError as InvalidActiveRecoveryCandidateError,
+} from './repositories/AppModelRepository'
 
 export type InvalidActiveRecoveryCrawler = (
   options: InvalidActiveRecoveryCrawlOptions,
 ) => Promise<AppModelCandidate>
-
-export class InvalidActiveRecoveryCandidateError extends AppModelPersistenceError {
-  constructor(message: string) {
-    super(message)
-    this.name = 'InvalidActiveRecoveryCandidateError'
-  }
-}
 
 /**
  * Operator-only orchestration for replacing one explicitly acknowledged,
@@ -62,35 +56,9 @@ export class AppModelRecoveryOrchestrator {
     // The callback shape makes the absence of prior state explicit and testable.
     // Invalid stored JSON is never loaded or passed into the crawler.
     const candidate = await crawlFresh({ previousModel: null })
-    const validationSnapshot: AppModel = {
-      ...candidate,
-      app: {
-        ...candidate.app,
-        modelVersion: '0.0.0',
-      },
-    }
-    const validation = validateAppModelObject(validationSnapshot)
-    if (!validation.valid) {
-      return {
-        status: 'commit_failed',
-        error: new InvalidActiveRecoveryCandidateError(
-          `[AppModelRecoveryOrchestrator.recover] Fresh recovery candidate ` +
-          `'${candidate?.app?.name ?? 'unknown'}' failed canonical validation: ` +
-          `${validation.errors.join('; ')}`,
-        ),
-      }
-    }
-    if (candidate.app.name !== request.app_name) {
-      return {
-        status: 'commit_failed',
-        error: new InvalidActiveRecoveryCandidateError(
-          `[AppModelRecoveryOrchestrator.recover] Fresh candidate app ` +
-          `'${candidate.app.name}' does not match requested app ` +
-          `'${request.app_name}'.`,
-        ),
-      }
-    }
-
+    // Canonical materialization, validation, hashing, and persistence are one
+    // repository-owned boundary. The orchestrator must not validate a different
+    // representation first.
     return this.appModels.commitRecoveryAndProject(candidate, request, project)
   }
 }

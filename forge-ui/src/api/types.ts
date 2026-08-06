@@ -30,6 +30,8 @@ export interface Detection {
   authType:      DetectionField
   crawlStrategy: DetectionField
   appName:       DetectionField
+  capturedAt?:   string
+  runId?:        string
 }
 
 export interface Project {
@@ -72,6 +74,134 @@ export interface CrawlRequest {
   appName:  string
   force?:   boolean
   aiBudget?: number
+}
+
+export interface CrawlProjectContext {
+  projectId: string
+  projectName: string
+  targetUrl: string
+  observationBoundary: string
+  authenticationExpectation: string
+  credentialAvailability: 'available' | 'missing' | 'not_required' | 'unknown'
+  credentialReferenceState: 'recorded' | 'default-derived' | 'not-required'
+  credentialResolver: 'backend-environment'
+  credentialRestoration: string | null
+  crawlStrategy: string
+  declaredScope: string
+  canEstablish: string[]
+  cannotEstablish: string[]
+  blockers: string[]
+}
+
+export interface ObservationRecord {
+  schemaVersion: 1
+  observationId: string
+  projectId: string
+  projectName: string
+  observationContext: {
+    id: string
+    label: string
+    target: string
+    declaredScope: string
+    strategy: string
+  }
+  sourceKind: 'crawl-engine'
+  startedAt: string
+  completedAt: string
+  terminalState: 'completed' | 'partially_completed' | 'blocked' | 'failed' | 'unknown'
+  stateReason: string
+  credentialAvailability: 'available' | 'missing' | 'not_required' | 'unknown'
+  authenticationExpectation: string
+  authentication: {
+    expectation: string
+    credentialAvailability: 'available' | 'missing' | 'not_required' | 'unknown'
+    outcome: 'succeeded' | 'failed' | 'not_evaluated' | 'not_required'
+    reason: string
+    attempts?: AuthenticationAttempt[]
+  }
+  observedSubjects: Array<{
+    id: string
+    kind: 'page' | 'route'
+    value: string
+    evidenceId: string
+  }>
+  unobservedScope: string[]
+  unknowns: Array<{ id: string; subject: string; reason: string }>
+  blockers: Array<{ id: string; kind: string; subject: string; reason: string }>
+  evidence: Array<{
+    id: string
+    subject: string
+    summary: string
+    capturedAt: string
+    provenance: { kind: 'crawl-run'; reference: string }
+    integrity: 'valid' | 'failed' | 'unknown'
+  }>
+  errors: string[]
+  recommendation: { action: string; because: string } | null
+  modelRecovery?: {
+    sourceRowId: number
+    sourceVersion: string
+    sourceFingerprint: string
+    detectedAt: string
+    validationErrors: string[]
+    decision: 'force-guarded-recovery'
+    replacementRowId: number
+    replacementVersion: string
+  }
+  modelRecoveryFailure?: {
+    sourceRowId: number
+    sourceVersion: string
+    sourceFingerprint: string
+    detectedAt: string
+    phases: {
+      crawlExecution: 'completed'
+      authentication: 'succeeded' | 'failed' | 'unknown'
+      modelGeneration: 'validated' | 'failed'
+      guardedPersistence: 'succeeded' | 'failed' | 'not_attempted'
+      compatibilityProjection: 'failed' | 'not_attempted'
+    }
+    persistenceDiagnostic: {
+      stage: string
+      causeChain: Array<{ name: string; code: string | null; summary: string }>
+      structuralIssues?: Array<{
+        path: string
+        category: string
+        valueType: string
+      }>
+    }
+  }
+}
+
+export interface AuthenticationStageDiagnostic {
+  stage:
+    | 'credential-reference-resolution'
+    | 'login-surface-detection'
+    | 'username-control-discovery'
+    | 'password-control-discovery'
+    | 'value-entry-completion'
+    | 'submit-control-discovery'
+    | 'submission-attempt'
+    | 'navigation-or-page-state-change'
+    | 'post-submit-login-surface-evaluation'
+  outcome: 'succeeded' | 'failed' | 'indeterminate' | 'not_evaluated' | 'not_required'
+  selectorStrategyCategory: 'configured' | 'semantic-fallback' | 'not_applicable'
+  matchCount?: number
+  controlVisible?: boolean
+  usernameEntryCompleted?: boolean
+  passwordEntryCompleted?: boolean
+  submissionAttempted?: boolean
+  loginSurfaceRetained?: boolean
+  urlClassification?: {
+    origin: 'same-origin' | 'different-origin' | 'indeterminate'
+    path: 'same-path' | 'different-path' | 'indeterminate'
+  }
+  safeErrorType?: string
+}
+
+export interface AuthenticationAttempt {
+  roleId: string
+  outcome: 'succeeded' | 'failed' | 'unknown'
+  stages: AuthenticationStageDiagnostic[]
 }
 
 /** A page from the SQLite App Model, mapped for the table (audit ruling; no depth). */
@@ -122,7 +252,8 @@ export interface CrawlDiagnostic {
 
 export interface CrawlStatus {
   jobId:       string
-  status:      'running' | 'completed' | 'failed'
+  observationId: string
+  status:      'queued' | 'starting' | 'running' | 'completed' | 'partially_completed' | 'blocked' | 'failed' | 'unknown'
   complete:    boolean
   lines:       string[]             // Mission Timeline
   strategy:    string | null        // user-friendly label
@@ -133,6 +264,7 @@ export interface CrawlStatus {
   error:       string | null
   startedAt:   string
   completedAt: string | null
+  observation: ObservationRecord | null
 }
 
 // --- TD-UI-003 Test Cases tab — generation manifest ---

@@ -49,6 +49,8 @@ export interface JobResult {
    * message to the Mission Timeline without importing the engine error class.
    */
   errorCode?: string
+  /** Strictly selected, non-secret engine progress for truthful crawl failure finalization. */
+  failure?: unknown
 }
 
 /**
@@ -66,6 +68,123 @@ function operatorFacingCode(err: unknown): string | undefined {
     return (err as { code: string }).code
   }
   return undefined
+}
+
+/**
+ * Mirror only the explicitly safe recovery fields across the dynamic engine
+ * boundary. The raw candidate, invalid model payload, connection information,
+ * and credential-bearing options are never copied.
+ */
+function safeCrawlFailure(err: unknown): unknown | undefined {
+  if (!err || typeof err !== 'object') return undefined
+  const source = (err as { safeCrawlFailure?: unknown }).safeCrawlFailure
+  if (!source || typeof source !== 'object') return undefined
+  const value = source as Record<string, any>
+  if (
+    value.kind !== 'guarded-app-model-recovery-failed'
+    || !Number.isSafeInteger(value.sourceRowId)
+    || typeof value.sourceVersion !== 'string'
+    || typeof value.sourceFingerprint !== 'string'
+    || typeof value.detectedAt !== 'string'
+    || typeof value.capturedAt !== 'string'
+    || !value.phases || typeof value.phases !== 'object'
+    || !value.persistenceDiagnostic || typeof value.persistenceDiagnostic !== 'object'
+  ) return undefined
+
+  const causes = Array.isArray(value.persistenceDiagnostic.causeChain)
+    ? value.persistenceDiagnostic.causeChain
+      .filter((item: unknown): item is Record<string, unknown> => !!item && typeof item === 'object')
+      .slice(0, 8)
+      .map((item: Record<string, unknown>) => ({
+        name: typeof item.name === 'string' ? item.name : 'Error',
+        code: typeof item.code === 'string' ? item.code : null,
+        summary: typeof item.summary === 'string' ? item.summary : 'Cause detail was withheld.',
+      }))
+    : []
+  const structuralCategories = new Set([
+    'omitted-optional-object-property',
+    'undefined-required-property',
+    'undefined-array-entry',
+    'unsupported-runtime-value',
+    'schema-validation',
+  ])
+  const structuralValueTypes = new Set([
+    'undefined', 'function', 'symbol', 'bigint', 'non-finite-number',
+    'unsupported-object', 'circular-reference', 'accessor-property',
+    'non-enumerable-property', 'symbol-key', 'schema-invalid',
+  ])
+  const structuralIssues = Array.isArray(value.persistenceDiagnostic.structuralIssues)
+    ? value.persistenceDiagnostic.structuralIssues
+      .filter((item: unknown): item is Record<string, unknown> => !!item && typeof item === 'object')
+      .slice(0, 128)
+      .map((item: Record<string, unknown>) => ({
+        path: typeof item.path === 'string' && item.path.startsWith('/') ? item.path : '/',
+        category: typeof item.category === 'string' && structuralCategories.has(item.category)
+          ? item.category
+          : 'schema-validation',
+        valueType: typeof item.valueType === 'string' && structuralValueTypes.has(item.valueType)
+          ? item.valueType
+          : 'schema-invalid',
+      }))
+    : []
+  return {
+    kind: value.kind,
+    sourceRowId: value.sourceRowId,
+    sourceVersion: value.sourceVersion,
+    sourceFingerprint: value.sourceFingerprint,
+    detectedAt: value.detectedAt,
+    capturedAt: value.capturedAt,
+    observedSubjects: Array.isArray(value.observedSubjects)
+      ? value.observedSubjects
+        .filter((item: unknown): item is Record<string, unknown> => !!item && typeof item === 'object')
+        .map((item: Record<string, unknown>) => ({
+          id: typeof item.id === 'string' ? item.id : '',
+          kind: item.kind === 'route' ? 'route' : 'page',
+          value: typeof item.value === 'string' ? item.value : '',
+        }))
+      : [],
+    crawlDiagnostics: Array.isArray(value.crawlDiagnostics)
+      ? value.crawlDiagnostics
+        .filter((item: unknown): item is Record<string, unknown> => !!item && typeof item === 'object')
+        .map((item: Record<string, unknown>) => ({
+          scope: typeof item.scope === 'string' ? item.scope : 'page',
+          target: typeof item.target === 'string' ? item.target : '',
+          reason: typeof item.reason === 'string' ? item.reason : 'unknown',
+          detail: typeof item.detail === 'string' ? item.detail : 'No detail was recorded.',
+        }))
+      : [],
+    roleAuthOutcomes: Array.isArray(value.roleAuthOutcomes)
+      ? value.roleAuthOutcomes
+        .filter((item: unknown): item is Record<string, unknown> => !!item && typeof item === 'object')
+        .map((item: Record<string, unknown>) => ({
+          roleId: typeof item.roleId === 'string' ? item.roleId : '',
+          outcome: item.outcome === 'succeeded' || item.outcome === 'failed'
+            ? item.outcome
+            : 'unknown',
+        }))
+      : [],
+    phases: {
+      crawlExecution: 'completed',
+      authentication: value.phases.authentication === 'succeeded' || value.phases.authentication === 'failed'
+        ? value.phases.authentication
+        : 'unknown',
+      modelGeneration: value.phases.modelGeneration === 'validated' ? 'validated' : 'failed',
+      guardedPersistence: value.phases.guardedPersistence === 'succeeded'
+        || value.phases.guardedPersistence === 'failed'
+        ? value.phases.guardedPersistence
+        : 'not_attempted',
+      compatibilityProjection: value.phases.compatibilityProjection === 'failed'
+        ? 'failed'
+        : 'not_attempted',
+    },
+    persistenceDiagnostic: {
+      stage: typeof value.persistenceDiagnostic.stage === 'string'
+        ? value.persistenceDiagnostic.stage
+        : 'service-boundary',
+      causeChain: causes,
+      ...(structuralIssues.length > 0 ? { structuralIssues } : {}),
+    },
+  }
 }
 
 const ENGINE = {
@@ -121,8 +240,9 @@ export class ExecutionContext {
       // operator message + code so JobRunner surfaces it to the Mission Timeline;
       // everything else keeps the existing String(err) behaviour.
       const code = operatorFacingCode(err)
-      if (code) return { jobId, status: 'failed', error: (err as Error).message, errorCode: code }
-      return { jobId, status: 'failed', error: String(err) }
+      const failure = safeCrawlFailure(err)
+      if (code) return { jobId, status: 'failed', error: (err as Error).message, errorCode: code, failure }
+      return { jobId, status: 'failed', error: String(err), failure }
     }
   }
 

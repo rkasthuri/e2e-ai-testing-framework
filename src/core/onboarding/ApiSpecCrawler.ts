@@ -144,7 +144,9 @@ export class ApiSpecCrawler {
           path:        pathStr,
           summary:     operation.summary || operation.operationId || `${method.toUpperCase()} ${pathStr}`,
           auth,
-          parameters:  parameters.length > 0 ? parameters : undefined,
+          // Omit an absent optional collection at the producer. The canonical
+          // candidate boundary also enforces this policy recursively.
+          ...(parameters.length > 0 ? { parameters } : {}),
           requestBody,
           responses,
         })

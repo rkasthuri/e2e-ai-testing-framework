@@ -104,6 +104,14 @@ export async function startServer(port = 3000): Promise<number> {
   app.use('/api/v1/insights', insightsRouter)
   app.use('/api/v1/settings', settingsRouter)
 
+  // Keep API failures in the documented JSON envelope so onboarding errors
+  // remain actionable in the UI instead of becoming an HTML 500 response.
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const message = err instanceof Error ? err.message : 'FORGE control-plane error'
+    console.error('[FORGE UI] Request failed:', message)
+    if (!res.headersSent) res.status(500).json({ error: message, code: 'INTERNAL_ERROR', timestamp: new Date().toISOString() })
+  })
+
   // Serve FORGE brand assets from the repo root (TD-097: runtime path from
   // this file's location, not hardcoded). forge-ui/server → repo root is ../../.
   const repoRoot = path.resolve(__dirname, '../..')

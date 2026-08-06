@@ -21,6 +21,7 @@ import {
   AppModelProjectionError,
   AppModelRepository,
   CommittedAppModel,
+  appModelPersistenceDiagnostic,
 } from './repositories/AppModelRepository'
 
 export type AppModelProjector = (snapshot: AppModel) => Promise<void>
@@ -73,6 +74,10 @@ export class AppModelService {
     request: InvalidActiveRecoveryRequest,
   ): Promise<InvalidActiveInspection> {
     return this.repository.inspectInvalidActiveForRecovery(request)
+  }
+
+  async findInvalidActiveForRecovery(appName: string): Promise<InvalidActiveInspection | null> {
+    return this.repository.findInvalidActiveForRecovery(appName)
   }
 
   async findActive(appName: string): Promise<AppModel | null> {
@@ -257,7 +262,10 @@ export class AppModelService {
         : new AppModelPersistenceError(
             `[AppModelService.commitRecoveryAndProject] SQLite recovery commit ` +
             `failed for '${request.app_name}' operation '${request.operation_id}'.`,
-            { cause },
+            {
+              cause,
+              diagnostic: appModelPersistenceDiagnostic('service-boundary', cause),
+            },
           )
       return { status: 'commit_failed', error }
     }

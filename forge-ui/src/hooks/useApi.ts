@@ -16,7 +16,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
 import type {
   OnboardRequest, OnboardResponse, Project, Detection, CrawlRequest, CrawlStatus,
-  GenerationManifest, TestFileContent,
+  CrawlProjectContext, ObservationRecord, GenerationManifest, TestFileContent,
 } from '../api/types'
 
 /** GET /api/v1/projects — the project switcher + lists consume this. */
@@ -32,7 +32,7 @@ export function useProject(appName: string | null) {
   return useQuery({
     queryKey: ['project', appName],
     queryFn: () =>
-      apiClient.get<{ project: Project; detection: Detection }>(
+      apiClient.get<{ project: Project; detection: Detection; latestObservation: ObservationRecord | null }>(
         `/api/v1/projects/${appName}`,
       ),
     enabled: !!appName,
@@ -53,7 +53,29 @@ export function useValidateUrl() {
 export function useCrawl() {
   return useMutation({
     mutationFn: (body: CrawlRequest) =>
-      apiClient.post<{ jobId: string }>('/api/v1/crawl', body),
+      apiClient.post<{ jobId: string; observationId: string; state: 'queued'; startedAt: string }>('/api/v1/crawl', body),
+  })
+}
+
+export function useCrawlProjectContext(appName: string | null) {
+  return useQuery({
+    queryKey: ['crawl-project-context', appName],
+    queryFn: () => apiClient.get<CrawlProjectContext>(
+      `/api/v1/crawl/projects/${encodeURIComponent(appName!)}/context`,
+    ),
+    enabled: !!appName,
+    retry: false,
+  })
+}
+
+export function useLatestObservation(appName: string | null) {
+  return useQuery({
+    queryKey: ['latest-observation', appName],
+    queryFn: () => apiClient.get<{ observation: ObservationRecord }>(
+      `/api/v1/crawl/projects/${encodeURIComponent(appName!)}/latest`,
+    ),
+    enabled: !!appName,
+    retry: false,
   })
 }
 
@@ -68,12 +90,15 @@ export function useAuthenticate() {
 }
 
 /** GET /api/v1/crawl/:jobId/status — polls every 1s until the crawl completes. */
-export function useCrawlStatus(jobId: string | null) {
+export function useCrawlStatus(jobId: string | null, appName?: string | null) {
   return useQuery({
-    queryKey: ['crawl-status', jobId],
-    queryFn: () => apiClient.get<CrawlStatus>(`/api/v1/crawl/${jobId}/status`),
+    queryKey: ['crawl-status', jobId, appName],
+    queryFn: () => apiClient.get<CrawlStatus>(
+      `/api/v1/crawl/${jobId}/status${appName ? `?project=${encodeURIComponent(appName)}` : ''}`,
+    ),
     enabled: !!jobId,
-    refetchInterval: query => (query.state.data?.complete ? false : 1000),
+    retry: false,
+    refetchInterval: query => (query.state.status === 'error' || query.state.data?.complete ? false : 1000),
   })
 }
 

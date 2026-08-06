@@ -16,10 +16,31 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Loader2, Search, CheckCircle2, ArrowRight } from 'lucide-react'
 import { useOnboard, useValidateUrl, useProject } from '../hooks/useApi'
-import { apiClient } from '../api/client'
+import { apiClient, ApiError } from '../api/client'
 import { deriveAppName } from '../lib/deriveAppName'
 import { ConfidenceBadge } from '../components/shared/ConfidenceBadge'
 import type { DetectionField, Detection } from '../api/types'
+
+type OnboardPhase =
+  | 'idle' | 'checking-url' | 'detection-succeeded' | 'invalid-url'
+  | 'target-unreachable' | 'authentication-failed' | 'backend-unavailable'
+  | 'backend-error' | 'dry-run-preview' | 'project-saved'
+
+function phaseForError(error: unknown, stage: 'validate' | 'onboard'): OnboardPhase {
+  if (error instanceof ApiError && error.code === 'BACKEND_UNAVAILABLE') return 'backend-unavailable'
+  const message = error instanceof Error ? error.message : String(error)
+  if (/credential|authentication|authType|login/i.test(message)) return 'authentication-failed'
+  if (stage === 'validate' && /reach|unreachable|cannot connect/i.test(message)) return 'target-unreachable'
+  if (error instanceof ApiError && error.status === 400 && /url|invalid/i.test(message)) return 'invalid-url'
+  return 'backend-error'
+}
+
+const phaseLabel: Record<OnboardPhase, string> = {
+  idle: 'Ready', 'checking-url': 'Checking URL', 'detection-succeeded': 'Detection succeeded',
+  'invalid-url': 'Invalid URL', 'target-unreachable': 'Target unreachable',
+  'authentication-failed': 'Authentication failed', 'backend-unavailable': 'Backend unavailable',
+  'backend-error': 'Backend error', 'dry-run-preview': 'Dry-run preview', 'project-saved': 'Project saved',
+}
 
 // PLATFORM row — appType is a structural fact, not a graded observation (ruling 2026-07-21),
 // so it renders as a plain value with NO confidence chip, source, or reason.
@@ -71,6 +92,7 @@ export function OnboardPage() {
   const [dryRun, setDryRun] = useState(false)
   const [isValidating, setIsValidating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [phase, setPhase] = useState<OnboardPhase>('idle')
   // TD-UI-011 — client-generated jobId (stable per mount) + polled log lines.
   const [jobId] = useState(() => `job-${Date.now()}`)
   const [logLines, setLogLines] = useState<string[]>([])
@@ -98,18 +120,25 @@ export function OnboardPage() {
       onboard.reset()
       setLogLines([])
       setSavedDetection(null)
+      setError(null)
+      setPhase('idle')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProjectName])
 
   function handleSaveProject() {
     const norm = url.match(/^https?:\/\//) ? url : `https://${url}`
+    setError(null)
+    setPhase('detection-succeeded')
     onboard.mutate({
       url: norm, appName,
       username: username || undefined, password: password || undefined,
       dryRun: false,
       jobId: `job-${Date.now()}`,
       detectionResult: savedDetection ?? undefined,
+    }, {
+      onSuccess: () => setPhase('project-saved'),
+      onError: err => { setError(err instanceof Error ? err.message : String(err)); setPhase(phaseForError(err, 'onboard')) },
     })
   }
 
@@ -149,18 +178,29 @@ export function OnboardPage() {
     // Fix #15/#16 — clear stale progress + save state before a new run.
     setLogLines([])
     setSavedDetection(null)
+    setError(null)
+    setPhase('checking-url')
     const norm = url.match(/^https?:\/\//) ? url : `https://${url}`
     try { new URL(norm) } catch {
       setError('Please enter a valid URL')
+      setPhase('invalid-url')
       return
     }
     setIsValidating(true)
     setError(null)
     try {
       const r = await validateUrl.mutateAsync(norm)
-      if (!r.reachable) { setError(r.message); return }
+      if (!r.reachable) { setError(r.message); setPhase('target-unreachable'); return }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setPhase(phaseForError(err, 'validate'))
+      return
     } finally { setIsValidating(false) }
-    onboard.mutate({ url: norm, appName, username: username || undefined, password: password || undefined, dryRun, jobId })
+    setPhase('detection-succeeded')
+    onboard.mutate({ url: norm, appName, username: username || undefined, password: password || undefined, dryRun, jobId }, {
+      onSuccess: result => setPhase(result.dryRun ? 'dry-run-preview' : 'project-saved'),
+      onError: err => { setError(err instanceof Error ? err.message : String(err)); setPhase(phaseForError(err, 'onboard')) },
+    })
   }
 
   const result = onboard.data
@@ -216,13 +256,19 @@ export function OnboardPage() {
             {isValidating && (
               <p className="mt-2 text-sm text-secondary">⏳ Checking URL…</p>
             )}
+            <p className="mt-2 text-xs text-muted" data-testid="onboard-phase">State: {phaseLabel[phase]}</p>
             {onboard.isPending && (
               <p className="mt-3 text-xs text-muted">
                 This runs a full bootstrap + crawl — it can take 1–3 minutes.
               </p>
             )}
             {(error || onboard.isError) && (
-              <p className="mt-3 text-sm text-fail">{error ?? (onboard.error as Error).message}</p>
+              <div className="mt-3 rounded border border-fail/40 bg-elevated p-3 text-sm text-fail" role="alert">
+                <p className="font-semibold">{phaseLabel[phase]}</p>
+                <p className="mt-1">{error ?? (onboard.error as Error).message}</p>
+                {(phase === 'backend-unavailable' || phase === 'backend-error') && <p className="mt-2 text-xs text-secondary">Start the FORGE control plane with <code>forge ui</code>, then retry.</p>}
+                {phase === 'authentication-failed' && <p className="mt-2 text-xs text-secondary">Verify the supplied credentials and that the target login flow is reachable.</p>}
+              </div>
             )}
           </form>
         </div>

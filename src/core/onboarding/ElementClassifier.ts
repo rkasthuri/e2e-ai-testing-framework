@@ -366,7 +366,13 @@ export class ElementClassifier {
       // TD-064 FC-001 — multiplicity evidence: 'repeated' when the element came from a
       // repeated container (raw.containerIndex set during harvest), else 'single'.
       cardinality:     raw.containerIndex !== null
-        ? { kind: 'repeated', index: raw.containerIndex, hint: raw.containerHint ?? undefined }
+        ? {
+            kind: 'repeated',
+            index: raw.containerIndex,
+            // Omit an unobserved optional value. Materializing `hint: undefined`
+            // passes optional-property validation but is not canonical JSON.
+            ...(raw.containerHint ? { hint: raw.containerHint } : {}),
+          }
         : { kind: 'single' },
       // TD-064 FC-003 — observed visibility, resolved via determineObservedState so the
       // state ladder evolves in one place (the helper), not in the generator (per Nova).
@@ -391,7 +397,11 @@ export class ElementClassifier {
       chain.push({
         type:           'role',
         value:          roleSelector.role,
-        accessibleName: roleSelector.accessibleName,
+        // A bare semantic role is valid evidence. Omit the optional name when
+        // none was observed instead of materializing undefined.
+        ...(roleSelector.accessibleName
+          ? { accessibleName: roleSelector.accessibleName }
+          : {}),
         confidence:     0.85,
       })
     }

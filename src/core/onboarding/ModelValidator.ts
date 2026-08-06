@@ -12,7 +12,7 @@
  * prohibited.
  */
 
-import Ajv from 'ajv'
+import Ajv, { type ErrorObject } from 'ajv'
 import addFormats from 'ajv-formats'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -45,6 +45,36 @@ function getValidator() {
 export interface ValidationResult {
   valid:  boolean
   errors: string[]
+}
+
+export interface AppModelValidationIssue {
+  instancePath: string
+  keyword: string
+  missingProperty: string | null
+}
+
+/**
+ * Structural validation details for trusted internal boundaries. This excludes
+ * data values and schema parameters other than the name of a required property.
+ */
+export function validateAppModelStructure(model: unknown): {
+  valid: boolean
+  issues: AppModelValidationIssue[]
+} {
+  const validate = getValidator()
+  const valid = validate(model) as boolean
+  const issues = valid
+    ? []
+    : (validate.errors || []).map((error: ErrorObject) => ({
+        instancePath: error.instancePath || '',
+        keyword: error.keyword,
+        missingProperty:
+          error.keyword === 'required'
+          && typeof (error.params as { missingProperty?: unknown }).missingProperty === 'string'
+            ? (error.params as { missingProperty: string }).missingProperty
+            : null,
+      }))
+  return { valid, issues }
 }
 
 /** Validate an in-memory model object against the canonical App Model schema. */

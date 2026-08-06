@@ -17,7 +17,15 @@ import type {
   AppModelCandidate,
 } from '../../onboarding/types'
 import { validateAppModelObject } from '../../onboarding/ModelValidator'
-import { canonicalJsonSha256 } from '../JsonAppModelMigrationPlanner'
+import { canonicalJson } from '../JsonAppModelMigrationPlanner'
+import {
+  AppModelCanonicalCandidateError,
+  type CanonicalCandidateIssue,
+  type MaterializedAppModelCandidate,
+  type MaterializedAppModelSnapshot,
+  materializeAppModelCandidate,
+  materializeAppModelSnapshot,
+} from '../AppModelCanonicalCandidate'
 import type {
   InvalidActiveInspection,
   InvalidActiveRecoveryRequest,
@@ -41,10 +49,117 @@ export interface AppModelCommitResult {
   committed: CommittedAppModel
 }
 
+export type AppModelPersistenceStage =
+  | 'candidate-materialization'
+  | 'candidate-validation'
+  | 'candidate-hash'
+  | 'transaction-replay-read'
+  | 'transaction-source-read'
+  | 'transaction-active-read'
+  | 'transaction-history-read'
+  | 'transaction-source-supersede'
+  | 'transaction-replacement-insert'
+  | 'transaction-commit'
+  | 'conflict-resolution-read'
+  | 'committed-row-read'
+  | 'service-boundary'
+
+export interface AppModelPersistenceCauseDiagnostic {
+  name: string
+  code: string | null
+  summary: string
+}
+
+export interface AppModelPersistenceDiagnostic {
+  stage: AppModelPersistenceStage
+  causeChain: AppModelPersistenceCauseDiagnostic[]
+  structuralIssues?: CanonicalCandidateIssue[]
+}
+
+function safeCauseName(cause: Error): string {
+  return /^[A-Za-z][A-Za-z0-9]*$/.test(cause.name) ? cause.name : 'Error'
+}
+
+function safeCauseCode(cause: Error): string | null {
+  const code = (cause as Error & { code?: unknown }).code
+  return typeof code === 'string' && /^SQLITE_[A-Z0-9_]+$/.test(code) ? code : null
+}
+
+/**
+ * Persistable/operator-visible cause text is deliberately allowlisted. SQLite
+ * table/column constraint identities are useful and non-secret; arbitrary
+ * driver text is not, because it can contain values, paths, connection details,
+ * or model payload fragments.
+ */
+function safeCauseSummary(cause: Error, code: string | null): string {
+  if (cause.message === "Canonical JSON cannot contain a value of type 'undefined'.") {
+    return cause.message
+  }
+  if (code) {
+    const constraint = /^(UNIQUE|NOT NULL|FOREIGN KEY|CHECK) constraint failed(?:: ([A-Za-z0-9_., ()-]+))?$/i.exec(cause.message)
+    if (constraint) return constraint[0]
+    if (/database is (?:locked|busy)/i.test(cause.message)) {
+      return 'SQLite could not serialize the operation because the database was busy or locked.'
+    }
+    return 'SQLite rejected the operation; arbitrary driver detail was withheld.'
+  }
+  if (cause instanceof AppModelPersistenceError && /^\[AppModel[A-Za-z.]+\]/.test(cause.message)) {
+    return cause.message
+  }
+  return 'Internal cause detail was withheld.'
+}
+
+export function appModelPersistenceDiagnostic(
+  stage: AppModelPersistenceStage,
+  ...causes: unknown[]
+): AppModelPersistenceDiagnostic {
+  const causeChain: AppModelPersistenceCauseDiagnostic[] = []
+  const seen = new Set<unknown>()
+  const visit = (cause: unknown): void => {
+    if (!(cause instanceof Error) || seen.has(cause) || causeChain.length >= 8) return
+    seen.add(cause)
+    const code = safeCauseCode(cause)
+    causeChain.push({
+      name: safeCauseName(cause),
+      code,
+      summary: safeCauseSummary(cause, code),
+    })
+    if (cause instanceof AggregateError) {
+      for (const nested of cause.errors) visit(nested)
+    }
+    visit((cause as Error & { cause?: unknown }).cause)
+  }
+  for (const cause of causes) visit(cause)
+  return { stage, causeChain }
+}
+
 export class AppModelPersistenceError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
+  readonly diagnostic?: AppModelPersistenceDiagnostic
+
+  constructor(
+    message: string,
+    options?: { cause?: unknown; diagnostic?: AppModelPersistenceDiagnostic },
+  ) {
     super(message, options)
     this.name = 'AppModelPersistenceError'
+    this.diagnostic = options?.diagnostic
+  }
+}
+
+export class InvalidAppModelCandidateError extends AppModelPersistenceError {
+  constructor(operation: string, cause: AppModelCanonicalCandidateError) {
+    super(
+      `[AppModelRepository.${operation}] App Model candidate failed canonical ` +
+      `materialization or schema validation; no rows changed.`,
+      {
+        cause,
+        diagnostic: {
+          ...appModelPersistenceDiagnostic('candidate-materialization', cause),
+          structuralIssues: cause.issues,
+        },
+      },
+    )
+    this.name = 'InvalidAppModelCandidateError'
   }
 }
 
@@ -72,7 +187,10 @@ export class AppModelOperationConflictError extends AppModelPersistenceError {
 export class RetryableAppModelConflictError extends AppModelPersistenceError {
   readonly retryable = true
 
-  constructor(message: string, options?: { cause?: unknown }) {
+  constructor(
+    message: string,
+    options?: { cause?: unknown; diagnostic?: AppModelPersistenceDiagnostic },
+  ) {
     super(message, options)
     this.name = 'RetryableAppModelConflictError'
   }
@@ -150,25 +268,22 @@ function allocateNextVersion(
   return `${maximum[0]}.${maximum[1]}.${maximum[2] + 1}`
 }
 
-function validateCandidate(candidate: AppModelCandidate): void {
-  const validationSnapshot: AppModelSnapshot = {
-    ...candidate,
-    app: {
-      ...candidate.app,
-      modelVersion: '0.0.0',
-    },
-  }
-  const validation = validateAppModelObject(validationSnapshot)
-  if (!validation.valid) {
-    throw new AppModelPersistenceError(
-      `[AppModelRepository.commitCandidate] App Model candidate ` +
-      `'${candidate?.app?.name ?? 'unknown'}' failed schema validation: ${validation.errors.join('; ')}`,
-    )
+function materializeCandidate(
+  candidate: AppModelCandidate,
+  operation: string,
+): MaterializedAppModelCandidate {
+  try {
+    return materializeAppModelCandidate(candidate)
+  } catch (cause) {
+    if (cause instanceof AppModelCanonicalCandidateError) {
+      throw new InvalidAppModelCandidateError(operation, cause)
+    }
+    throw cause
   }
 }
 
 function rowFromSnapshot(
-  model: AppModelSnapshot,
+  materialized: MaterializedAppModelSnapshot,
   operationId: string | null,
   candidateHash: string | null,
   recoverySource: {
@@ -176,6 +291,7 @@ function rowFromSnapshot(
     fingerprint: string
   } | null = null,
 ): NewAppModel {
+  const model = materialized.snapshot
   const validation = validateAppModelObject(model)
   if (!validation.valid) {
     throw new AppModelPersistenceError(
@@ -197,7 +313,7 @@ function rowFromSnapshot(
     page_count:        isApiModel ? (model.endpoints?.length ?? 0) : (model.pages?.length ?? 0),
     flow_count:        model.flows?.length ?? 0,
     role_count:        model.roles.length,
-    model_json:        JSON.stringify(model),
+    model_json:        materialized.canonicalJson,
     crawled_at:        model.app.crawlMetadata?.crawledAt ?? null,
     crawled_by:        model.app.crawlMetadata?.crawledBy ?? null,
     status:            'active',
@@ -332,14 +448,14 @@ export class AppModelRepository {
     candidate: AppModelCandidate,
     operationId: string,
   ): Promise<AppModelCommitResult> {
-    const appName = candidate.app.name
+    const canonicalCandidate = materializeCandidate(candidate, 'commitCandidate')
+    const appName = canonicalCandidate.candidate.app.name
     if (operationId.trim() === '') {
       throw new AppModelPersistenceError(
         `[AppModelRepository.commitCandidate] '${appName}' requires a non-empty orchestrator operation ID.`,
       )
     }
-    validateCandidate(candidate)
-    const candidateHash = canonicalJsonSha256(candidate)
+    const candidateHash = canonicalCandidate.candidateHash
     const db = getDb()
 
     let identity: { outcome: AppModelCommitOutcome; rowId: number }
@@ -380,13 +496,7 @@ export class AppModelRepository {
           history.map(row => ({ id: Number(row.id), version: row.version })),
           appName,
         )
-        const snapshot: AppModelSnapshot = {
-          ...candidate,
-          app: {
-            ...candidate.app,
-            modelVersion: version,
-          },
-        }
+        const snapshot = materializeAppModelSnapshot(canonicalCandidate, version)
         const row = rowFromSnapshot(snapshot, operationId, candidateHash)
 
         if (activeRows.length === 1) {
@@ -467,14 +577,17 @@ export class AppModelRepository {
     request: InvalidActiveRecoveryRequest,
   ): Promise<AppModelCommitResult> {
     validateRecoveryRequest(request, 'commitInvalidActiveRecovery')
-    if (candidate.app.name !== request.app_name) {
+    const canonicalCandidate = materializeCandidate(
+      candidate,
+      'commitInvalidActiveRecovery',
+    )
+    if (canonicalCandidate.candidate.app.name !== request.app_name) {
       throw new AppModelPersistenceError(
         `[AppModelRepository.commitInvalidActiveRecovery] Fresh candidate app ` +
-        `'${candidate.app.name}' does not match requested app '${request.app_name}'.`,
+        `does not match the requested recovery identity.`,
       )
     }
-    validateCandidate(candidate)
-    const candidateHash = canonicalJsonSha256(candidate)
+    const candidateHash = canonicalCandidate.candidateHash
     const db = getDb()
 
     const assertReplay = (
@@ -496,8 +609,10 @@ export class AppModelRepository {
     }
 
     let identity: { outcome: AppModelCommitOutcome; rowId: number }
+    let transactionStage: AppModelPersistenceStage = 'transaction-replay-read'
     try {
       identity = await db.transaction().execute(async trx => {
+        transactionStage = 'transaction-replay-read'
         const replay = await trx.selectFrom('app_models')
           .select([
             'id',
@@ -515,6 +630,7 @@ export class AppModelRepository {
           }
         }
 
+        transactionStage = 'transaction-source-read'
         const expected = await trx.selectFrom('app_models')
           .select(['id', 'app_name', 'version', 'status', 'model_json'])
           .where('id', '=', request.expected_row_id)
@@ -543,6 +659,7 @@ export class AppModelRepository {
           )
         }
 
+        transactionStage = 'transaction-active-read'
         const activeRows = await trx.selectFrom('app_models')
           .select(['id'])
           .where('app_name', '=', request.app_name)
@@ -579,6 +696,7 @@ export class AppModelRepository {
           )
         }
 
+        transactionStage = 'transaction-history-read'
         const history = await trx.selectFrom('app_models')
           .select(['id', 'version'])
           .where('app_name', '=', request.app_name)
@@ -587,13 +705,7 @@ export class AppModelRepository {
           history.map(row => ({ id: Number(row.id), version: row.version })),
           request.app_name,
         )
-        const snapshot: AppModelSnapshot = {
-          ...candidate,
-          app: {
-            ...candidate.app,
-            modelVersion: version,
-          },
-        }
+        const snapshot = materializeAppModelSnapshot(canonicalCandidate, version)
         const row = rowFromSnapshot(
           snapshot,
           request.operation_id,
@@ -604,6 +716,7 @@ export class AppModelRepository {
           },
         )
 
+        transactionStage = 'transaction-source-supersede'
         const superseded = await trx.updateTable('app_models')
           .set({ status: 'superseded' })
           .where('id', '=', request.expected_row_id)
@@ -619,16 +732,20 @@ export class AppModelRepository {
           )
         }
 
+        transactionStage = 'transaction-replacement-insert'
         const inserted = await trx.insertInto('app_models')
           .values(row)
           .returning('id')
           .executeTakeFirstOrThrow()
+        transactionStage = 'transaction-commit'
         return { outcome: 'committed_new' as const, rowId: Number(inserted.id) }
       })
     } catch (cause) {
       if (cause instanceof AppModelPersistenceError) throw cause
 
+      const failedStage = transactionStage
       try {
+        transactionStage = 'conflict-resolution-read'
         const replay = await db.selectFrom('app_models')
           .select([
             'id',
@@ -649,14 +766,15 @@ export class AppModelRepository {
             `[AppModelRepository.commitInvalidActiveRecovery] SQLite could not ` +
             `serialize '${request.app_name}' recovery '${request.operation_id}'. ` +
             `Retry the same operation ID.`,
-            { cause },
+            { cause, diagnostic: appModelPersistenceDiagnostic(failedStage, cause) },
           )
         } else {
           throw new AppModelPersistenceError(
             `[AppModelRepository.commitInvalidActiveRecovery] Failed to commit ` +
             `guarded recovery for '${request.app_name}' operation ` +
-            `'${request.operation_id}'.`,
-            { cause },
+            `'${request.operation_id}' at stage '${failedStage}'. The ` +
+            `transaction was rolled back.`,
+            { cause, diagnostic: appModelPersistenceDiagnostic(failedStage, cause) },
           )
         }
       } catch (resolutionCause) {
@@ -664,12 +782,25 @@ export class AppModelRepository {
         throw new AppModelPersistenceError(
           `[AppModelRepository.commitInvalidActiveRecovery] Failed to resolve ` +
           `recovery operation '${request.operation_id}' after a transactional conflict.`,
-          { cause: resolutionCause },
+          {
+            cause: new AggregateError([cause, resolutionCause], 'Recovery transaction and conflict resolution both failed.'),
+            diagnostic: appModelPersistenceDiagnostic('conflict-resolution-read', cause, resolutionCause),
+          },
         )
       }
     }
 
-    const committed = await this.getCommittedById(identity.rowId)
+    let committed: CommittedAppModel
+    try {
+      committed = await this.getCommittedById(identity.rowId)
+    } catch (cause) {
+      if (cause instanceof AppModelPersistenceError && cause.diagnostic) throw cause
+      throw new AppModelPersistenceError(
+        `[AppModelRepository.commitInvalidActiveRecovery] Recovery committed row ` +
+        `${identity.rowId}, but its authoritative re-read failed.`,
+        { cause, diagnostic: appModelPersistenceDiagnostic('committed-row-read', cause) },
+      )
+    }
     if (
       committed.appName !== request.app_name
       || committed.operationId !== request.operation_id
@@ -687,7 +818,11 @@ export class AppModelRepository {
 
   /** Legacy/fixture write boundary. Canonical runtime code uses commitCandidate. */
   async upsert(snapshot: AppModelSnapshot): Promise<StoredAppModel> {
-    const row = rowFromSnapshot(snapshot, null, null)
+    const row = rowFromSnapshot(
+      { snapshot, canonicalJson: canonicalJson(snapshot) },
+      null,
+      null,
+    )
     const db = getDb()
     try {
       return await db.transaction().execute(async trx => {
@@ -815,6 +950,63 @@ export class AppModelRepository {
       version: row.version,
       status: row.status,
       raw_model_json_fingerprint: fingerprint,
+      validation_errors: validationErrors,
+    }
+  }
+
+  /**
+   * Read-only discovery for an explicitly forced guarded recovery. Returns only
+   * identity, fingerprint, and deterministic validation diagnostics; raw
+   * model_json remains inside SQLite and never crosses the trusted boundary.
+   */
+  async findInvalidActiveForRecovery(appName: string): Promise<InvalidActiveInspection | null> {
+    if (appName.trim() === '') {
+      throw new InvalidAppModelStateError(
+        '[AppModelRepository.findInvalidActiveForRecovery] appName must be non-empty.',
+      )
+    }
+
+    const db = getDb()
+    let rows: Array<{
+      id: number
+      app_name: string
+      version: string
+      status: string
+      model_json: string
+    }>
+    try {
+      rows = await db.selectFrom('app_models')
+        .select(['id', 'app_name', 'version', 'status', 'model_json'])
+        .where('app_name', '=', appName)
+        .where('status', '=', 'active')
+        .orderBy('id', 'desc')
+        .limit(2)
+        .execute()
+    } catch (cause) {
+      throw new AppModelPersistenceError(
+        `[AppModelRepository.findInvalidActiveForRecovery] Failed to inspect ` +
+        `active App Model '${appName}'.`,
+        { cause },
+      )
+    }
+    if (rows.length === 0) return null
+    if (rows.length > 1) {
+      throw new InvalidAppModelStateError(
+        `[AppModelRepository.findInvalidActiveForRecovery] Invalid database state ` +
+        `for '${appName}': multiple active rows ` +
+        `(${rows.map(row => row.id).join(', ')}).`,
+      )
+    }
+
+    const row = rows[0]
+    const validationErrors = invalidRowValidationErrors(row)
+    if (validationErrors.length === 0) return null
+    return {
+      row_id: Number(row.id),
+      app_name: row.app_name,
+      version: row.version,
+      status: row.status,
+      raw_model_json_fingerprint: rawModelJsonFingerprint(row.model_json),
       validation_errors: validationErrors,
     }
   }

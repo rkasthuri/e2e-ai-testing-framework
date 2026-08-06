@@ -290,6 +290,45 @@ export interface FlowDefinition {
   groundingWarnings?:   string[]
 }
 
+export type AuthenticationStage =
+  | 'credential-reference-resolution'
+  | 'login-surface-detection'
+  | 'username-control-discovery'
+  | 'password-control-discovery'
+  | 'value-entry-completion'
+  | 'submit-control-discovery'
+  | 'submission-attempt'
+  | 'navigation-or-page-state-change'
+  | 'post-submit-login-surface-evaluation'
+
+export type AuthenticationStageOutcome =
+  | 'succeeded'
+  | 'failed'
+  | 'indeterminate'
+  | 'not_evaluated'
+  | 'not_required'
+
+/**
+ * Safe authentication trace. It deliberately carries structure only: no
+ * selector text, URL, credential material, field value, page text, or HTML.
+ */
+export interface AuthenticationStageDiagnostic {
+  stage: AuthenticationStage
+  outcome: AuthenticationStageOutcome
+  selectorStrategyCategory: 'configured' | 'semantic-fallback' | 'not_applicable'
+  matchCount?: number
+  controlVisible?: boolean
+  usernameEntryCompleted?: boolean
+  passwordEntryCompleted?: boolean
+  submissionAttempted?: boolean
+  loginSurfaceRetained?: boolean
+  urlClassification?: {
+    origin: 'same-origin' | 'different-origin' | 'indeterminate'
+    path: 'same-path' | 'different-path' | 'indeterminate'
+  }
+  safeErrorType?: string
+}
+
 export interface RoleDefinition {
   id:                string
   displayName:       string
@@ -303,6 +342,8 @@ export interface RoleDefinition {
    *  needed). Optional for back-compat with pre-existing serialized models; new crawls
    *  always set it. NEVER derived from reachablePageIds. */
   authOutcome?:      'succeeded' | 'failed' | 'unknown'
+  /** Safe, value-free evidence for each authentication stage in this crawl. */
+  authenticationStages?: AuthenticationStageDiagnostic[]
   /** Set by Crawler when auth SUCCEEDS and the post-auth navigation is observed
    *  (AuthManager's real landing URL). Evidence-based — a direct observation,
    *  not a guess. Used by FixtureGenerator when no explicit successUrl is

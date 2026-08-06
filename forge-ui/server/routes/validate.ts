@@ -24,7 +24,7 @@ const router = Router()
  * rejects HEAD. Reachable = a response with status < 500 within 5s. Any
  * error/timeout → not reachable (never throws).
  */
-function checkReachability(url: string): Promise<boolean> {
+export function checkReachability(url: string): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false
     const done = (v: boolean) => { if (!settled) { settled = true; resolve(v) } }

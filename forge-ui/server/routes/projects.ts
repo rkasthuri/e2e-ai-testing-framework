@@ -28,6 +28,7 @@ import { jobRunner } from '../jobs/JobRunner'
 import { credentialResolver } from '../context/credentials/CredentialResolver'
 import { credentialStore, CredentialStore } from '../context/credentials/CredentialStore'
 import { CredentialError, CredentialErrorBase } from '../context/credentials/CredentialTypes'
+import { observationStore } from '../registry/ObservationStore'
 
 // Known fixture apps — last-resort fallback (fixture-specific, intentional:
 // fixtures use .ts onboarding configs, not .forge/config.json, so they won't
@@ -154,9 +155,10 @@ router.get('/:appName', async (req, res) => {
   const cfg = entry.workspacePath
     ? readJson(path.join(entry.workspacePath, '.forge', 'config.json')) ?? {}
     : {}
-  const d = entry.workspacePath
-    ? readJson(path.join(entry.workspacePath, '.forge', 'bootstrap-manifest.json'))?.detection ?? {}
-    : {}
+  const bootstrapManifest = entry.workspacePath
+    ? readJson(path.join(entry.workspacePath, '.forge', 'bootstrap-manifest.json'))
+    : null
+  const d = bootstrapManifest?.detection ?? {}
 
   const detection = {
     // PLATFORM — plain structural value, NO confidence chip (ruling 2026-07-21): appType is not
@@ -167,13 +169,16 @@ router.get('/:appName', async (req, res) => {
     authType:      field(cfg.authType, d.authType),
     crawlStrategy: field(cfg.crawlStrategy, d.crawlStrategy),
     appName:       field(cfg.appName ?? entry.appName, d.appName),
+    capturedAt:    bootstrapManifest?.timestamp,
+    runId:         bootstrapManifest?.runId,
   }
   const project = {
     appName: entry.appName, url: entry.url,
     appType: cfg.appType ?? '', crawlStrategy: cfg.crawlStrategy ?? '', authType: cfg.authType ?? '',
     createdAt: entry.createdAt, lastOpenedAt: entry.lastOpenedAt, workspacePath: entry.workspacePath,
   }
-  res.json(ok({ project, detection }))
+  const latestObservation = observationStore.latest(appName)
+  res.json(ok({ project, detection, latestObservation }))
 })
 
 // POST /api/v1/projects — onboard a new app.
@@ -181,7 +186,7 @@ router.get('/:appName', async (req, res) => {
 // then read detection from workspace files. Always dryRun:false at the engine
 // (so the manifest is written); the UI "dry run" only skips registry.register().
 router.post('/', async (req, res) => {
-  const { url, appName, dryRun, jobId, detectionResult } = req.body ?? {}
+  const { url, appName, dryRun, jobId, detectionResult, username, password } = req.body ?? {}
   if (!url || typeof url !== 'string')
     return res.status(400).json(fail('url is required', 'MISSING_URL'))
   if (!appName || typeof appName !== 'string')
@@ -191,9 +196,14 @@ router.post('/', async (req, res) => {
 
   // ADR-013 — provision the per-app workspace + record the default credential
   // reference (env-var pointer names) BEFORE any config write. Never the repo tree.
+  if (projectRegistry.find(appName))
+    return res.status(409).json(fail(`Project '${appName}' already exists. Select it or choose a new app name.`, 'PROJECT_EXISTS'))
+
   const ws = workspaceResolver.provision(appName)
   const ref = CredentialStore.defaultReference(appName)
-  credentialStore.write(appName, ref)
+  // Dry run is preview-only: do not persist the credential-reference sidecar.
+  // It also never registers the project below.
+  if (!dryRun) credentialStore.write(appName, ref)
 
   // Fix #8: save-after-dry-run fast path — the detection was already computed in
   // the dry run, so skip Bootstrap and write the registry directly.
@@ -214,10 +224,21 @@ router.post('/', async (req, res) => {
   }
 
   try {
+    const submittedUser = typeof username === 'string' && username.trim() ? username.trim() : undefined
+    const submittedPass = typeof password === 'string' && password ? password : undefined
     const envUser = process.env[ref.usernameEnv]
     const envPass = process.env[ref.passwordEnv]
 
-    if (envUser && envPass) {
+    if (submittedUser && submittedPass) {
+      // Credentials supplied by the onboarding form are used for this run only.
+      // They are never returned to the UI or written to logs.
+      const job = await executionContext.submit({
+        type: 'crawl', appName,
+        options: { url, appName, workspace: ws, force: true, username: submittedUser, password: submittedPass },
+      })
+      if (job.status === 'failed')
+        return res.status(500).json(fail(job.error ?? 'onboarding failed', 'ENGINE_ERROR'))
+    } else if (envUser && envPass) {
       // Env pair present → SINGLE authenticated bootstrap (detect + auth in one
       // force crawl). Creds passed directly (ExecutionContext respects options).
       const job = await executionContext.submit({
@@ -245,13 +266,16 @@ router.post('/', async (req, res) => {
       return res.status(500).json(fail('config not written by onboarding', 'NO_CONFIG'))
 
     // Detection = config values (final) + manifest confidences (detection-time).
-    const d = readJson(path.join(ws.forgeDir, 'bootstrap-manifest.json'))?.detection ?? {}
+    const bootstrapManifest = readJson(path.join(ws.forgeDir, 'bootstrap-manifest.json'))
+    const d = bootstrapManifest?.detection ?? {}
     const detection = {
       appType:       config.appType ?? '',   // PLATFORM — plain structural value, no confidence chip (ruling 2026-07-21)
       ...(d.renderingModel ? { renderingModel: field(d.renderingModel.value, d.renderingModel) } : {}),   // ADR-021
       authType:      field(config.authType, d.authType),
       crawlStrategy: field(config.crawlStrategy, d.crawlStrategy),
       appName:       field(config.appName, d.appName),
+      capturedAt:    bootstrapManifest?.timestamp,
+      runId:         bootstrapManifest?.runId,
     }
     const now = new Date().toISOString()
     const project = {
@@ -268,7 +292,12 @@ router.post('/', async (req, res) => {
     // and do NOT register (never leave the app half-onboarded).
     if (err instanceof CredentialErrorBase)
       return res.status(400).json(fail(err.message, 'CREDENTIALS_REQUIRED'))
-    throw err
+    const message = err instanceof Error ? err.message : 'Unexpected onboarding failure'
+    const safeMessage = [username, password]
+      .filter((secret): secret is string => typeof secret === 'string' && secret.length > 0)
+      .reduce((safe, secret) => safe.split(secret).join('[redacted]'), message)
+    console.error('[FORGE UI] Onboarding failed:', safeMessage)
+    return res.status(500).json(fail(safeMessage, 'INTERNAL_ERROR'))
   } finally {
     console.log = origLog
     console.warn = origWarn

@@ -331,6 +331,59 @@
             "items": {
               "type": "string"
             }
+          },
+          "authOutcome": {
+            "type": "string",
+            "enum": ["succeeded", "failed", "unknown"]
+          },
+          "authenticationStages": {
+            "description": "Optional value-free authentication trace. Carries stage/outcome, selector strategy category, counts, booleans, URL classification, and safe error type only.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["stage", "outcome", "selectorStrategyCategory"],
+              "properties": {
+                "stage": {
+                  "type": "string",
+                  "enum": [
+                    "credential-reference-resolution",
+                    "login-surface-detection",
+                    "username-control-discovery",
+                    "password-control-discovery",
+                    "value-entry-completion",
+                    "submit-control-discovery",
+                    "submission-attempt",
+                    "navigation-or-page-state-change",
+                    "post-submit-login-surface-evaluation"
+                  ]
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": ["succeeded", "failed", "indeterminate", "not_evaluated", "not_required"]
+                },
+                "selectorStrategyCategory": {
+                  "type": "string",
+                  "enum": ["configured", "semantic-fallback", "not_applicable"]
+                },
+                "matchCount": { "type": "integer", "minimum": 0 },
+                "controlVisible": { "type": "boolean" },
+                "usernameEntryCompleted": { "type": "boolean" },
+                "passwordEntryCompleted": { "type": "boolean" },
+                "submissionAttempted": { "type": "boolean" },
+                "loginSurfaceRetained": { "type": "boolean" },
+                "urlClassification": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["origin", "path"],
+                  "properties": {
+                    "origin": { "type": "string", "enum": ["same-origin", "different-origin", "indeterminate"] },
+                    "path": { "type": "string", "enum": ["same-path", "different-path", "indeterminate"] }
+                  }
+                },
+                "safeErrorType": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]{0,63}$" }
+              }
+            }
           }
         }
       }

@@ -265,6 +265,18 @@ forge ui                # Start the canonical forge-ui platform
 forge ui --port=3002    # Request a specific port
 ```
 
+For Vite development, run the control plane and Vite dev server separately:
+
+```bash
+cd forge-ui
+npm run server           # Express control plane on 127.0.0.1:3000
+npm run dev              # Vite UI, normally on http://localhost:5173
+```
+
+Alternatively, `forge ui` starts the production-serving control plane directly.
+Starting only Vite leaves `/api` without a backend and the UI reports
+`Backend unavailable`; it must not silently fall back to the empty state.
+
 Or on Windows:
 ```
 forgeUI.bat             # Double-click — portable Windows launcher

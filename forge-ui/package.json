@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "server": "tsx server/index.ts",
+    "server": "tsx server/start.ts",
     "check": "tsc --noEmit"
   },
   "dependencies": {

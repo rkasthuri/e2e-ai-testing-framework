@@ -25,6 +25,11 @@ import { RunPage } from './pages/RunPage'
 import { ResultsPage } from './pages/ResultsPage'
 import { InsightsPage } from './pages/InsightsPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { TruthBoardPage } from './pages/TruthBoardPage'
+import { ApplicationWorkspacePage } from './pages/ApplicationWorkspacePage'
+import { ApplicationObservationsPage } from './pages/ApplicationObservationsPage'
+import { ApplicationModelPage } from './pages/ApplicationModelPage'
+import { ApplicationEvidencePage } from './pages/ApplicationEvidencePage'
 
 // Dark mode is the default (index.html sets class="dark"); never overridden.
 export default function App() {
@@ -42,6 +47,12 @@ export default function App() {
               <Route path="/run" element={<RunPage />} />
               <Route path="/results" element={<ResultsPage />} />
               <Route path="/insights" element={<InsightsPage />} />
+              <Route path="/truth-board" element={<TruthBoardPage />} />
+              <Route path="/application" element={<ApplicationWorkspacePage />} />
+              <Route path="/application/:tab" element={<ApplicationWorkspacePage />} />
+              <Route path="/application/observations" element={<ApplicationObservationsPage />} />
+              <Route path="/application/model" element={<ApplicationModelPage />} />
+              <Route path="/application/evidence" element={<ApplicationEvidencePage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Routes>

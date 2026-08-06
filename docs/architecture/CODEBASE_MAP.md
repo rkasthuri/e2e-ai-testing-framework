@@ -50,10 +50,48 @@ counts and status labels here as permanent.
 | `storage/` | SQLite schema, migrations, repositories, and App Model services | Sole persistence authority for App Model and run data |
 | `triage/` | Failure taxonomy and evidence-gated classification | `insufficient-evidence` is a valid outcome |
 | `evidence/` | Evidence tiers, confidence, and health semantics | Confidence cannot exceed observed evidence |
+| `domain/` | Stable project lifecycle, evidence references, explainable state, and Truth Confidence contracts | Pure domain rules; no UI, persistence, credentials, or AI dependencies |
 | `identity/` | Login-surface observations and bounded signals | Observations do not claim facts outside their boundary |
 | `workspace/` | Workspace and file-safety utilities | Shared infrastructure, not business ownership |
 
 ## Storage and Recovery Boundary
+
+The UI-neutral Truth Board projection is owned by `src/core/domain/tdUi062c.ts`.
+It fails closed on cross-project evidence and dangling evidence references and
+has no UI, persistence, transport, credential, AI, or engine dependencies.
+
+The first Truth Board presentation slice is owned by
+`forge-ui/src/components/truth-board/`. It renders supplied read-model fields
+and does not derive domain meaning or import core domain modules.
+
+The Application workspace shell and Overview presentation are owned by
+`forge-ui/src/components/application-workspace/`. The shell is incremental;
+later tabs are planned placeholders, and Overview consumes a typed read-model
+extension without creating a second domain policy.
+
+The Application workspace Observations presentation is owned by
+`forge-ui/src/components/application-workspace/ApplicationObservations.tsx`.
+It renders supplied observation history and limitations; it does not create,
+sort, refresh, or interpret observation domain records.
+
+The Application Model presentation is owned by
+`forge-ui/src/components/application-workspace/ApplicationModel.tsx`. It
+renders supplied model state, subject provenance, currency, and limitations;
+it does not create models or infer completeness from subjects or counts.
+
+The Application workspace Evidence presentation is owned by
+`forge-ui/src/components/application-workspace/ApplicationEvidence.tsx`. It
+renders supplied provenance, freshness, integrity, conflict, context, and
+usage fields without exposing credential material or merging evidence.
+
+The Crawl observation vertical slice is owned by
+`forge-ui/src/pages/CrawlPage.tsx`, `forge-ui/server/routes/crawl.ts`, and
+`forge-ui/server/registry/ObservationStore.ts`. The route supplies pre-crawl
+truth, submits engine work through `ExecutionContext`, and projects terminal
+engine/App Model output into append-only observation start and terminal records.
+These records are run-scoped provenance artifacts; they do not replace or write
+the SQLite App Model. The Application Observations tab remains presentation-only
+and is not connected by TD-UI-064A.
 
 `src/core/storage/` owns schema evolution and App Model persistence. Repository
 operations remain the only durable App Model write authority.
