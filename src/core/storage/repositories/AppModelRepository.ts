@@ -49,6 +49,75 @@ export interface AppModelCommitResult {
   committed: CommittedAppModel
 }
 
+export const DEFAULT_APP_MODEL_HISTORY_LIMIT = 25
+export const MAX_APP_MODEL_HISTORY_LIMIT = 50
+
+export type AppModelReadValidationState = 'valid' | 'invalid' | 'malformed'
+export type AppModelReadIntegrityState = 'verified' | 'failed' | 'not_evaluated'
+
+export interface AppModelReadSubject {
+  id: string
+  kind: 'page' | 'endpoint'
+  routePath: string | null
+  derivedClassification: {
+    label: string
+    confidence: 'high' | 'medium' | 'low' | 'unknown'
+    method: 'rule' | 'ai' | 'manual' | 'unknown'
+  } | null
+}
+
+export interface AppModelReadHistoryItem {
+  rowId: number
+  appName: string
+  version: string
+  lifecycle: 'active' | 'superseded' | 'unknown'
+  generatedAt: string | null
+  crawledAt: string | null
+  evidenceState: 'crawled' | 'crawled-empty' | 'unsupported-platform' | 'unknown'
+  sourceObservationId: string | null
+  validation: AppModelReadValidationState
+  integrity: AppModelReadIntegrityState
+  modelFingerprint: string
+  subjects: AppModelReadSubject[]
+  recovery: {
+    sourceRowId: number
+    sourceVersion: string | null
+    sourceFingerprint: string
+    sourceFingerprintMatches: boolean
+  } | null
+}
+
+export type AppModelHistoryReadResult =
+  | {
+      kind: 'ok'
+      models: AppModelReadHistoryItem[]
+      activeModel: AppModelReadHistoryItem | null
+      total: number
+      activeCount: number
+      nextCursor: string | null
+      previousCursor: string | null
+      hasPrevious: boolean
+      requestedModel: {
+        rowId: number
+        status: 'on_page' | 'outside_page' | 'not_found'
+      } | null
+    }
+  | { kind: 'invalid_cursor' }
+
+export interface AppModelHistoryReadOptions {
+  limit?: number
+  cursor?: string | null
+  requestedRowId?: number | null
+}
+
+interface AppModelHistoryCursor {
+  version: 1
+  appName: string
+  ordering: 'row-id-desc-v1'
+  limit: number
+  afterRowId: number
+}
+
 export type AppModelPersistenceStage =
   | 'candidate-materialization'
   | 'candidate-validation'
@@ -374,6 +443,179 @@ function isSqliteBusy(cause: unknown): boolean {
 
 function rawModelJsonFingerprint(modelJson: string): string {
   return crypto.createHash('sha256').update(modelJson).digest('hex')
+}
+
+function encodeAppModelHistoryCursor(cursor: AppModelHistoryCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
+}
+
+function decodeAppModelHistoryCursor(value: string): AppModelHistoryCursor | null {
+  if (!/^[A-Za-z0-9_-]{1,1024}$/.test(value)) return null
+  try {
+    const decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown
+    if (!decoded || typeof decoded !== 'object') return null
+    const cursor = decoded as Record<string, unknown>
+    if (
+      Object.keys(cursor).sort().join(',') !== 'afterRowId,appName,limit,ordering,version'
+      || cursor.version !== 1
+      || typeof cursor.appName !== 'string'
+      || cursor.ordering !== 'row-id-desc-v1'
+      || !Number.isSafeInteger(cursor.limit)
+      || Number(cursor.limit) < 1
+      || Number(cursor.limit) > MAX_APP_MODEL_HISTORY_LIMIT
+      || !Number.isSafeInteger(cursor.afterRowId)
+      || Number(cursor.afterRowId) <= 0
+    ) return null
+    return cursor as unknown as AppModelHistoryCursor
+  } catch {
+    return null
+  }
+}
+
+function exactIsoOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value ? value : null
+}
+
+function safeModelRoutePath(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 256) return null
+  if (/[\u0000-\u001f\\?#]/.test(value)) return null
+  try {
+    const parsed = new URL(value, 'https://presentation.invalid')
+    return parsed.origin === 'https://presentation.invalid' && parsed.pathname === value
+      ? value
+      : null
+  } catch {
+    return null
+  }
+}
+
+function safeModelIdentity(value: unknown): string | null {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
+    ? value
+    : null
+}
+
+function safeClassificationLabel(value: unknown): string | null {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/.test(value)
+    ? value
+    : null
+}
+
+function readHistoryItem(
+  row: StoredAppModel,
+  recoverySources: Map<number, StoredAppModel>,
+): AppModelReadHistoryItem {
+  const lifecycle = row.status === 'active' || row.status === 'superseded'
+    ? row.status
+    : 'unknown'
+  const modelFingerprint = rawModelJsonFingerprint(row.model_json)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(row.model_json)
+  } catch {
+    return {
+      rowId: Number(row.id),
+      appName: row.app_name,
+      version: row.version,
+      lifecycle,
+      generatedAt: null,
+      crawledAt: exactIsoOrNull(row.crawled_at),
+      evidenceState: 'unknown',
+      sourceObservationId: safeModelIdentity(row.operation_id),
+      validation: 'malformed',
+      integrity: 'failed',
+      modelFingerprint,
+      subjects: [],
+      recovery: recoveryReadModel(row, recoverySources),
+    }
+  }
+
+  const validation = validateAppModelObject(parsed)
+  const snapshot = parsed as Partial<AppModelSnapshot>
+  const identityMatches = snapshot.app?.name === row.app_name
+    && snapshot.app?.modelVersion === row.version
+  let integrity: AppModelReadIntegrityState = identityMatches ? 'not_evaluated' : 'failed'
+  if (validation.valid && identityMatches && row.candidate_hash) {
+    try {
+      const validSnapshot = snapshot as AppModelSnapshot
+      const { modelVersion: _modelVersion, ...candidateApp } = validSnapshot.app
+      const materialized = materializeAppModelCandidate({
+        ...validSnapshot,
+        app: candidateApp,
+      })
+      integrity = materialized.candidateHash === row.candidate_hash ? 'verified' : 'failed'
+    } catch {
+      integrity = 'failed'
+    }
+  }
+
+  const rawSubjects = validation.valid
+    ? snapshot.pages ?? snapshot.endpoints ?? []
+    : []
+  const subjects: AppModelReadSubject[] = rawSubjects.slice(0, 100).flatMap(subject => {
+    const isPage = 'urlPattern' in subject
+    const routePath = safeModelRoutePath(isPage ? subject.urlPattern : subject.path)
+    const id = isPage
+      ? safeModelIdentity(subject.id)
+      : routePath
+        ? `${subject.method}:${routePath}`
+        : null
+    if (!id) return []
+    const module = isPage ? subject.module : undefined
+    const classificationLabel = safeClassificationLabel(module?.name)
+    return [{
+      id,
+      kind: isPage ? 'page' as const : 'endpoint' as const,
+      routePath,
+      derivedClassification: classificationLabel && module
+        ? {
+            label: classificationLabel,
+            confidence: module.confidence,
+            method: module.method,
+          }
+        : null,
+    }]
+  })
+
+  const evidenceState = snapshot.app?.evidenceState === 'crawled'
+    || snapshot.app?.evidenceState === 'crawled-empty'
+    || snapshot.app?.evidenceState === 'unsupported-platform'
+    ? snapshot.app.evidenceState
+    : 'unknown'
+  return {
+    rowId: Number(row.id),
+    appName: row.app_name,
+    version: row.version,
+    lifecycle,
+    generatedAt: exactIsoOrNull(snapshot.generatedAt),
+    crawledAt: exactIsoOrNull(row.crawled_at),
+    evidenceState,
+    sourceObservationId: safeModelIdentity(row.operation_id),
+    validation: validation.valid ? 'valid' : 'invalid',
+    integrity,
+    modelFingerprint,
+    subjects,
+    recovery: recoveryReadModel(row, recoverySources),
+  }
+}
+
+function recoveryReadModel(
+  row: StoredAppModel,
+  recoverySources: Map<number, StoredAppModel>,
+): AppModelReadHistoryItem['recovery'] {
+  const sourceRowId = Number(row.recovery_source_row_id)
+  const sourceFingerprint = row.recovery_source_fingerprint
+  if (!Number.isSafeInteger(sourceRowId) || sourceRowId <= 0 || !sourceFingerprint) return null
+  const source = recoverySources.get(sourceRowId)
+  return {
+    sourceRowId,
+    sourceVersion: source?.version ?? null,
+    sourceFingerprint,
+    sourceFingerprintMatches: !!source
+      && rawModelJsonFingerprint(source.model_json) === sourceFingerprint,
+  }
 }
 
 function invalidRowValidationErrors(
@@ -1008,6 +1250,117 @@ export class AppModelRepository {
       status: row.status,
       raw_model_json_fingerprint: rawModelJsonFingerprint(row.model_json),
       validation_errors: validationErrors,
+    }
+  }
+
+  /**
+   * Bounded read-only history for presentation consumers. Raw model_json and
+   * validation diagnostics never cross this repository boundary.
+   */
+  async readHistory(
+    appName: string,
+    options: AppModelHistoryReadOptions = {},
+  ): Promise<AppModelHistoryReadResult> {
+    if (appName.trim() === '') return { kind: 'invalid_cursor' }
+    const limit = options.limit ?? DEFAULT_APP_MODEL_HISTORY_LIMIT
+    const cursor = options.cursor ?? null
+    const requestedRowId = options.requestedRowId ?? null
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_APP_MODEL_HISTORY_LIMIT) {
+      return { kind: 'invalid_cursor' }
+    }
+    if (requestedRowId !== null && (!Number.isSafeInteger(requestedRowId) || requestedRowId <= 0)) {
+      return { kind: 'invalid_cursor' }
+    }
+    const decoded = cursor === null ? null : decodeAppModelHistoryCursor(cursor)
+    if (cursor !== null && (!decoded || decoded.appName !== appName || decoded.limit !== limit)) {
+      return { kind: 'invalid_cursor' }
+    }
+
+    const db = getDb()
+    const counts = await db.selectFrom('app_models')
+      .select(({ fn }) => [
+        fn.countAll<number>().as('total'),
+        fn.count<number>('id').filterWhere('status', '=', 'active').as('active_count'),
+      ])
+      .where('app_name', '=', appName)
+      .executeTakeFirstOrThrow()
+    const activeRows = await db.selectFrom('app_models')
+      .selectAll()
+      .where('app_name', '=', appName)
+      .where('status', '=', 'active')
+      .orderBy('id', 'desc')
+      .limit(2)
+      .execute()
+
+    let query = db.selectFrom('app_models')
+      .selectAll()
+      .where('app_name', '=', appName)
+    if (decoded) query = query.where('id', '<', decoded.afterRowId)
+    const pagePlusOne = await query.orderBy('id', 'desc').limit(limit + 1).execute()
+    const page = pagePlusOne.slice(0, limit)
+    const newerThanCursor = decoded
+      ? await db.selectFrom('app_models')
+          .select('id')
+          .where('app_name', '=', appName)
+          .where('id', '>', decoded.afterRowId)
+          .orderBy('id', 'asc')
+          .limit(limit + 1)
+          .execute()
+      : []
+    const sourceIds = [...new Set([...page, ...activeRows]
+      .map(row => Number(row.recovery_source_row_id))
+      .filter(id => Number.isSafeInteger(id) && id > 0))]
+    const recoverySourceRows = sourceIds.length > 0
+      ? await db.selectFrom('app_models').selectAll().where('id', 'in', sourceIds).execute()
+      : []
+    const recoverySources = new Map(recoverySourceRows.map(row => [Number(row.id), row]))
+    const models = page.map(row => readHistoryItem(row, recoverySources))
+    const hasMore = pagePlusOne.length > limit
+    const requestedExists = requestedRowId === null
+      ? false
+      : !!(await db.selectFrom('app_models')
+          .select('id')
+          .where('app_name', '=', appName)
+          .where('id', '=', requestedRowId)
+          .executeTakeFirst())
+
+    return {
+      kind: 'ok',
+      models,
+      activeModel: activeRows.length === 1
+        ? readHistoryItem(activeRows[0], recoverySources)
+        : null,
+      total: Number(counts.total),
+      activeCount: Number(counts.active_count),
+      nextCursor: hasMore && page.length > 0
+        ? encodeAppModelHistoryCursor({
+            version: 1,
+            appName,
+            ordering: 'row-id-desc-v1',
+            limit,
+            afterRowId: Number(page[page.length - 1].id),
+          })
+        : null,
+      previousCursor: decoded && newerThanCursor.length > limit
+        ? encodeAppModelHistoryCursor({
+            version: 1,
+            appName,
+            ordering: 'row-id-desc-v1',
+            limit,
+            afterRowId: Number(newerThanCursor[limit - 1].id),
+          })
+        : null,
+      hasPrevious: decoded !== null,
+      requestedModel: requestedRowId === null
+        ? null
+        : {
+            rowId: requestedRowId,
+            status: models.some(model => model.rowId === requestedRowId)
+              ? 'on_page'
+              : requestedExists
+                ? 'outside_page'
+                : 'not_found',
+          },
     }
   }
 

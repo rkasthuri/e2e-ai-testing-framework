@@ -29,6 +29,7 @@ import { credentialResolver } from '../context/credentials/CredentialResolver'
 import { credentialStore, CredentialStore } from '../context/credentials/CredentialStore'
 import { CredentialError, CredentialErrorBase } from '../context/credentials/CredentialTypes'
 import { observationStore } from '../registry/ObservationStore'
+import { readApplicationModelHistory } from '../context/ApplicationModelHistoryController'
 
 // Known fixture apps — last-resort fallback (fixture-specific, intentional:
 // fixtures use .ts onboarding configs, not .forge/config.json, so they won't
@@ -179,6 +180,20 @@ router.get('/:appName', async (req, res) => {
   }
   const latestObservation = observationStore.latest(appName)
   res.json(ok({ project, detection, latestObservation }))
+})
+
+// GET /api/v1/projects/:appName/model — TD-UI-065A. The route transports a
+// bounded presentation projection only. SQLite reads and model validation stay
+// behind ExecutionContext; arbitrary model JSON and validation details never
+// cross this boundary.
+router.get('/:appName/model', async (req, res) => {
+  const result = await readApplicationModelHistory(
+    req.params.appName,
+    req.query as Record<string, unknown>,
+    async appName => projectRegistry.find(appName)
+      ?? (await discoverProjects()).find(project => project.appName === appName),
+  )
+  res.status(result.status).json(result.body)
 })
 
 // POST /api/v1/projects — onboard a new app.

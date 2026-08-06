@@ -16,7 +16,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
 import type {
   OnboardRequest, OnboardResponse, Project, Detection, CrawlRequest, CrawlStatus,
-  CrawlProjectContext, ObservationRecord, ObservationHistoryResponse, GenerationManifest, TestFileContent,
+  CrawlProjectContext, ObservationRecord, ObservationHistoryResponse, ApplicationModelHistoryResponse,
+  GenerationManifest, TestFileContent,
 } from '../api/types'
 
 /** GET /api/v1/projects — the project switcher + lists consume this. */
@@ -101,6 +102,31 @@ export function useObservationHistory(
       if (request.observationId) query.set('observation', request.observationId)
       return apiClient.get<ObservationHistoryResponse>(
         `/api/v1/crawl/projects/${encodeURIComponent(appName!)}/observations?${query}`,
+      )
+    },
+    enabled: !!appName && enabled,
+    retry: false,
+  })
+}
+
+export interface ApplicationModelHistoryRequest {
+  cursor: string | null
+  modelRowId: number | null
+}
+
+export function useApplicationModelHistory(
+  appName: string | null,
+  request: ApplicationModelHistoryRequest,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['application-model-history', appName, request],
+    queryFn: () => {
+      const query = new URLSearchParams({ limit: '25' })
+      if (request.cursor) query.set('cursor', request.cursor)
+      if (request.modelRowId) query.set('model', String(request.modelRowId))
+      return apiClient.get<ApplicationModelHistoryResponse>(
+        `/api/v1/projects/${encodeURIComponent(appName!)}/model?${query}`,
       )
     },
     enabled: !!appName && enabled,

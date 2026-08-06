@@ -1,40 +1,141 @@
-import { AlertCircle, ArrowRight, CircleHelp, FileSearch, Layers3, ShieldAlert } from 'lucide-react'
-import type { ApplicationModelReadModel, ApplicationModelSubject } from './applicationModelTypes'
+/**
+ * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and
+ * Grounded Evaluation
+ *
+ * Copyright (c) 2026 AnvilQ Technologies LLC
+ * Author: Raj Kasthuri
+ *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or
+ * modification of this software is strictly
+ * prohibited.
+ */
 
-const stateLabel: Record<ApplicationModelReadModel['applicationModel']['state'], string> = {
-  current: 'Current', stale: 'Stale', unavailable: 'Unavailable', blocked: 'Blocked', incomplete: 'Incomplete', 'integrity-limited': 'Integrity limited',
+import { ChevronDown, ChevronRight, CircleHelp, Database, FileSearch, ShieldAlert } from 'lucide-react'
+import React from 'react'
+import { Link } from 'react-router-dom'
+import type { ApplicationModelReadModel, ApplicationModelVersion } from './applicationModelTypes'
+
+const lifecycleLabel = { active: 'Active', superseded: 'Superseded', unknown: 'Unknown' } as const
+const validationLabel = { valid: 'Valid', invalid: 'Invalid', malformed: 'Malformed' } as const
+const integrityLabel = { verified: 'Verified', failed: 'Failed', not_evaluated: 'Not evaluated' } as const
+const projectionLabel = {
+  current: 'Current', unavailable: 'Unavailable', invalid: 'Invalid', mismatched: 'Mismatched',
+  not_evaluated: 'Not evaluated', not_applicable: 'Not applicable',
+} as const
+const outcomeLabel = {
+  completed: 'Completed', partially_completed: 'Partially completed', blocked: 'Blocked',
+  failed: 'Failed', unknown: 'Unknown',
+} as const
+const evidenceLabel = {
+  crawled: 'Observed evidence recorded',
+  'crawled-empty': 'Observation recorded no model subjects',
+  'unsupported-platform': 'Platform observation unsupported',
+  unknown: 'Evidence state unknown',
+} as const
+
+function ExactTime({ value }: { value: string | null }) {
+  if (!value) return <>Not available</>
+  return <time dateTime={value} title={value}>{new Date(value).toLocaleString()}</time>
 }
 
-function SubjectCard({ subject }: { subject: ApplicationModelSubject }) {
-  const derived = subject.basis === 'derived-interpretation'
-  return (
-    <article className="rounded border border-border bg-elevated p-4" data-model-subject={subject.id}>
-      <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs uppercase tracking-wide text-muted">{subject.kind}</p><h3 className="mt-1 text-sm font-semibold text-primary">{subject.label}</h3></div><span className={`rounded border border-border px-2 py-1 text-[11px] ${derived ? 'text-flaky' : 'text-pass'}`}>{derived ? 'Derived interpretation' : 'Direct observation'}</span></div>
-      <p className="mt-3 text-sm text-secondary">{subject.summary}</p>
-      {derived && subject.interpretation && <p className="mt-3 border-l-2 border-flaky pl-3 text-xs text-flaky">Interpretation: {subject.interpretation}</p>}
-      <div className="mt-3 space-y-1 text-xs text-muted"><p>Observation: {subject.observationIds.length > 0 ? subject.observationIds.join(', ') : 'none supplied'}</p><p>Evidence: {subject.evidenceIds.length > 0 ? subject.evidenceIds.join(', ') : 'none supplied'}</p><p>Context: {subject.observationContextIds.length > 0 ? subject.observationContextIds.join(', ') : 'none supplied'}</p></div>
-    </article>
-  )
+function SourceObservation({ model }: { model: ApplicationModelVersion }) {
+  const source = model.sourceObservation
+  if (!source) return <span>Not recorded</span>
+  return source.available && source.href
+    ? <Link className="font-mono text-brand underline-offset-2 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand" to={source.href}>{source.id}</Link>
+    : <span className="font-mono">{source.id} (unavailable)</span>
 }
 
-export function ApplicationModel({ readModel }: { readModel: ApplicationModelReadModel }) {
-  const model = readModel.applicationModel
-  const stateColor = model.state === 'current' ? 'text-pass' : model.state === 'stale' || model.state === 'incomplete' ? 'text-flaky' : 'text-unknown'
-  return (
-    <div className="space-y-6" data-testid="application-model">
-      <header><p className="text-xs uppercase tracking-[0.18em] text-brand">Application Model</p><h1 className="mt-1 text-2xl font-semibold text-primary">What FORGE currently understands</h1><p className="mt-1 text-sm text-secondary">A model of observed application structure—not the application itself.</p></header>
-      <section className="rounded-lg border border-border bg-surface p-5" aria-labelledby="model-state"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-[0.16em] text-muted">Model state</p><h2 id="model-state" className={`mt-1 text-xl font-semibold ${stateColor}`}>{stateLabel[model.state]}</h2></div><Layers3 size={20} className="text-brand" /></div><p className="mt-3 text-sm text-secondary">{model.why}</p><dl className="mt-4 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-5"><div><dt className="text-muted">Revision / identity</dt><dd className="mt-1 text-secondary">{model.revision ?? 'Not available'}</dd></div><div><dt className="text-muted">Generated</dt><dd className="mt-1 text-secondary">{model.generatedAt ?? 'Not available'}</dd></div><div><dt className="text-muted">Evaluated</dt><dd className="mt-1 text-secondary">{model.evaluatedAt ?? 'Not available'}</dd></div><div><dt className="text-muted">Source observations</dt><dd className="mt-1 text-secondary">{model.sourceObservationIds.length > 0 ? model.sourceObservationIds.join(', ') : 'None supplied'}</dd></div><div><dt className="text-muted">Currency support</dt><dd className="mt-1 text-secondary">{model.currencyEvidenceIds.length > 0 ? model.currencyEvidenceIds.join(', ') : 'None supplied'}</dd></div></dl>{model.preventedStrongerState && <p className="mt-4 border-l-2 border-unknown pl-3 text-xs text-unknown">Prevents a stronger state: {model.preventedStrongerState}</p>}<p className="mt-4 text-sm text-secondary">Impact: {model.impact}</p></section>
-
-      <section aria-labelledby="understood-structure"><div className="mb-3 flex items-center gap-2"><Layers3 size={16} className="text-brand" /><h2 id="understood-structure" className="text-sm font-semibold uppercase tracking-[0.16em] text-secondary">Observed structure</h2></div>{readModel.modelSubjects.length === 0 ? <div className="rounded-lg border border-border bg-surface p-8 text-center"><p className="text-sm text-secondary">No modeled subjects are available from the supplied observations.</p><p className="mt-1 text-xs text-muted">No item count is used as a completeness claim.</p></div> : <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">{readModel.modelSubjects.map(subject => <SubjectCard key={subject.id} subject={subject} />)}</div>}</section>
-
-      <section className="rounded-lg border border-border bg-surface p-5" aria-labelledby="model-provenance"><div className="flex items-center gap-2"><FileSearch size={16} className="text-brand" /><div><p className="text-xs uppercase tracking-[0.16em] text-muted">Provenance and currency</p><h2 id="model-provenance" className="mt-1 text-xl font-semibold text-primary">How this model was formed</h2></div></div><p className="mt-3 text-sm text-secondary">Direct observations and derived interpretations are labeled separately on each subject. Source observation and evidence references are shown as supplied; incompatible contexts are not silently merged.</p><div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2"><div className="rounded border border-border bg-elevated p-4"><p className="text-xs uppercase tracking-wide text-muted">Currency evidence</p><p className="mt-2 font-mono text-xs text-secondary">{model.currencyEvidenceIds.length > 0 ? model.currencyEvidenceIds.join(', ') : 'No currency evidence supplied'}</p></div><div className="rounded border border-border bg-elevated p-4"><p className="text-xs uppercase tracking-wide text-muted">Source observations</p><p className="mt-2 font-mono text-xs text-secondary">{model.sourceObservationIds.length > 0 ? model.sourceObservationIds.join(', ') : 'No source observations supplied'}</p></div></div></section>
-
-      <section className="rounded-lg border border-border bg-surface p-5" aria-labelledby="model-limitations"><p className="text-xs uppercase tracking-[0.16em] text-muted">Coverage limitations</p><h2 id="model-limitations" className="mt-1 text-xl font-semibold text-primary">What the model does not establish</h2>{readModel.modelUnobservedScope.length > 0 && <div className="mt-3"><p className="text-xs uppercase tracking-wide text-muted">Unobserved scope</p><ul className="mt-2 space-y-1 text-sm text-secondary">{readModel.modelUnobservedScope.map(item => <li key={item}>· {item}</li>)}</ul></div>}{readModel.modelLimitations.length > 0 && <div className="mt-3"><p className="text-xs uppercase tracking-wide text-muted">Limitations</p><ul className="mt-2 space-y-1 text-sm text-secondary">{readModel.modelLimitations.map(item => <li key={item}>· {item}</li>)}</ul></div>}{readModel.modelUnobservedScope.length === 0 && readModel.modelLimitations.length === 0 && <p className="mt-3 text-sm text-muted">No additional limitations supplied; this is not a completeness claim.</p>}</section>
-
-      {(readModel.modelUnknowns.length > 0 || readModel.modelBlockers.length > 0) && <section className="grid grid-cols-1 gap-4 md:grid-cols-2" aria-label="Model unknowns and blockers">{readModel.modelBlockers.length > 0 && <div className="rounded-lg border border-fail/40 bg-elevated p-4"><p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-fail"><ShieldAlert size={14} /> Blockers</p><ul className="mt-2 space-y-1 text-sm text-secondary">{readModel.modelBlockers.map(item => <li key={item}>{item}</li>)}</ul></div>}{readModel.modelUnknowns.length > 0 && <div className="rounded-lg border border-unknown/40 bg-elevated p-4"><p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-unknown"><CircleHelp size={14} /> Unknowns</p><ul className="mt-2 space-y-1 text-sm text-secondary">{readModel.modelUnknowns.map(item => <li key={item}>{item}</li>)}</ul></div>}</section>}
-
-      {model.state === 'unavailable' && <p className="flex gap-2 rounded border border-unknown/40 bg-elevated p-4 text-sm text-secondary"><AlertCircle size={16} className="mt-0.5 shrink-0 text-unknown" />No Application Model is available. No structure is inferred.</p>}
-      {readModel.modelRecommendation ? <div className="flex gap-2 rounded border border-border bg-surface p-4 text-sm text-secondary"><ArrowRight size={16} className="mt-0.5 shrink-0 text-brand" /><span><strong className="text-primary">Next: {readModel.modelRecommendation.action}</strong><span className="mt-1 block text-xs text-muted">Because: {readModel.modelRecommendation.because}</span></span></div> : <p className="flex gap-2 rounded border border-border bg-surface p-4 text-sm text-muted"><AlertCircle size={16} className="mt-0.5 shrink-0 text-unknown" />No safe recommendation is available for the current model evidence.</p>}
+function ModelDetails({ model, id }: { model: ApplicationModelVersion; id: string }) {
+  return <section id={id} role="region" aria-labelledby={`${id}-heading`} className="space-y-4 rounded-lg border border-border bg-elevated p-4">
+    <div>
+      <p className="text-xs uppercase tracking-[0.16em] text-muted">Selected model version</p>
+      <h3 id={`${id}-heading`} className="mt-1 text-lg font-semibold text-primary">Version {model.version}, database row {model.rowId}</h3>
+      <p className="mt-1 text-sm text-secondary">{lifecycleLabel[model.lifecycle]}. {evidenceLabel[model.evidenceState]}.</p>
     </div>
-  )
+    <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+      <div><dt className="text-muted">Model created</dt><dd className="mt-1 text-secondary"><ExactTime value={model.createdAt} /></dd></div>
+      <div><dt className="text-muted">Source observation time</dt><dd className="mt-1 text-secondary"><ExactTime value={model.sourceObservation?.completedAt ?? model.sourceCrawlAt} /></dd></div>
+      <div><dt className="text-muted">Validation</dt><dd className="mt-1 text-secondary">{validationLabel[model.validation]}</dd></div>
+      <div><dt className="text-muted">Integrity</dt><dd className="mt-1 text-secondary">{integrityLabel[model.integrity]}</dd></div>
+      <div><dt className="text-muted">Projection</dt><dd className="mt-1 text-secondary">{projectionLabel[model.projection]}</dd></div>
+      <div><dt className="text-muted">Freshness</dt><dd className="mt-1 text-secondary">Not evaluated</dd></div>
+      <div><dt className="text-muted">Coverage</dt><dd className="mt-1 text-secondary">Unknown</dd></div>
+      <div><dt className="text-muted">Source outcome</dt><dd className="mt-1 text-secondary">{model.sourceObservation?.outcome ? outcomeLabel[model.sourceObservation.outcome] : 'Unknown'}</dd></div>
+    </dl>
+    <details className="rounded border border-border bg-surface p-3">
+      <summary className="cursor-pointer text-sm font-semibold text-primary outline-none focus-visible:ring-2 focus-visible:ring-brand">Observed subjects and interpretation</summary>
+      {model.subjects.length === 0
+        ? <p className="mt-3 text-sm text-muted">No safely validated model subjects are available for this version.</p>
+        : <ul className="mt-3 grid gap-3 md:grid-cols-2">{model.subjects.map(subject => <li key={`${subject.kind}:${subject.id}`} className="rounded border border-border bg-elevated p-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-mono text-primary">{subject.id}</span><span className="text-xs text-muted">{subject.basis === 'direct_observation' ? 'Direct observation' : 'Observation link unknown'}</span></div>
+            <p className="mt-1 text-secondary">{subject.routePath ?? 'Route path not safely available'}</p>
+            {subject.derivedClassification && <p className="mt-2 text-xs text-muted">Derived interpretation: {subject.derivedClassification.label} ({subject.derivedClassification.confidence}, {subject.derivedClassification.method})</p>}
+            {subject.evidenceId && <p className="mt-1 text-xs text-muted">Evidence: <span className="font-mono">{subject.evidenceId}</span></p>}
+          </li>)}</ul>}
+    </details>
+    <details className="rounded border border-border bg-surface p-3">
+      <summary className="cursor-pointer text-sm font-semibold text-primary outline-none focus-visible:ring-2 focus-visible:ring-brand">Provenance and recovery</summary>
+      <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+        <div><dt className="text-muted">Source observation</dt><dd className="mt-1 break-all text-secondary"><SourceObservation model={model} /></dd></div>
+        <div><dt className="text-muted">Persisted fingerprint</dt><dd className="mt-1 break-all font-mono text-xs text-secondary">{model.modelFingerprint}</dd></div>
+      </dl>
+      {model.recovery
+        ? <p className="mt-3 text-sm text-secondary">Guarded recovery preserved source row {model.recovery.sourceRowId}{model.recovery.sourceVersion ? `, version ${model.recovery.sourceVersion}` : ''}. Source fingerprint: {model.recovery.sourceFingerprintMatches ? 'verified' : 'not verified'}.</p>
+        : <p className="mt-3 text-sm text-muted">No guarded recovery provenance is recorded for this version.</p>}
+    </details>
+    <details className="rounded border border-border bg-surface p-3">
+      <summary className="cursor-pointer text-sm font-semibold text-primary outline-none focus-visible:ring-2 focus-visible:ring-brand">Limitations, unknowns, and blockers</summary>
+      <div className="mt-3 grid gap-4 md:grid-cols-3">
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-muted">Limitations</p><ul className="mt-2 space-y-1 text-sm text-secondary">{model.limitations.map(item => <li key={item}>• {item}</li>)}</ul></div>
+        <div><p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-unknown"><CircleHelp size={13} /> Unknowns</p>{model.unknowns.length ? <ul className="mt-2 space-y-1 text-sm text-secondary">{model.unknowns.map(item => <li key={item}>• {item}</li>)}</ul> : <p className="mt-2 text-sm text-muted">None recorded.</p>}</div>
+        <div><p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-fail"><ShieldAlert size={13} /> Blockers</p>{model.blockers.length ? <ul className="mt-2 space-y-1 text-sm text-secondary">{model.blockers.map(item => <li key={item}>• {item}</li>)}</ul> : <p className="mt-2 text-sm text-muted">None recorded.</p>}</div>
+      </div>
+    </details>
+    {model.recommendation && <p className="rounded border border-border bg-surface p-3 text-sm text-secondary"><strong className="text-primary">Recommendation:</strong> <Link className="text-brand underline-offset-2 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand" to={model.recommendation.href}>{model.recommendation.action}</Link>. {model.recommendation.because}</p>}
+  </section>
+}
+
+function HistoryControl({ model, expanded, controls, onSelect }: { model: ApplicationModelVersion; expanded: boolean; controls: string; onSelect: () => void }) {
+  return <button type="button" aria-expanded={expanded} aria-controls={controls} aria-current={expanded ? 'true' : undefined} aria-label={`View model ${model.rowId}`} onClick={event => { event.stopPropagation(); onSelect() }} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-primary outline-none focus-visible:ring-2 focus-visible:ring-brand">
+    {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />} {expanded ? 'Selected — collapse' : 'View'}
+  </button>
+}
+
+export function ApplicationModel({ readModel, selectedRowId, onSelect, onPrevious, onNext, isPageLoading = false }: {
+  readModel: ApplicationModelReadModel
+  selectedRowId: number | null
+  onSelect: (rowId: number) => void
+  onPrevious: () => void
+  onNext: () => void
+  isPageLoading?: boolean
+}) {
+  const current = readModel.currentModel
+  return <div className="space-y-6" data-testid="application-model">
+    <header><p className="text-xs uppercase tracking-[0.18em] text-brand">Application Model</p><h1 className="mt-1 text-2xl font-semibold text-primary">Persisted application understanding</h1><p className="mt-1 text-sm text-secondary">A validated view of persisted model evidence—not proof that the application is completely modeled.</p></header>
+
+    <section className="rounded-lg border border-border bg-surface p-5" aria-labelledby="current-model-heading">
+      <div className="flex items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-[0.16em] text-muted">Current active model</p><h2 id="current-model-heading" className="mt-1 text-xl font-semibold text-primary">{current ? `Version ${current.version}, row ${current.rowId}` : 'No active model'}</h2></div><Database size={20} className="text-brand" /></div>
+      {current ? <><p className="mt-3 text-sm text-secondary">Project <span className="font-mono">{readModel.project.id}</span>. Active position does not establish freshness, coverage, or completeness.</p><dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-muted">Created</dt><dd className="mt-1 text-secondary"><ExactTime value={current.createdAt} /></dd></div><div><dt className="text-muted">Source observation</dt><dd className="mt-1 break-all text-secondary"><SourceObservation model={current} /></dd></div><div><dt className="text-muted">Validation / integrity</dt><dd className="mt-1 text-secondary">{validationLabel[current.validation]} / {integrityLabel[current.integrity]}</dd></div><div><dt className="text-muted">Projection</dt><dd className="mt-1 text-secondary">{projectionLabel[current.projection]}</dd></div><div><dt className="text-muted">Freshness</dt><dd className="mt-1 text-secondary">Not evaluated</dd></div><div><dt className="text-muted">Coverage</dt><dd className="mt-1 text-secondary">Unknown</dd></div><div><dt className="text-muted">Latest observation</dt><dd className="mt-1 break-all font-mono text-xs text-secondary">{readModel.latestObservationId ?? 'Not available'}</dd></div><div><dt className="text-muted">Observed subjects represented</dt><dd className="mt-1 text-secondary">{current.subjects.length}</dd></div></dl></> : <p className="mt-3 text-sm text-secondary">No persisted model version is available. No application structure is inferred.</p>}
+    </section>
+
+    <section aria-labelledby="model-history-heading">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs uppercase tracking-[0.16em] text-muted">Authoritative history</p><h2 id="model-history-heading" className="mt-1 text-xl font-semibold text-primary">Model versions</h2></div><p className="text-sm text-secondary">Total model versions: <strong className="text-primary">{readModel.page.total}</strong> · Currently active: <strong className="text-primary">{readModel.page.activeCount}</strong></p></div>
+      {readModel.models.length === 0 ? <div className="rounded-lg border border-border bg-surface p-8 text-center"><p className="text-sm text-secondary">No model history exists for this project.</p><p className="mt-1 text-xs text-muted">This does not describe application coverage.</p></div> : <>
+        <div className="overflow-hidden rounded-lg border border-border">
+          <table className="block w-full border-collapse text-left text-sm md:table"><thead className="hidden bg-elevated text-xs uppercase tracking-wide text-muted md:table-header-group"><tr><th className="px-3 py-3">Version</th><th className="px-3 py-3">Created</th><th className="px-3 py-3">Lifecycle</th><th className="px-3 py-3">Validation</th><th className="px-3 py-3">Integrity</th><th className="px-3 py-3">Source observation</th><th className="px-3 py-3">Recovery</th><th className="px-3 py-3">Status</th></tr></thead><tbody className="block space-y-2 p-2 md:table-row-group md:space-y-0 md:p-0">{readModel.models.flatMap(model => {
+            const expanded = selectedRowId === model.rowId
+            const detailId = `model-detail-${model.rowId}`
+            const mobileLabel = (label: string) => <span className="mr-2 font-medium text-muted md:hidden">{label}:</span>
+            return [<tr key={`row-${model.rowId}`} aria-selected={expanded} onClick={() => onSelect(model.rowId)} className={`block cursor-pointer rounded border border-border bg-surface py-2 hover:bg-elevated md:table-row md:rounded-none md:border-x-0 md:border-b-0 ${expanded ? 'font-medium ring-1 ring-inset ring-brand' : ''}`}><td className="block px-3 py-2 md:table-cell md:py-3"><div className="flex items-center justify-between gap-2 md:justify-start"><HistoryControl model={model} expanded={expanded} controls={detailId} onSelect={() => onSelect(model.rowId)} /><span><span className="text-muted md:hidden">Version </span>{model.version}</span></div></td><td className="block px-3 py-1 md:table-cell md:py-3">{mobileLabel('Created')}<ExactTime value={model.createdAt} /></td><td className="block px-3 py-1 md:table-cell md:py-3">{mobileLabel('Lifecycle')}{lifecycleLabel[model.lifecycle]}</td><td className="block px-3 py-1 md:table-cell md:py-3">{mobileLabel('Validation')}{validationLabel[model.validation]}</td><td className="block px-3 py-1 md:table-cell md:py-3">{mobileLabel('Integrity')}{integrityLabel[model.integrity]}</td><td className="block break-all px-3 py-1 font-mono text-xs md:table-cell md:max-w-[12rem] md:py-3">{mobileLabel('Source observation')}{model.sourceObservation?.id ?? 'Not recorded'}</td><td className="block px-3 py-1 md:table-cell md:py-3">{mobileLabel('Recovery')}{model.recovery ? 'Guarded recovery' : 'None recorded'}</td><td className="block px-3 py-1 md:table-cell md:py-3">{mobileLabel('Status')}{evidenceLabel[model.evidenceState]}</td></tr>, expanded && <tr key={`detail-${model.rowId}`} className="block border-border md:table-row md:border-t"><td colSpan={8} className="block bg-elevated/50 p-2 md:table-cell md:p-3"><ModelDetails model={model} id={detailId} /></td></tr>].filter(Boolean) as JSX.Element[]
+          })}</tbody></table>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted">Showing {readModel.models.length} bounded model version{readModel.models.length === 1 ? '' : 's'} on this page.</p><div className="flex gap-2"><button type="button" onClick={onPrevious} disabled={!readModel.page.hasPrevious || isPageLoading} className="rounded border border-border px-3 py-2 text-sm text-primary outline-none hover:bg-elevated focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50">Previous</button><button type="button" onClick={onNext} disabled={!readModel.page.nextCursor || isPageLoading} className="rounded border border-border px-3 py-2 text-sm text-primary outline-none hover:bg-elevated focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>
+      </>}
+      <p className="sr-only" aria-live="polite">{selectedRowId ? `Model row ${selectedRowId} details selected.` : 'Model history details collapsed.'}</p>
+    </section>
+    <p className="flex gap-2 rounded border border-border bg-surface p-4 text-sm text-secondary"><FileSearch size={16} className="mt-0.5 shrink-0 text-brand" />Model validity, persistence, projection, evidence coverage, lifecycle position, and freshness are reported independently.</p>
+  </div>
 }

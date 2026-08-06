@@ -17,6 +17,8 @@ import type {
 } from './AppModelRecoveryContract'
 import {
   AppModelCommitResult,
+  AppModelHistoryReadOptions,
+  AppModelHistoryReadResult,
   AppModelPersistenceError,
   AppModelProjectionError,
   AppModelRepository,
@@ -82,6 +84,14 @@ export class AppModelService {
 
   async findActive(appName: string): Promise<AppModel | null> {
     return this.repository.getModel(appName)
+  }
+
+  /** Read-only bounded history. Raw model payloads remain repository-private. */
+  async readHistory(
+    appName: string,
+    options: AppModelHistoryReadOptions = {},
+  ): Promise<AppModelHistoryReadResult> {
+    return this.repository.readHistory(appName, options)
   }
 
   async requireActive(appName: string): Promise<AppModel> {

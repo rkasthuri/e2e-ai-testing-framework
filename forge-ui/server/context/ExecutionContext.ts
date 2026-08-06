@@ -14,6 +14,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
+import * as crypto from 'crypto'
 import { workspaceResolver } from './WorkspaceResolver'
 import { credentialResolver } from './credentials/CredentialResolver'
 import { planCrawlCredentials, type EngineConfigView } from './credentials/CredentialPlanner'
@@ -193,6 +194,7 @@ const ENGINE = {
   verifier:     '../../../src/core/onboarding/VerificationRunner',
   db:           '../../../src/core/storage/db',
   appModels:    '../../../src/core/storage/AppModelService',
+  canonical:    '../../../src/core/storage/JsonAppModelMigrationPlanner',
 }
 
 /** ADR-014 — close the open project DB only when switching to a different one. */
@@ -220,6 +222,53 @@ export class ExecutionContext {
       await this.switchDatabaseIfNeeded(appName)
       const mod: any = await import(ENGINE.appModels)
       return new mod.AppModelService().requireActive(appName)
+    })
+  }
+
+  /**
+   * TD-UI-065A bounded App Model history read. SQLite remains authoritative;
+   * compatibility JSON is read only to classify its projection relationship.
+   */
+  readAppModelHistory(
+    appName: string,
+    options: { limit: number; cursor: string | null; requestedRowId: number | null },
+  ): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const appModels: any = await import(ENGINE.appModels)
+      const history = await new appModels.AppModelService().readHistory(appName, options)
+      if (history.kind !== 'ok') return history
+
+      const active = history.activeModel
+      let projectionState: 'current' | 'unavailable' | 'invalid' | 'mismatched' | 'not_evaluated'
+        = 'not_evaluated'
+      if (history.activeCount === 1 && active?.validation === 'valid') {
+        const projectionPath = path.join(
+          this.workspaces.resolve(appName).root,
+          'models',
+          appName,
+          'app-model.json',
+        )
+        if (!fs.existsSync(projectionPath)) {
+          projectionState = 'unavailable'
+        } else {
+          try {
+            const projected = JSON.parse(fs.readFileSync(projectionPath, 'utf8'))
+            const canonical: any = await import(ENGINE.canonical)
+            const canonicalJson = canonical.canonicalJson
+              ?? canonical.default?.canonicalJson
+            const projectedHash = crypto.createHash('sha256')
+              .update(canonicalJson(projected))
+              .digest('hex')
+            projectionState = projectedHash === active.modelFingerprint
+              ? 'current'
+              : 'mismatched'
+          } catch {
+            projectionState = 'invalid'
+          }
+        }
+      }
+      return { ...history, projectionState }
     })
   }
 

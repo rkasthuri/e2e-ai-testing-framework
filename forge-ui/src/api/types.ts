@@ -316,6 +316,85 @@ export interface ObservationHistoryResponse {
   } | null
 }
 
+export type ApplicationModelValidationState = 'valid' | 'invalid' | 'malformed'
+export type ApplicationModelIntegrityState = 'verified' | 'failed' | 'not_evaluated'
+export type ApplicationModelProjectionState =
+  | 'current'
+  | 'unavailable'
+  | 'invalid'
+  | 'mismatched'
+  | 'not_evaluated'
+  | 'not_applicable'
+
+export interface ApplicationModelHistoryItem {
+  rowId: number
+  version: string
+  lifecycle: 'active' | 'superseded' | 'unknown'
+  createdAt: string | null
+  sourceCrawlAt: string | null
+  sourceObservation: {
+    id: string
+    available: boolean
+    outcome: 'completed' | 'partially_completed' | 'blocked' | 'failed' | 'unknown' | null
+    startedAt: string | null
+    completedAt: string | null
+    href: string | null
+  } | null
+  evidenceState: 'crawled' | 'crawled-empty' | 'unsupported-platform' | 'unknown'
+  validation: ApplicationModelValidationState
+  integrity: ApplicationModelIntegrityState
+  modelFingerprint: string
+  projection: ApplicationModelProjectionState
+  freshness: 'not_evaluated'
+  coverage: 'unknown'
+  subjects: Array<{
+    id: string
+    kind: 'page' | 'endpoint'
+    routePath: string | null
+    basis: 'direct_observation' | 'unknown'
+    evidenceId: string | null
+    derivedClassification: {
+      label: string
+      confidence: 'high' | 'medium' | 'low' | 'unknown'
+      method: 'rule' | 'ai' | 'manual' | 'unknown'
+    } | null
+  }>
+  recovery: {
+    sourceRowId: number
+    sourceVersion: string | null
+    sourceFingerprint: string
+    sourceFingerprintMatches: boolean
+  } | null
+  limitations: string[]
+  unknowns: string[]
+  blockers: string[]
+  recommendation: {
+    action: string
+    because: string
+    destination: string
+    href: string
+  } | null
+}
+
+export interface ApplicationModelHistoryResponse {
+  project: { id: string; name: string }
+  currentModel: ApplicationModelHistoryItem | null
+  models: ApplicationModelHistoryItem[]
+  page: {
+    limit: number
+    nextCursor: string | null
+    previousCursor: string | null
+    hasPrevious: boolean
+    total: number
+    activeCount: number
+  }
+  latestObservationId: string | null
+  requestedModel: {
+    rowId: number
+    status: 'on_page' | 'outside_page' | 'not_found'
+  } | null
+}
+
 /** A page from the SQLite App Model, mapped for the table (audit ruling; no depth). */
 export interface DiscoveredPage {
   id:               string
