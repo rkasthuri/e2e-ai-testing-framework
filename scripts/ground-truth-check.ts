@@ -1,8 +1,16 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * Ground-truth harness (live runner). Drives STATIC-ONLY detection (no agent phase —
  * deterministic, Ruling 3) against each fixtured reference app and grades it, keeping the
  * four outcomes DISTINCT: PASS · UNREACHABLE · STALE · MISMATCH (+ INVALID for an unfilled
@@ -11,6 +19,7 @@
  *
  * Hits LIVE external sites — NOT part of the offline `npm run test:unit` gate.
  */
+
 import * as fs from 'fs'
 import * as path from 'path'
 import { Bootstrap } from '../src/core/onboarding/Bootstrap'

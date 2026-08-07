@@ -1,14 +1,23 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-UI-031 Block 1 — atomic shape cutover proof. Producers author the v2 shape;
  * evidenceState is derived AT THE SOURCE; crawlMetadata is null ONLY for
  * unsupported-platform; a fresh producer output validates against the new Ajv
  * schema; and the @generated header still carries the SAME crawlConfigHash value
  * (the hash moved into crawlMetadata, its value did not change). node:test.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'

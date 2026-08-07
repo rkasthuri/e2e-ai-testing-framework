@@ -1,15 +1,13 @@
 /**
- * FORGE â€” Autonomous Quality Engineering
- * Framework for Observed, Reasoned, and
- * Grounded Evaluation
+ * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or
- * modification of this software is strictly
- * prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 import type {
@@ -122,6 +120,9 @@ function authenticationExplanation(item: ObservationHistoryItem): string | null 
 }
 
 function safeStateExplanation(item: ObservationHistoryItem): string {
+  // Legacy reasons are classified, never forwarded. This preserves the stored
+  // terminal outcome while preventing credentials, URLs, persistence errors,
+  // schema payloads, or other unrestricted prose from crossing the API.
   const terminal = item.terminal
   if (!terminal) {
     return 'A start record exists without a terminal record. The observation is interrupted, is not active after restart, and its outcome remains unknown.'

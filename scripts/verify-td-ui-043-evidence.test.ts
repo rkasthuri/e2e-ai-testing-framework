@@ -1,13 +1,22 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-UI-043 — the triage evidence-gate's own integrity. An app-bug verdict must
  * substantiate itself from the record: the gate-required evidence is now persisted
  * (was discarded on write). The gate (TD-063) still fires. The model that ANSWERED
  * and the real token cost are recorded (not CONFIG.model, not 0). node:test.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'

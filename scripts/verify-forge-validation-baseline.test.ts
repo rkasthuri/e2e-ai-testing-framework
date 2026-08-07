@@ -1,4 +1,16 @@
 /**
+ * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
+ * Copyright (c) 2026 AnvilQ Technologies LLC
+ * Author: Raj Kasthuri
+ *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * Focused proof tests for the FORGE Validation Baseline.
  *
  * Storage tests use disposable SQLite files only. They never open the live

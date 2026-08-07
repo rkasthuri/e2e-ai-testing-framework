@@ -1,8 +1,16 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-UI-064 — PERMANENT invariant of CrawlDiagnostics: the login-surface observation
  * boundary TRAVELS WITH the value. `observationView` is the SOLE gate the card renders
  * through, so a value can never reach the DOM without its boundary. A 'withheld' view
@@ -11,6 +19,7 @@
  * or a future signal that supplies none. Rendering a value without its blind spot is the
  * exact TD-148 defect the component exists to prevent.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { observationView, WITHHELD_STATEMENT } from '../forge-ui/src/components/shared/CrawlDiagnostics'

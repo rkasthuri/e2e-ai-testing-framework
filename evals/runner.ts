@@ -1,4 +1,16 @@
 /**
+ * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
+ * Copyright (c) 2026 AnvilQ Technologies LLC
+ * Author: Raj Kasthuri
+ *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-085 — eval runner: turns the flat EvalRecord[] a harness produces into
  * per-capability aggregate metrics (CapabilityMetrics) and a whole-run summary
  * (EvalRunSummary). Pure computation — no I/O.

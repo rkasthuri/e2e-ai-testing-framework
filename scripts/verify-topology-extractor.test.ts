@@ -1,8 +1,16 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-013 Phase 3 (Block 2b) — CrawlTopology extractor tests (pure, fixture AppModel).
  *   E1 observed flow step   → transition.grounding 'observed' (inherited 1:1)
  *   E2 inferred flow step   → 'inferred' (NO promotion — honesty guard)
@@ -12,6 +20,7 @@
  *   E6 source === 'app-model'
  *   E7 bootstrap PageSignals → 1 page, 0 transitions, source 'live-page' (degenerate)
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { AppModel, ElementDefinition, FlowStep } from '../src/core/onboarding/types'

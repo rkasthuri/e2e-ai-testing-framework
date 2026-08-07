@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
+ * Copyright (c) 2026 AnvilQ Technologies LLC
+ * Author: Raj Kasthuri
+ *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
 /*
  * FORGE design tokens (TD-UI foundation).
  * Dark mode is the DEFAULT — index.html sets class="dark"; .light overrides.

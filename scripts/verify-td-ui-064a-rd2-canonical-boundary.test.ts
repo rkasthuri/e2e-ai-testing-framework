@@ -1,4 +1,16 @@
 /**
+ * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
+ * Copyright (c) 2026 AnvilQ Technologies LLC
+ * Author: Raj Kasthuri
+ *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-UI-064A-RD2 focused proof for the canonical App Model candidate boundary.
  */
 import { after, before, test } from 'node:test'

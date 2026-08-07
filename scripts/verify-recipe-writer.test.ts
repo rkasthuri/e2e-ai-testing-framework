@@ -1,8 +1,16 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-013 Phase 3 (Block 2c-ii) — recipe-writer tests (pure, fixture CrawlTopology).
  *   R1 3-step observed flow → 1 goal, 3 ordered actions, correct types, goal grounding observed
  *   R2 inferred assert-navigation step → action type 'verify', goal grounding 'inferred'
@@ -14,6 +22,7 @@
  *   R8 origin 'synthesized' on every goal; ids deterministic (not Date.now())
  *   R9 regression: bootstrap PageSignals path still produces its goals (Phase-2 intact)
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DefaultGoalSynthesizer, PageSignals } from '../src/core/agent/GoalSynthesizer'

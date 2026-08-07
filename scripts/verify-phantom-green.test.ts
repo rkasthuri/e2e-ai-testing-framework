@@ -1,8 +1,16 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * Verify LIEs (Baseline #1, phantom-green) — regression suite.
  *   LIE-1: API endpoint `status < 500` scored green (4xx read as passed).
  *   LIE-2: no-op flow steps (no assertion executed) counted as passed.
@@ -12,6 +20,7 @@
  * isNoOpStep, finalizeFlowStatus) + computeConfidence; simulateTally composes
  * isNoOpStep + finalizeFlowStatus in the SAME order verifyFlow's loop does.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {

@@ -1,4 +1,16 @@
 /**
+ * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
+ * Copyright (c) 2026 AnvilQ Technologies LLC
+ * Author: Raj Kasthuri
+ *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * experiments/td-063-taxonomy/eval.ts
  *
  * ISOLATED TD-063 eval harness. Reads the 39 raw failures + a ground-truth CSV,

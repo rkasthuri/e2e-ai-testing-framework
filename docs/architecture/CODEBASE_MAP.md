@@ -145,6 +145,7 @@ canonical UI path.
 | Root/eval typecheck | `npm run check` | TypeScript configuration and CI workflow |
 | UI typecheck | `cd forge-ui && npm run check` | forge-ui package; local gate in current CI |
 | Unit suite | `npm run test:unit` | `scripts/*.test.ts` discovery |
+| Source-header governance | `npx tsx scripts/add-headers.ts --check` and `scripts/verify-td-gov-001-source-headers.test.ts` | Constitutional wording, Git-inventory applicability, safe placement, and exclusions |
 | Validation profiles | `npm run validate:baseline ...` | `scripts/forge-validation-baseline.ts` |
 | Recovery rehearsal | `npm run test:rehearsal:td184b3` | Explicit disposable operator workflow |
 | CI | `.github/workflows/e2e-pipeline.yml` | Current-run provenance and evidence decision |

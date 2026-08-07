@@ -1,15 +1,13 @@
 /**
  * FORGE — Autonomous Quality Engineering
- * Framework for Observed, Reasoned, and
- * Grounded Evaluation
+ * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or
- * modification of this software is strictly
- * prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 import { observationStore, type ObservationStore } from './ObservationStore'
@@ -135,6 +133,9 @@ function isSafeEngineModel(value: unknown, projectId: string): value is SafeEngi
 }
 
 function parseEngineHistory(value: unknown, projectId: string): SafeEngineHistory | null {
+  // Treat the engine result as untrusted at this boundary. Exact keys, bounded
+  // collections, project ownership, and lifecycle uniqueness must all hold
+  // before any persisted model fact becomes presentation data.
   if (!isRecord(value) || value.kind !== 'ok') return null
   if (!Array.isArray(value.models) || value.models.length > 50
     || !value.models.every(item => isSafeEngineModel(item, projectId))

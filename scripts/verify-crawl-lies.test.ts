@@ -1,14 +1,23 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * Crawl LIEs milestone — "the Crawl model no longer asserts knowledge it does not
  * possess." Regression suite for the four Baseline-#1 Crawl LIEs:
  *   LIE-A pagesSkipped → null (not 0)         LIE-C aiBudgetStatus both pools (ADR-018)
  *   LIE-B diff six subfields → null (not [])  LIE-D crawled_by 'engine' / null (not 'human')
  * plus migration 015 (crawled_by NULLABLE) and the ModelMigrator null round-trip.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'

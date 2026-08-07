@@ -1,14 +1,23 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-UI-031 Block 2 — DB layer. Migration 013 applies on a fresh DB; app_models
  * gains evidence_state and crawled_at becomes NULLABLE; an unsupported-platform
  * row persists crawled_at = NULL (honest "no crawl"), NOT '' (a false "a crawl
  * produced an empty string"); a crawled-empty row persists a real crawled_at.
  * node:test — its own process, so the getDb() singleton is isolated to this file.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'

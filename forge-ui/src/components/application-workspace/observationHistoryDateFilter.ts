@@ -1,19 +1,19 @@
 /**
  * FORGE — Autonomous Quality Engineering
- * Framework for Observed, Reasoned, and
- * Grounded Evaluation
+ * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or
- * modification of this software is strictly
- * prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
 
+// Calendar dates are interpreted in the operator's visible local timezone.
+// “Through” ends at the last local millisecond so both API bounds are inclusive.
 function localBoundary(value: string, through: boolean): Date | null {
   const match = CALENDAR_DATE.exec(value)
   if (!match) return null

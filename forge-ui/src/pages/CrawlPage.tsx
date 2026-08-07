@@ -1,3 +1,15 @@
+/**
+ * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
+ * Copyright (c) 2026 AnvilQ Technologies LLC
+ * Author: Raj Kasthuri
+ *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, ArrowRight, CheckCircle2, FileSearch, Loader2, Play, ShieldAlert, XCircle } from 'lucide-react'
 import { useCurrentProject } from '../hooks/useCurrentProject'

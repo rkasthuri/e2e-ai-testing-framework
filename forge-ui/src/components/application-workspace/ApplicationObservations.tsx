@@ -1,15 +1,13 @@
 /**
- * FORGE â€” Autonomous Quality Engineering
- * Framework for Observed, Reasoned, and
- * Grounded Evaluation
+ * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or
- * modification of this software is strictly
- * prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 import React from 'react'
@@ -190,6 +188,9 @@ function InlineObservationTable({
   selectedId: string | null
   onSelect: (id: string) => void
 }) {
+  // The detail row participates in the same table/card flow as its summary.
+  // Mapping one fragment per observation guarantees selection moves one region
+  // rather than accumulating expanded historical panels in the DOM.
   return <div className="overflow-x-auto md:rounded-lg md:border md:border-border md:bg-surface">
     <table className="block w-full border-separate border-spacing-y-3 text-left text-sm md:table md:min-w-[1080px] md:border-collapse md:border-spacing-0">
       <thead className="hidden bg-elevated text-xs uppercase tracking-wide text-muted md:table-header-group"><tr>

@@ -1,15 +1,13 @@
 /**
  * FORGE — Autonomous Quality Engineering
- * Framework for Observed, Reasoned, and
- * Grounded Evaluation
+ * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or
- * modification of this software is strictly
- * prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 import { ChevronDown, ChevronRight, CircleHelp, Database, FileSearch, ShieldAlert } from 'lucide-react'
@@ -125,6 +123,7 @@ export function ApplicationModel({ readModel, selectedRowId, onSelect, onPreviou
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs uppercase tracking-[0.16em] text-muted">Authoritative history</p><h2 id="model-history-heading" className="mt-1 text-xl font-semibold text-primary">Model versions</h2></div><p className="text-sm text-secondary">Total model versions: <strong className="text-primary">{readModel.page.total}</strong> · Currently active: <strong className="text-primary">{readModel.page.activeCount}</strong></p></div>
       {readModel.models.length === 0 ? <div className="rounded-lg border border-border bg-surface p-8 text-center"><p className="text-sm text-secondary">No model history exists for this project.</p><p className="mt-1 text-xs text-muted">This does not describe application coverage.</p></div> : <>
         <div className="overflow-hidden rounded-lg border border-border">
+          {/* One selected version contributes exactly one adjacent detail row; compact cards reuse the same DOM contract. */}
           <table className="block w-full border-collapse text-left text-sm md:table"><thead className="hidden bg-elevated text-xs uppercase tracking-wide text-muted md:table-header-group"><tr><th className="px-3 py-3">Version</th><th className="px-3 py-3">Created</th><th className="px-3 py-3">Lifecycle</th><th className="px-3 py-3">Validation</th><th className="px-3 py-3">Integrity</th><th className="px-3 py-3">Source observation</th><th className="px-3 py-3">Recovery</th><th className="px-3 py-3">Status</th></tr></thead><tbody className="block space-y-2 p-2 md:table-row-group md:space-y-0 md:p-0">{readModel.models.flatMap(model => {
             const expanded = selectedRowId === model.rowId
             const detailId = `model-detail-${model.rowId}`

@@ -1,8 +1,16 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-UI-042 (CRITICAL) — the notifier must never tell a human "no failures" on a
  * run that failed. RunFailure is reconstructed from the ai_triage rows already
  * held (test_id + failure_category); a failed run with no enumerable detail says
@@ -10,6 +18,7 @@
  * "• None") are asserted ABSENT on a failing run in BOTH renderers — so the build
  * fails if the lie is ever reintroduced. node:test (pure render helpers; no send).
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildSlackBlocks, emailHtml, reconstructFailures, parseTestId } from '../src/pipeline/notifier'

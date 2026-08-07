@@ -1,13 +1,22 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * Agentic P4 (Baseline #1: "the agentic stack has the honesty TYPES but no PRODUCERS").
  *   P4-A  limitations — BUILD the environment-error producer, keep 3 types RESERVED.
  *   P4-B  CapabilityRegistry / discoveredCapabilities — QUARANTINE (no empty claim persisted).
  *   P4-C  action-evidence persistence + the scoped evidence-integrity invariant (item 8c).
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'

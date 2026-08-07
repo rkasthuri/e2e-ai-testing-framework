@@ -1,8 +1,16 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-013 Phase 3 (Block 2a) — grounding guard tests.
  *   G1 all-observed actions        → 'observed'
  *   G2 one inferred among observed  → 'inferred' (the whole goal is a hypothesis)
@@ -13,6 +21,7 @@
  * write like `act.grounding = 'inferred'` fails to COMPILE — the strongest guard.
  * G4 below is belt-and-suspenders proof that the runtime path never mutates.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { deriveGoalGrounding } from '../src/core/agent/grounding'

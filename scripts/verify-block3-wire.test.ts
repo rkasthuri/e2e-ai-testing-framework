@@ -1,8 +1,16 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-013 Phase 3 (Block 3) — post-crawl recipe-writer wire (write + reader, no orphan).
  *   W1 un-authored app  → synthesized-goals.json written (envelope, origin+grounding intact)
  *   W2 app WITH config  → NO synthesized file written (precedence: skip)
@@ -12,6 +20,7 @@
  *   W6 round-trip fidelity — write then read: deep-equal on actions+grounding+origin
  *   W7 provenance envelope: sourceApp + synthesizedAt; goals[] carry NO execution/validation data
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'

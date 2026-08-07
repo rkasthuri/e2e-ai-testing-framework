@@ -1,15 +1,13 @@
 /**
  * FORGE — Autonomous Quality Engineering
- * Framework for Observed, Reasoned, and
- * Grounded Evaluation
+ * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or
- * modification of this software is strictly
- * prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 import { fail, ok } from '../http'
@@ -61,6 +59,9 @@ export async function readApplicationModelHistory(
   query: Record<string, unknown>,
   resolveProject: (appName: string) => Promise<{ appName: string } | undefined>,
 ): Promise<ApplicationModelHttpResult> {
+  // This transport boundary accepts only bounded identities, delegates the
+  // authoritative read to ExecutionContext, and never serializes caught causes.
+  // Repository payloads cross the API only through the allowlisted presenter.
   const parsed = parseApplicationModelQuery(query)
   if (!parsed.ok) return { status: 400, body: fail(parsed.message, 'INVALID_APP_MODEL_QUERY') }
   const project = await resolveProject(appName)

@@ -41,6 +41,7 @@ reading order, architecture, operational behavior, or project status.
 | [`governance/AI_ONBOARDING_CHECKLIST.md`](governance/AI_ONBOARDING_CHECKLIST.md) | Universal onboarding sequence and attestations | A — Authoritative | Governance Owner | Required reading, checks, or attestations change | Documentation-governance decision and checklist |
 | [`governance/CODEX_ONBOARDING.md`](governance/CODEX_ONBOARDING.md) | Codex-specific onboarding deltas | B — Operational | Codex Workflow Owner | Codex behavior or role-specific procedure changes | `AGENTS.md`, universal checklist, and current Codex behavior |
 | [`governance/OPERATING_MANUAL.md`](governance/OPERATING_MANUAL.md) | Map of the working cycle, roles, and canonical rules | E — Reference | Governance Owner | Governed sources or role map change | Linked governance authorities |
+| [`governance/TD-GOV-001_FIRST_PARTY_SOURCE_AUDIT.md`](governance/TD-GOV-001_FIRST_PARTY_SOURCE_AUDIT.md) | Dated first-party source-header and commentary audit, applicability rules, and exact correction manifest | B — Operational | Governance Owner | Constitutional header, applicable source types, exclusions, or commentary standard changes | `AI_CONSTITUTION.md` Section 3.9, Git source inventory, and focused policy verifier |
 | [`governance/DECISION_LOG.md`](governance/DECISION_LOG.md) | Chronological map of accepted decisions and ADRs | E — Reference | Architecture Authority | A decision is accepted, superseded, or retired | Individual ADRs and approved decision records |
 
 ## Architecture and Decisions

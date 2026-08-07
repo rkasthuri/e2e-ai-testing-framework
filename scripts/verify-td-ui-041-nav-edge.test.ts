@@ -1,14 +1,23 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-UI-041 nav-edge — two latent lies fixed defensively:
  *   BFS stamped trigger:'navigation' (a fake element id); hybrid emitted
  *   visit-order PROXIMITY edges (a fabricated navigation). Now BFS JOINs the
  *   anchor by resolved href (real id, or NULL on miss — never 'navigation'), and
  *   hybrid emits NO edge. A joined edge is grounding:'observed'. node:test.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Crawler } from '../src/core/onboarding/Crawler'

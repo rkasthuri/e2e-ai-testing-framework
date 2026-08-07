@@ -1,13 +1,22 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * ADR-020 (TD-158) — evidence-derived confidence. These assert the RULES directly against
  * the derived producers: asymmetry (found ≠ nothing-found), 'high' unreachable from a single
  * pre-auth sample, low (looked, found nothing) distinct from unknown (could not look), every
  * graded value carries source + reason, and ModuleClassifier derives by quantity + ambiguity.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { detectAuthType, detectRenderingModel } from '../src/core/onboarding/Bootstrap'

@@ -1,14 +1,23 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-UI-031 Block 3 — `forge migrate` (schema 1.0 → 2.0). Transform correctness
  * per state, IDEMPOTENCY, REFUSAL on unexpected shape, output validates against
  * the v2 schema, file backup, and DB-blob migration. Uses the REAL on-disk v1.0
  * reference models (orangehrm = crawled, restful-booker = API) so the transform
  * is proven on genuine content, not a synthetic stand-in. node:test.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'

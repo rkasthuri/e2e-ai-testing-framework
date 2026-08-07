@@ -1,12 +1,21 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-163 / ADR-021 — detectRenderingModel emits the OBSERVED rendering (framework/static),
  * never a navigation claim; the retired appType 'spa'/'mpa' vocabulary is legacy-mapped by
  * ModelMigrator (with a log) and fails legibly for an unrecognised value.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { detectRenderingModel } from '../src/core/onboarding/Bootstrap'

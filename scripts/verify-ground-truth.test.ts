@@ -1,12 +1,21 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * Ground-truth harness — pure logic (fixture validation with REQUIRED basis, staleness,
  * assertion matching, the four distinct outcomes) + the Ruling-1 structural `signals`
  * population on detection. No network; the live runner is scripts/ground-truth-check.ts.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'fs'

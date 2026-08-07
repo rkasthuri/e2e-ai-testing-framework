@@ -1,12 +1,13 @@
 /**
- * FORGE - Autonomous Quality Engineering
+ * FORGE — Autonomous Quality Engineering
  * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or modification is prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 import type { AppModel, AppModelCandidate } from '../onboarding/types'

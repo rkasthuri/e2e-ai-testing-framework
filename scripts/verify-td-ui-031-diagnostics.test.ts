@@ -1,13 +1,22 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-UI-031 Block 4 — crawlDiagnostics + the corrected EmptyModelError. The
  * error message is DERIVED from evidenceState + crawlDiagnostics (never the false
  * "onboarded but never crawled"); the new 'auth-required' reason is distinct from
  * 'auth-failed'; and both diagnostic shapes validate against the v2 schema.
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EmptyModelError } from '../src/core/errors/OperatorFacingError'

@@ -1,8 +1,16 @@
 /**
  * FORGE — Autonomous Quality Engineering
+ * Framework for Observed, Reasoned, and Grounded Evaluation
+ *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
+ * Proprietary and confidential.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
+ */
+
+/**
  * TD-148 — login-surface OBSERVATION (observation-only surface). The contract is now:
  * did we accurately record what we observed, and does the payload avoid implying
  * interpretation? (No verdict, no comparison, no configured value, no remedy.)
@@ -15,6 +23,7 @@
  *   O7 observed path records FACTUAL values (present/0/spa/url)
  *   O8 mechanism-scoped, not relevance-scoped; the note separates observation from interpretation
  */
+
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
