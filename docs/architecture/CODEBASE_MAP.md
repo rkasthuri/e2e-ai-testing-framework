@@ -96,6 +96,14 @@ references. `forge-ui/src/components/application-workspace/ApplicationEvidence.t
 renders the bounded, server-filtered projection without importing persistence or
 exposing unrestricted evidence payloads.
 
+The Application workspace Readiness projection is owned by
+`forge-ui/server/context/ApplicationReadinessController.ts` and
+`forge-ui/server/registry/ApplicationReadinessPresenter.ts`. The controller
+composes existing presentation-safe Observation, App Model, and Evidence reads;
+the presenter alone evaluates the four decision-specific states. The projection
+is never persisted, and the React surface renders typed conclusions without
+recreating domain policy or deriving a score from inventory counts.
+
 The Crawl observation vertical slice is owned by
 `forge-ui/src/pages/CrawlPage.tsx`, `forge-ui/server/routes/crawl.ts`, and
 `forge-ui/server/registry/ObservationStore.ts`. The route supplies pre-crawl

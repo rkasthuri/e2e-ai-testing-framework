@@ -29,6 +29,7 @@ import { CredentialError, CredentialErrorBase } from '../context/credentials/Cre
 import { observationStore } from '../registry/ObservationStore'
 import { readApplicationModelHistory } from '../context/ApplicationModelHistoryController'
 import { readEvidenceLedger } from '../context/EvidenceLedgerController'
+import { readApplicationReadiness } from '../context/ApplicationReadinessController'
 
 // Known fixture apps — last-resort fallback (fixture-specific, intentional:
 // fixtures use .ts onboarding configs, not .forge/config.json, so they won't
@@ -202,6 +203,17 @@ router.get('/:appName/evidence', async (req, res) => {
   const result = await readEvidenceLedger(
     req.params.appName,
     req.query as Record<string, unknown>,
+    async appName => projectRegistry.find(appName)
+      ?? (await discoverProjects()).find(project => project.appName === appName),
+  )
+  res.status(result.status).json(result.body)
+})
+
+// GET /api/v1/projects/:appName/readiness — TD-UI-067A. Decision policy stays
+// in the server-side presenter; this route transports its bounded projection.
+router.get('/:appName/readiness', async (req, res) => {
+  const result = await readApplicationReadiness(
+    req.params.appName,
     async appName => projectRegistry.find(appName)
       ?? (await discoverProjects()).find(project => project.appName === appName),
   )

@@ -55,6 +55,7 @@ reading order, architecture, operational behavior, or project status.
 | [`architecture/OBSERVATION_MODEL.md`](architecture/OBSERVATION_MODEL.md) | Observation semantics and ownership boundaries | A — Authoritative | Architecture Authority | Observation contract changes | ADRs, approved design, schemas, and contract tests |
 | [`architecture/TD-UI-062B_DOMAIN_CONTRACT.md`](architecture/TD-UI-062B_DOMAIN_CONTRACT.md) | Project lifecycle, evidence, explainable state, and Truth Confidence contract | A — Authoritative | Architecture Authority | Lifecycle, evidence, confidence, or project-identity policy changes | `src/core/domain/tdUi062b.ts` and its contract tests |
 | [`architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md`](architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md) | Crawl-to-persisted-observation request, truth, and provenance contract | A — Authoritative | Architecture Authority | Crawl request, observation persistence, credential-status, progress, or result contracts change | Crawl API, observation store, Crawl UI, and focused tests |
+| [`architecture/TD-UI-067A_APPLICATION_READINESS.md`](architecture/TD-UI-067A_APPLICATION_READINESS.md) | Decision-specific, evidence-backed Application Readiness projection | A — Authoritative | Architecture Authority | Readiness vocabulary, authority inputs, derivation, safe actions, or presentation boundary changes | Readiness presenter/controller and focused contract tests |
 | [`architecture/CODEBASE_MAP.md`](architecture/CODEBASE_MAP.md) | Module, dependency, and implementation ownership map | E — Reference | Engineering Documentation Owner | Modules, ownership, entry points, or dependencies change | Current source tree, imports, scripts, and tests |
 | [`architecture/REPOSITORY_STRUCTURE.md`](architecture/REPOSITORY_STRUCTURE.md) | Directory-level repository map | E — Reference | Engineering Documentation Owner | Repository layout changes | Current tracked repository tree |
 | [`architecture/TD-UI-064B_LIVE_APPLICATION_OBSERVATIONS.md`](architecture/TD-UI-064B_LIVE_APPLICATION_OBSERVATIONS.md) | Bounded immutable observation-history read and Application Observations contract | A - Authoritative | Architecture Authority | Observation-history validation, ordering, safe projection, pagination, or presentation changes | Observation store history reader, crawl API, Observations adapter/UI, and focused tests |
@@ -114,6 +115,8 @@ The authoritative TD-UI-063C Application Model contract is documented in
 [`architecture/TD-UI-063C_APPLICATION_MODEL.md`](architecture/TD-UI-063C_APPLICATION_MODEL.md).
 The authoritative TD-UI-063D / TD-UI-066A unified Application Evidence ledger contract is documented in
 [`architecture/TD-UI-063D_APPLICATION_EVIDENCE.md`](architecture/TD-UI-063D_APPLICATION_EVIDENCE.md).
+The authoritative TD-UI-067A decision-specific Application Readiness contract is documented in
+[`architecture/TD-UI-067A_APPLICATION_READINESS.md`](architecture/TD-UI-067A_APPLICATION_READINESS.md).
 The authoritative TD-UI-064A Crawl and Observation vertical-slice contract is
 documented in
 [`architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md`](architecture/TD-UI-064A_CRAWL_OBSERVATION_VERTICAL_SLICE.md).

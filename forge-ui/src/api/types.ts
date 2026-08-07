@@ -465,6 +465,89 @@ export interface EvidenceLedgerResponse {
   }
 }
 
+// --- TD-UI-067A decision-specific readiness (read-only server projection) ---
+
+export type ApplicationReadinessState = 'supported' | 'supported_with_constraints' | 'blocked' | 'unknown'
+export type ApplicationReadinessDecisionId =
+  | 'observe_application'
+  | 'design_evidence_backed_tests'
+  | 'execute_existing_tests'
+  | 'interpret_results'
+
+export interface ApplicationReadinessReference {
+  kind: 'observation' | 'model' | 'evidence'
+  id: string
+  label: string
+  href: string
+  integrity: 'verified' | 'failed' | 'not_evaluated'
+  freshness: 'not_evaluated'
+}
+
+export interface ApplicationReadinessDecision {
+  id: ApplicationReadinessDecisionId
+  label: string
+  state: ApplicationReadinessState
+  explanation: string
+  supportingEvidence: ApplicationReadinessReference[]
+  blockers: string[]
+  unknowns: string[]
+  limitations: string[]
+  preventedStrongerState: string
+  safeNextAction: { label: string; explanation: string; href: string } | null
+}
+
+export interface ApplicationReadinessResponse {
+  project: { id: string; name: string }
+  asOf: string | null
+  vocabulary: readonly ApplicationReadinessState[]
+  authoritySnapshot: {
+    projectStatus: { evaluated: false; explanation: string; href: string }
+    truthConfidence: { evaluated: false; explanation: string; href: string }
+    latestObservation: {
+      id: string
+      outcome: 'completed' | 'partially_completed' | 'blocked' | 'failed' | 'unknown' | 'interrupted'
+      authenticationOutcome: 'succeeded' | 'failed' | 'not_evaluated' | 'not_required' | null
+      credentialAvailability: 'available' | 'missing' | 'not_required' | 'unknown'
+      subjectIds: string[]
+      evidenceCount: number
+      startedAt: string
+      completedAt: string | null
+      href: string
+    } | null
+    activeModel: {
+      rowId: number
+      version: string
+      validation: 'valid' | 'invalid' | 'malformed'
+      integrity: 'verified' | 'failed' | 'not_evaluated'
+      projection: 'current' | 'unavailable' | 'invalid' | 'mismatched' | 'not_evaluated' | 'not_applicable'
+      sourceObservationId: string | null
+      subjectIds: string[]
+      href: string
+    } | null
+    evidence: {
+      total: number
+      currentSupport: number
+      historicalSupport: number
+      inspectedCurrentSupport: number
+      href: string
+    }
+    boundaries: {
+      freshness: 'not_evaluated'
+      coverage: 'unknown'
+      unobservedScope: 'unknown'
+      conflict: 'not_evaluated' | 'conflicting'
+      aiEnrichment: 'limited' | 'not_evaluated'
+      explanation: string
+    }
+  }
+  decisions: ApplicationReadinessDecision[]
+  provenance: {
+    sources: readonly ['immutable_observation_history', 'authoritative_app_model_history', 'unified_evidence_ledger']
+    explanation: string
+  }
+  limitations: string[]
+}
+
 /** A page from the SQLite App Model, mapped for the table (audit ruling; no depth). */
 export interface DiscoveredPage {
   id:               string

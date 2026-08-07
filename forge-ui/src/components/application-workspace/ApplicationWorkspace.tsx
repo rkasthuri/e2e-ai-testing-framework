@@ -19,6 +19,7 @@ const WORKSPACE_TABS = [
   { slug: 'observations', label: 'Observations', available: true },
   { slug: 'model', label: 'Application Model', available: true },
   { slug: 'evidence', label: 'Evidence', available: true },
+  { slug: 'readiness', label: 'Readiness', available: true },
 ] as const
 
 export function ApplicationWorkspace({ children }: { children?: React.ReactNode }) {

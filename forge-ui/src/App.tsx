@@ -28,6 +28,7 @@ import { ApplicationWorkspacePage } from './pages/ApplicationWorkspacePage'
 import { ApplicationObservationsPage } from './pages/ApplicationObservationsPage'
 import { ApplicationModelPage } from './pages/ApplicationModelPage'
 import { ApplicationEvidencePage } from './pages/ApplicationEvidencePage'
+import { ApplicationReadinessPage } from './pages/ApplicationReadinessPage'
 
 // Dark mode is the default (index.html sets class="dark"); never overridden.
 export default function App() {
@@ -51,6 +52,7 @@ export default function App() {
               <Route path="/application/observations" element={<ApplicationObservationsPage />} />
               <Route path="/application/model" element={<ApplicationModelPage />} />
               <Route path="/application/evidence" element={<ApplicationEvidencePage />} />
+              <Route path="/application/readiness" element={<ApplicationReadinessPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Routes>

@@ -16,6 +16,7 @@ import type {
   OnboardRequest, OnboardResponse, Project, Detection, CrawlRequest, CrawlStatus,
   CrawlProjectContext, ObservationRecord, ObservationHistoryResponse, ApplicationModelHistoryResponse,
   EvidenceLedgerResponse, EvidenceLedgerSourceClass, EvidenceLedgerSupport, EvidenceLedgerIntegrity,
+  ApplicationReadinessResponse,
   GenerationManifest, TestFileContent,
 } from '../api/types'
 
@@ -165,6 +166,17 @@ export function useEvidenceLedger(
         `/api/v1/projects/${encodeURIComponent(appName!)}/evidence?${query}`,
       )
     },
+    enabled: !!appName && enabled,
+    retry: false,
+  })
+}
+
+export function useApplicationReadiness(appName: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ['application-readiness', appName],
+    queryFn: () => apiClient.get<ApplicationReadinessResponse>(
+      `/api/v1/projects/${encodeURIComponent(appName!)}/readiness`,
+    ),
     enabled: !!appName && enabled,
     retry: false,
   })
