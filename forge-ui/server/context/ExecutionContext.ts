@@ -193,6 +193,7 @@ const ENGINE = {
   db:           '../../../src/core/storage/db',
   appModels:    '../../../src/core/storage/AppModelService',
   canonical:    '../../../src/core/storage/JsonAppModelMigrationPlanner',
+  testSets:     '../../../src/core/storage/TestSetService',
 }
 
 /** ADR-014 — close the open project DB only when switching to a different one. */
@@ -267,6 +268,30 @@ export class ExecutionContext {
         }
       }
       return { ...history, projectionState }
+    })
+  }
+
+  readTestInventory(appName: string, options: { limit: number; cursor: string | null; definitionId: string | null }): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.testSets)
+      return mod.testSetService.readInventory(appName, options)
+    })
+  }
+
+  generateTestSet(appName: string, input: Record<string, unknown>, generationId: string): Promise<any> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.testSets)
+      return mod.testSetService.generate(input, generationId)
+    })
+  }
+
+  readTestGenerationStatus(appName: string, generationId: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.testSets)
+      return mod.testSetService.readGenerationStatus(appName, generationId)
     })
   }
 

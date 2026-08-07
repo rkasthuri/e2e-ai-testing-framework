@@ -664,6 +664,87 @@ export interface GenerationManifest {
   files:               ManifestFile[]
 }
 
+// --- TD-UI-068A immutable evidence-backed test definitions ---
+export interface EvidenceBackedTestDefinition {
+  id: string
+  title: string
+  intent: string
+  category: 'navigation'
+  canonicalSubjects: string[]
+  preconditions: string[]
+  steps: Array<{ kind: 'navigate_to_observed_route'; subjectId: string; routePath: string; evidenceId: string }>
+  oracle: { kind: 'subject_observable'; subjectId: string; evidenceId: string; explanation: string }
+  provenance: { sourceObservationId: string; modelRowId: number; modelVersion: string; supportingEvidenceIds: string[] }
+  generationMethod: 'deterministic' | 'heuristic' | 'ai_assisted' | 'manual'
+  validation: { state: 'valid'; explanation: string }
+  runnerCompatibility: { state: 'blocked'; explanation: string }
+  confidenceLimitations: string[]
+  materialUnknowns: string[]
+  unobservedScope: string[]
+  preventedStrongerDefinition: string
+}
+
+export interface EvidenceBackedTestSet {
+  schemaVersion: 1
+  testSetId: string
+  revision: number
+  projectId: string
+  generationId: string
+  generatedAt: string
+  generationMethod: 'deterministic' | 'heuristic' | 'ai_assisted' | 'manual'
+  outcome: 'completed' | 'partially_completed' | 'blocked' | 'failed' | 'interrupted'
+  sourceObservationId: string
+  modelRowId: number
+  modelVersion: string
+  supportingEvidenceIds: string[]
+  definitions: EvidenceBackedTestDefinition[]
+  limitations: string[]
+  materialUnknowns: string[]
+  unobservedScope: string[]
+  preventedStrongerSet: string
+  coverage: 'unknown'
+  freshness: 'not_evaluated'
+}
+
+export interface TestInventoryResponse {
+  project: { id: string; name: string }
+  designReadiness: ApplicationReadinessDecision
+  canGenerate: boolean
+    current: { rowId: number; contentHash: string; testSet: EvidenceBackedTestSet; startedAt: string; completedAt: string | null; temporalIntegrity: 'verified' | 'failed'; temporalCode: 'GENERATION_TIMESTAMP_INCONSISTENT' | null; temporalExplanation: string } | null
+  history: Array<{
+    rowId: number; testSetId: string; revision: number; generationId: string; generatedAt: string
+    outcome: EvidenceBackedTestSet['outcome']; sourceObservationId: string; modelRowId: number
+      modelVersion: string; definitionCount: number; contentHash: string
+      startedAt: string; completedAt: string | null; temporalIntegrity: 'verified' | 'failed'; temporalCode: 'GENERATION_TIMESTAMP_INCONSISTENT' | null; temporalExplanation: string
+  }>
+  total: number
+  nextCursor: string | null
+  requestedDefinition: { definition: EvidenceBackedTestDefinition; revision: number; rowId: number } | null
+  boundaries: { execution: 'not_performed'; coverage: 'unknown'; freshness: 'not_evaluated'; explanation: string }
+}
+
+export interface TestGenerationResponse {
+  generationId: string
+  state: EvidenceBackedTestSet['outcome']
+  complete: true
+  testSetRowId: number
+  revision: number
+  definitionCount: number
+}
+
+export interface TestGenerationStatusResponse {
+  generationId: string
+  projectId: string
+  state: 'running' | EvidenceBackedTestSet['outcome']
+  complete: boolean
+  startedAt: string
+  completedAt: string | null
+  safeCode: string | null
+  explanation: string
+  testSetRowId: number | null
+  temporalIntegrity: 'verified' | 'failed'
+}
+
 /** GET /api/v1/projects/:appName/tests/file/:fileId — one generated file's content. */
 export interface TestFileContent {
   id:           string

@@ -104,6 +104,17 @@ the presenter alone evaluates the four decision-specific states. The projection
 is never persisted, and the React surface renders typed conclusions without
 recreating domain policy or deriving a score from inventory counts.
 
+The evidence-backed Tests definition authority is owned by
+`src/core/test-design/TestDefinitionContract.ts`,
+`src/core/storage/TestSetService.ts`, and
+`src/core/storage/repositories/TestSetRepository.ts`. Immutable SQLite test-set
+revisions and append-only generation events are canonical; the pre-existing
+generated-source manifest remains a compatibility projection and is not read as
+definition truth. `forge-ui/server/context/TestInventoryController.ts` joins
+only presentation-safe readiness, model, observation, and current-support
+evidence facts before invoking generation. React renders that typed projection
+without recreating validation, provenance, or generation policy.
+
 The Crawl observation vertical slice is owned by
 `forge-ui/src/pages/CrawlPage.tsx`, `forge-ui/server/routes/crawl.ts`, and
 `forge-ui/server/registry/ObservationStore.ts`. The route supplies pre-crawl

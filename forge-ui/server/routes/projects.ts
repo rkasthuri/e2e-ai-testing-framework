@@ -30,6 +30,7 @@ import { observationStore } from '../registry/ObservationStore'
 import { readApplicationModelHistory } from '../context/ApplicationModelHistoryController'
 import { readEvidenceLedger } from '../context/EvidenceLedgerController'
 import { readApplicationReadiness } from '../context/ApplicationReadinessController'
+import { generateTestInventory, readTestDefinition, readTestGenerationStatus, readTestInventory } from '../context/TestInventoryController'
 
 // Known fixture apps — last-resort fallback (fixture-specific, intentional:
 // fixtures use .ts onboarding configs, not .forge/config.json, so they won't
@@ -217,6 +218,31 @@ router.get('/:appName/readiness', async (req, res) => {
     async appName => projectRegistry.find(appName)
       ?? (await discoverProjects()).find(project => project.appName === appName),
   )
+  res.status(result.status).json(result.body)
+})
+
+const resolveKnownProject = async (appName: string) => projectRegistry.find(appName)
+  ?? (await discoverProjects()).find(project => project.appName === appName)
+
+// TD-UI-068A: canonical test definitions are read through the storage/service
+// owner. These routes never read generated files or reconstruct domain policy.
+router.get('/:appName/test-definitions', async (req, res) => {
+  const result = await readTestInventory(req.params.appName, req.query as Record<string, unknown>, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.post('/:appName/test-definitions/generate', async (req, res) => {
+  const result = await generateTestInventory(req.params.appName, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.get('/:appName/test-definitions/:definitionId', async (req, res) => {
+  const result = await readTestDefinition(req.params.appName, req.params.definitionId, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.get('/:appName/test-definitions/generations/:generationId', async (req, res) => {
+  const result = await readTestGenerationStatus(req.params.appName, req.params.generationId, resolveKnownProject)
   res.status(result.status).json(result.body)
 })
 

@@ -17,6 +17,7 @@ import type {
   CrawlProjectContext, ObservationRecord, ObservationHistoryResponse, ApplicationModelHistoryResponse,
   EvidenceLedgerResponse, EvidenceLedgerSourceClass, EvidenceLedgerSupport, EvidenceLedgerIntegrity,
   ApplicationReadinessResponse,
+  TestInventoryResponse, TestGenerationResponse, TestGenerationStatusResponse,
   GenerationManifest, TestFileContent,
 } from '../api/types'
 
@@ -178,6 +179,41 @@ export function useApplicationReadiness(appName: string | null, enabled = true) 
       `/api/v1/projects/${encodeURIComponent(appName!)}/readiness`,
     ),
     enabled: !!appName && enabled,
+    retry: false,
+  })
+}
+
+export function useEvidenceBackedTests(appName: string | null, cursor: string | null, testId: string | null) {
+  return useQuery({
+    queryKey: ['evidence-backed-tests', appName, cursor, testId],
+    queryFn: () => {
+      const query = new URLSearchParams({ limit: '25' })
+      if (cursor) query.set('cursor', cursor)
+      if (testId) query.set('test', testId)
+      return apiClient.get<TestInventoryResponse>(`/api/v1/projects/${encodeURIComponent(appName!)}/test-definitions?${query}`)
+    },
+    enabled: !!appName,
+    retry: false,
+  })
+}
+
+export function useGenerateEvidenceBackedTests() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (appName: string) => apiClient.post<TestGenerationResponse>(
+      `/api/v1/projects/${encodeURIComponent(appName)}/test-definitions/generate`, {},
+    ),
+    onSuccess: (_data, appName) => qc.invalidateQueries({ queryKey: ['evidence-backed-tests', appName] }),
+  })
+}
+
+export function useTestGenerationStatus(appName: string | null, generationId: string | null) {
+  return useQuery({
+    queryKey: ['test-generation-status', appName, generationId],
+    queryFn: () => apiClient.get<TestGenerationStatusResponse>(
+      `/api/v1/projects/${encodeURIComponent(appName!)}/test-definitions/generations/${encodeURIComponent(generationId!)}`,
+    ),
+    enabled: !!appName && !!generationId,
     retry: false,
   })
 }

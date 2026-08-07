@@ -274,6 +274,42 @@ export interface FrameworkConfigTable {
   updated_at:        string;
 }
 
+export interface TestSetRevisionsTable {
+  id: Generated<number>;
+  test_set_id: string;
+  revision: number;
+  project_id: string;
+  generation_id: string;
+  source_observation_id: string;
+  model_row_id: number;
+  model_version: string;
+  generated_at: string;
+  outcome: string;
+  definition_count: number;
+  payload_json: string;
+  content_hash: string;
+}
+
+export interface TestGenerationEventsTable {
+  id: Generated<number>;
+  generation_id: string;
+  project_id: string;
+  event_type: string;
+  outcome: string | null;
+  occurred_at: string;
+  process_instance_id: string;
+  test_set_row_id: number | null;
+  safe_code: string | null;
+  safe_message: string;
+}
+
+export interface TestGenerationLocksTable {
+  project_id: string;
+  generation_id: string;
+  process_instance_id: string;
+  acquired_at: string;
+}
+
 // ── Master Database Interface ─────────────────────────────────────────────────
 export interface Database {
   runs:              RunsTable;
@@ -290,6 +326,9 @@ export interface Database {
   trends:            TrendsTable;
   perf_baselines:    PerfBaselinesTable;
   framework_config:  FrameworkConfigTable;
+  test_set_revisions: TestSetRevisionsTable;
+  test_generation_events: TestGenerationEventsTable;
+  test_generation_locks: TestGenerationLocksTable;
 }
 
 // ── Convenience aliases ───────────────────────────────────────────────────────
@@ -335,3 +374,7 @@ export type NewPerfBaseline  = Insertable<PerfBaselinesTable>;
 
 export type FrameworkConfig    = Selectable<FrameworkConfigTable>;
 export type NewFrameworkConfig = Insertable<FrameworkConfigTable>;
+export type TestSetRevision = Selectable<TestSetRevisionsTable>;
+export type NewTestSetRevision = Insertable<TestSetRevisionsTable>;
+export type TestGenerationEvent = Selectable<TestGenerationEventsTable>;
+export type NewTestGenerationEvent = Insertable<TestGenerationEventsTable>;
