@@ -1,15 +1,13 @@
 /**
  * FORGE — Autonomous Quality Engineering
- * Framework for Observed, Reasoned, and
- * Grounded Evaluation
+ * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or
- * modification of this software is strictly
- * prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 import { Router } from 'express'
@@ -30,6 +28,7 @@ import { credentialStore, CredentialStore } from '../context/credentials/Credent
 import { CredentialError, CredentialErrorBase } from '../context/credentials/CredentialTypes'
 import { observationStore } from '../registry/ObservationStore'
 import { readApplicationModelHistory } from '../context/ApplicationModelHistoryController'
+import { readEvidenceLedger } from '../context/EvidenceLedgerController'
 
 // Known fixture apps — last-resort fallback (fixture-specific, intentional:
 // fixtures use .ts onboarding configs, not .forge/config.json, so they won't
@@ -188,6 +187,19 @@ router.get('/:appName', async (req, res) => {
 // cross this boundary.
 router.get('/:appName/model', async (req, res) => {
   const result = await readApplicationModelHistory(
+    req.params.appName,
+    req.query as Record<string, unknown>,
+    async appName => projectRegistry.find(appName)
+      ?? (await discoverProjects()).find(project => project.appName === appName),
+  )
+  res.status(result.status).json(result.body)
+})
+
+// GET /api/v1/projects/:appName/evidence — TD-UI-066A. This route exposes a
+// bounded projection over existing evidence authorities; it never creates a
+// ledger store or serializes raw model, bootstrap, diagnostic, or page content.
+router.get('/:appName/evidence', async (req, res) => {
+  const result = await readEvidenceLedger(
     req.params.appName,
     req.query as Record<string, unknown>,
     async appName => projectRegistry.find(appName)

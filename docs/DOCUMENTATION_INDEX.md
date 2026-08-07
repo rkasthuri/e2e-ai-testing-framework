@@ -111,7 +111,7 @@ The authoritative TD-UI-063B Application Observations contract is documented in
 [`architecture/TD-UI-063B_APPLICATION_OBSERVATIONS.md`](architecture/TD-UI-063B_APPLICATION_OBSERVATIONS.md).
 The authoritative TD-UI-063C Application Model contract is documented in
 [`architecture/TD-UI-063C_APPLICATION_MODEL.md`](architecture/TD-UI-063C_APPLICATION_MODEL.md).
-The authoritative TD-UI-063D Application Evidence contract is documented in
+The authoritative TD-UI-063D / TD-UI-066A unified Application Evidence ledger contract is documented in
 [`architecture/TD-UI-063D_APPLICATION_EVIDENCE.md`](architecture/TD-UI-063D_APPLICATION_EVIDENCE.md).
 The authoritative TD-UI-064A Crawl and Observation vertical-slice contract is
 documented in

@@ -1,15 +1,13 @@
 /**
  * FORGE — Autonomous Quality Engineering
- * Framework for Observed, Reasoned, and
- * Grounded Evaluation
+ * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or
- * modification of this software is strictly
- * prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 // API request/response types — mirror the engine + API.md contract.
@@ -393,6 +391,78 @@ export interface ApplicationModelHistoryResponse {
     rowId: number
     status: 'on_page' | 'outside_page' | 'not_found'
   } | null
+}
+
+// --- TD-UI-066A unified Evidence ledger (presentation-safe projection only) ---
+
+export type EvidenceLedgerSourceClass = 'onboarding' | 'crawl_observation'
+export type EvidenceLedgerSupport = 'current' | 'historical'
+export type EvidenceLedgerIntegrity = 'verified' | 'failed' | 'not_evaluated'
+
+export interface EvidenceLedgerItem {
+  id: string
+  identityOrigin: 'persisted' | 'projection_derived'
+  sourceClass: EvidenceLedgerSourceClass
+  projectId: string
+  canonicalSubjectId: string
+  routePath: string | null
+  capturedAt: string
+  sourceObservation: {
+    id: string
+    outcome: 'completed' | 'partially_completed' | 'blocked' | 'failed' | 'unknown'
+    position: 'latest' | 'historical'
+    href: string
+  } | null
+  sourceModels: Array<{
+    rowId: number
+    version: string
+    lifecycle: 'active' | 'superseded' | 'unknown'
+    href: string
+  }>
+  support: EvidenceLedgerSupport
+  usageReferences: Array<'application_model' | 'application_overview'>
+  integrity: EvidenceLedgerIntegrity
+  freshness: 'not_evaluated'
+  access: 'available'
+  conflict: 'not_evaluated'
+  status: 'available' | 'integrity_failed'
+  summary: string
+  provenanceSummary: string
+  limitations: string[]
+  unknowns: string[]
+}
+
+export interface EvidenceLedgerResponse {
+  project: { id: string; name: string }
+  evidence: EvidenceLedgerItem[]
+  page: {
+    limit: number
+    nextCursor: string | null
+    previousCursor: string | null
+    hasPrevious: boolean
+    projectTotal: number
+    filteredTotal: number
+    currentSupportTotal: number
+    historicalSupportTotal: number
+  }
+  filters: {
+    sourceClass: EvidenceLedgerSourceClass | null
+    support: EvidenceLedgerSupport | null
+    integrity: EvidenceLedgerIntegrity | null
+    observationId: string | null
+    capturedFrom: string | null
+    capturedThrough: string | null
+  }
+  ordering: 'captured-desc-id-asc-v1'
+  requestedEvidence: {
+    evidenceId: string
+    status: 'on_page' | 'outside_page' | 'outside_filter' | 'not_found'
+  } | null
+  boundaries: {
+    freshness: 'not_evaluated'
+    coverage: 'unknown'
+    explanation: string
+  }
 }
 
 /** A page from the SQLite App Model, mapped for the table (audit ruling; no depth). */

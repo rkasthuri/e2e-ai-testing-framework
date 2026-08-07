@@ -86,10 +86,15 @@ The Application Model presentation is owned by
 renders supplied model state, subject provenance, currency, and limitations;
 it does not create models or infer completeness from subjects or counts.
 
-The Application workspace Evidence presentation is owned by
-`forge-ui/src/components/application-workspace/ApplicationEvidence.tsx`. It
-renders supplied provenance, freshness, integrity, conflict, context, and
-usage fields without exposing credential material or merging evidence.
+The Application workspace unified Evidence ledger is composed by
+`forge-ui/server/context/EvidenceLedgerController.ts`,
+`forge-ui/server/registry/BootstrapEvidenceReader.ts`, and
+`forge-ui/server/registry/EvidenceLedgerPresenter.ts`. They project existing
+bootstrap evidence and immutable ObservationStore evidence without becoming a
+new persistence authority; App Model history is consulted only for exact usage
+references. `forge-ui/src/components/application-workspace/ApplicationEvidence.tsx`
+renders the bounded, server-filtered projection without importing persistence or
+exposing unrestricted evidence payloads.
 
 The Crawl observation vertical slice is owned by
 `forge-ui/src/pages/CrawlPage.tsx`, `forge-ui/server/routes/crawl.ts`, and

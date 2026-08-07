@@ -1,15 +1,13 @@
 /**
  * FORGE — Autonomous Quality Engineering
- * Framework for Observed, Reasoned, and
- * Grounded Evaluation
+ * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or
- * modification of this software is strictly
- * prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -17,6 +15,7 @@ import { apiClient } from '../api/client'
 import type {
   OnboardRequest, OnboardResponse, Project, Detection, CrawlRequest, CrawlStatus,
   CrawlProjectContext, ObservationRecord, ObservationHistoryResponse, ApplicationModelHistoryResponse,
+  EvidenceLedgerResponse, EvidenceLedgerSourceClass, EvidenceLedgerSupport, EvidenceLedgerIntegrity,
   GenerationManifest, TestFileContent,
 } from '../api/types'
 
@@ -127,6 +126,43 @@ export function useApplicationModelHistory(
       if (request.modelRowId) query.set('model', String(request.modelRowId))
       return apiClient.get<ApplicationModelHistoryResponse>(
         `/api/v1/projects/${encodeURIComponent(appName!)}/model?${query}`,
+      )
+    },
+    enabled: !!appName && enabled,
+    retry: false,
+  })
+}
+
+export interface EvidenceLedgerRequest {
+  cursor: string | null
+  evidenceId: string | null
+  sourceClass: EvidenceLedgerSourceClass | null
+  support: EvidenceLedgerSupport | null
+  integrity: EvidenceLedgerIntegrity | null
+  observationId: string | null
+  capturedFrom: string | null
+  capturedThrough: string | null
+}
+
+export function useEvidenceLedger(
+  appName: string | null,
+  request: EvidenceLedgerRequest,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['evidence-ledger', appName, request],
+    queryFn: () => {
+      const query = new URLSearchParams({ limit: '25' })
+      if (request.cursor) query.set('cursor', request.cursor)
+      if (request.evidenceId) query.set('evidence', request.evidenceId)
+      if (request.sourceClass) query.set('sourceClass', request.sourceClass)
+      if (request.support) query.set('support', request.support)
+      if (request.integrity) query.set('integrity', request.integrity)
+      if (request.observationId) query.set('observation', request.observationId)
+      if (request.capturedFrom) query.set('capturedFrom', request.capturedFrom)
+      if (request.capturedThrough) query.set('capturedThrough', request.capturedThrough)
+      return apiClient.get<EvidenceLedgerResponse>(
+        `/api/v1/projects/${encodeURIComponent(appName!)}/evidence?${query}`,
       )
     },
     enabled: !!appName && enabled,

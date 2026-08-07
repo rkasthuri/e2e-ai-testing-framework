@@ -1,15 +1,13 @@
 /**
  * FORGE — Autonomous Quality Engineering
- * Framework for Observed, Reasoned, and
- * Grounded Evaluation
+ * Framework for Observed, Reasoned, and Grounded Evaluation
  *
  * Copyright (c) 2026 AnvilQ Technologies LLC
  * Author: Raj Kasthuri
  *
  * Proprietary and confidential.
- * Unauthorized copying, distribution, or
- * modification of this software is strictly
- * prohibited.
+ * Unauthorized copying, distribution, or modification
+ * of this software is strictly prohibited.
  */
 
 import { Outlet } from 'react-router-dom'
@@ -21,12 +19,12 @@ import { Header } from './Header'
  */
 export function AppShell() {
   return (
-    <div className="flex h-screen flex-col bg-canvas text-primary">
+    <div className="flex h-screen w-full min-w-0 max-w-full flex-col overflow-hidden bg-canvas text-primary">
       <Header />
-      <main className="flex-1 overflow-auto p-6">
+      <main className="min-w-0 flex-1 overflow-auto p-4 sm:p-6">
         <Outlet />
       </main>
-      <footer className="flex h-6 items-center justify-between border-t border-border bg-surface px-4 text-[11px] text-muted">
+      <footer className="flex min-h-6 flex-wrap items-center justify-between gap-x-3 border-t border-border bg-surface px-4 py-1 text-[11px] text-muted sm:h-6 sm:flex-nowrap sm:py-0">
         <span>FORGE™ v1.0.0 — Autonomous Quality Engineering</span>
         <span>DB: local</span>
       </footer>
