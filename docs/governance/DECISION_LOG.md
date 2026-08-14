@@ -626,5 +626,92 @@ Physical schema and migration history are treated as one truth. Migration 016/01
 **ADR:** [`ADR-022`](../ADR/ADR-022-atomic-sqlite-migration-coordination.md)
 
 ---
+### Execution Decision - Workspace-Scoped Product Authority
+
+**Status:** ACTIVE
+**Decided:** 2026-08-10 (TD-UI-069B-B)
+
+**Summary:**
+Product UI execution lifecycle state is authoritative only in the selected
+workspace database. Legacy CLI/CI execution retains its existing authority;
+the two are not implicitly merged or treated as fallbacks for one another.
+
+**ADR:** [`ADR-023`](../ADR/ADR-023-execution-authority-and-workspace-scoping.md)
+
+---
+
+### Execution Decision - ExecutionService Owns Product Runner Invocation
+
+**Status:** ACTIVE
+**Decided:** 2026-08-10 (TD-UI-069B-B)
+
+**Summary:**
+`ExecutionService` is the sole Product execution owner and Product caller of
+`PlaywrightPlanExecutor`. Routes do not invoke Playwright or write lifecycle
+tables; `ExecutionRepository` alone writes Execution events and locks, while
+`ExecutionRecoveryCoordinator` is the sole evidence-only, on-contact recovery
+owner coordinating the existing Execution, Run, and Result repositories.
+
+**ADR:** [`ADR-024`](../ADR/ADR-024-execution-service-as-sole-runner-invocation-boundary.md)
+
+---
+### Execution Decision - Execution, Run, and Result Authority
+
+**Status:** ACTIVE
+**Date:** 2026-08-10
+**Decision:** Execution acceptance, Run attempts, and per-item Test Results keep
+independent immutable identities and explicit relationships. Execution owns its
+immutable expected manifest; Runs own attempts; Test Results own terminal item
+evidence. Legacy rows remain explicitly unlinked, and aggregate truth is never
+inferred from executor memory.
+
+**ADR:** [`ADR-025`](../ADR/ADR-025-execution-run-and-test-result-authority.md)
+
+---
+### Governance Decision - Independent Architecture Review
+
+**Status:** ACTIVE
+**Date:** 2026-08-11
+**Decision:** Whole-system architecture reviews are milestone-triggered,
+read-only falsification exercises performed from current repository evidence.
+They use declared Principal-level review personas, a stable scorecard, a scoped
+verdict, and a trend comparison formed only after current findings are frozen.
+Accepted review artifacts are immutable and versioned; prior architecture,
+certification, and scores receive no protected status.
+
+**ADR:** [`ADR-026`](../ADR/ADR-026-independent-architecture-review-governance.md)
+
+---
+
+### Observation Decision - Canonical Observation Authority and Evidence Semantics
+
+**Status:** ACTIVE
+**Date:** 2026-08-11
+**Decision:** Core `ObservationService` and the selected Product workspace own
+immutable Observation authority. Evidence means one-way support/provenance from
+derived App Model claims to exact Observation IDs, not a second fact store.
+Structured authority uses workspace database records; large or sensitive
+payloads use immutable hashed artifact references. Gaps, indeterminate outcomes,
+absence, conflicts, corrections, and legacy compatibility remain explicitly
+distinct, and UI/controller code consumes projections only.
+
+**ADR:** [`ADR-027`](../ADR/ADR-027-canonical-observation-authority-and-evidence-semantics.md)
+
+---
+
+### Test Definition Decision - Canonical v2 and Execution Authority
+
+**Status:** ACTIVE
+**Date:** 2026-08-13
+**Decision:** New Product Test Definitions use exact sealed App Model support,
+governed normalized route evidence, and explicit authentication expectation.
+Intrinsic compatibility remains immutable Definition truth; runner and
+credential availability remain live execution eligibility. Execution revalidates
+the revision, support seal, route, and authentication identities, while v1 is
+readable legacy provenance and fails closed for new Product execution.
+
+**ADR:** [`ADR-028`](../ADR/ADR-028-canonical-test-definition-v2-and-execution-authority.md)
+
+---
 *FORGE™ — AI-Augmented Quality Engineering Platform*
 *AnvilQ Technologies LLC — Copyright © 2026 Raj Kasthuri*
