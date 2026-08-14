@@ -77,7 +77,9 @@ For each AI capability shipped in this milestone:
 ```
 □ CODEBASE_MAP.md reflects any new or changed components/modules
 □ ROADMAP.md updated — shipped items marked ✅
-□ KNOWN_LIMITATIONS.md updated — any new limitations documented
+□ ../architecture/CURRENT_LIMITATIONS.md updated — any new current limitations documented
+□ ../architecture/KNOWN_LIMITATIONS.md consulted only when historical evolution is relevant;
+  no new current-state claim is written there
 □ GLOSSARY.md updated — any new terms added
 □ PROJECT_STATE.md will be updated after this review
 □ CURRENT_MILESTONE.md will be updated to reflect completion

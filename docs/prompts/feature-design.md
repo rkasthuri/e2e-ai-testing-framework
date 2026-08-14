@@ -18,7 +18,9 @@
 
 [What gap or limitation does this feature address?
 What cannot be done today that this makes possible?
-Reference the relevant TD or KNOWN_LIMITATIONS.md entry if applicable.]
+Reference the relevant TD or ../architecture/CURRENT_LIMITATIONS.md entry for
+current truth. ../architecture/KNOWN_LIMITATIONS.md may be cited only as
+explicitly historical context.]
 
 ---
 

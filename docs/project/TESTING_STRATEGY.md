@@ -214,10 +214,19 @@ Tests are tagged to support selective execution:
 FORGE's integration suite runs against live applications on the public internet.
 This introduces constraints that must be understood:
 
-### L-001 Constraint (TD-013)
-Stateful pages are visited in their default empty state. Cart, checkout, and
-post-action states are not pre-populated. Tests for these pages have reduced
-coverage proportional to the state they require. See `KNOWN_LIMITATIONS.md` L-001.
+### L-001 Prerequisite Constraint (TD-013) — Resolved
+
+`VerificationRunner` now executes a page's declared prerequisite steps before
+element verification. If setup fails, it records that failure and skips the
+dependent element checks rather than treating them as verified. Coverage still
+depends on the App Model declaring truthful prerequisite steps, but the former
+claim that FORGE cannot establish stateful page setup is no longer current.
+
+Current limitation status is governed by
+[`CURRENT_LIMITATIONS.md`](../architecture/CURRENT_LIMITATIONS.md). The original
+L-001 rationale remains in
+[`KNOWN_LIMITATIONS.md`](../architecture/KNOWN_LIMITATIONS.md) as historical
+context only.
 
 ### Network Dependency
 Tests that rely on live applications are subject to network conditions, demo
@@ -282,8 +291,8 @@ Flakiness detected
       └── Persistent flakiness → investigate root cause
                 │
                 ├── Timing issue → add wait strategy
-                ├── State dependency → address via agentic prereq (Phase 5)
-                └── External dependency → document in KNOWN_LIMITATIONS.md
+                ├── State dependency → declare and verify governed prerequisite steps
+                └── External dependency → document current impact in ../architecture/CURRENT_LIMITATIONS.md
 ```
 
 ---

@@ -163,5 +163,7 @@ fix(crawl): [short description] (TD-XXX)
 Reference docs the agent should read for this specific task.]
 
 - Read: `CODEBASE_MAP.md` Section 2.3 (crawler module)
-- Read: `KNOWN_LIMITATIONS.md` L-002 (single-hop limitation context)
+- Read: `../architecture/CURRENT_LIMITATIONS.md` for current constraints
+- Historical context only: `../architecture/KNOWN_LIMITATIONS.md` L-002 records the retired
+  single-hop constraint and must not be used as a current implementation premise
 - [Additional notes]
