@@ -197,3 +197,12 @@ ADR-003 (Human Review Gate — the operator dynamic ADR-016 reverses), ADR-007
 intent-vs-grounding), TD-UI-034 (first tier-1 remedy instance), TD-UI-039
 (remedy-bearing gap schema), TD-013 (agentic crawl as a tier-1 remedy), TD-066
 (earned confidence, never fabricated).
+
+## Status Audit Note — 2026-08-14 (TD-CONFIG-003)
+
+This ADR remains **Proposed**. Canonical ObservationGap and several execution
+refusal paths preserve precise reason vocabularies, and crawl diagnostics carry
+bounded remedies. The complete decision requires every governed gap to carry a
+structured remedy after evaluating self-closure first. TD-UI-039 and TD-UI-053
+show that the shared remedy taxonomy and all producer/consumer paths are not yet
+complete. The implemented subset does not justify ratifying the whole contract.

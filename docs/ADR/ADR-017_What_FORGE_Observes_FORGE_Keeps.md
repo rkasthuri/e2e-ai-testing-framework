@@ -170,3 +170,13 @@ retention tombstones. `not observed` is therefore kept as a gap and must never
 be collapsed into an `absent` Observation. Compatibility records with ambiguous
 or reconstructed provenance remain explicitly lower-integrity sources rather
 than being promoted to native Observation authority.
+
+## Status Audit Note — 2026-08-14 (TD-CONFIG-003)
+
+This ADR remains **Proposed**. The canonical Product authority spine persists
+the observations and gaps its adopted paths require, and quarantines declared
+channels without producers. The ADR is intentionally broader than that spine:
+TD-UI-041 and the still-open P1/P2/P3 findings record legacy lossy projections,
+presentation loss, and declared-but-unproduced channels. Those are material
+scope gaps, so bounded canonical compliance must not be presented as complete
+repository-wide ratification.

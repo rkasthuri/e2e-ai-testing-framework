@@ -80,3 +80,13 @@ database. Large or sensitive screenshots, DOM snapshots, bodies, and traces
 belong in an immutable workspace artifact store referenced by hash and metadata.
 This note does not change the SQLite/PostgreSQL dialect decision or grant
 Product authority to legacy runtime databases.
+
+## Scope Boundary Note — 2026-08-14 (TD-CONFIG-003)
+
+This ADR is **partially superseded**. Its SQLite choice remains authoritative
+for the local Product, and Kysely remains the query abstraction. The statement
+that FORGE supports PostgreSQL for enterprise Product deployments is not current
+implemented capability. ADR-022 governs atomic migration coordination and
+ADR-023 governs selected-workspace Product authority; PostgreSQL remains only a
+legacy-runtime compatibility ceiling and future direction until separately
+designed and certified.

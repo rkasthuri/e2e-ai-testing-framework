@@ -5,7 +5,8 @@
 # ADR-019: Vocabulary Competence Boundary
 
 ## Status
-Proposed (amended 2026-07-19 — second axis added; see Amendment History)
+Accepted (ratified 2026-08-14; amended 2026-07-19 — second axis added; see
+Amendment History)
 
 ## Date
 2026-07-18 · amended 2026-07-19
@@ -245,3 +246,17 @@ on-contact detection is not a real control.** This belongs in the law, not just 
   a prerequisite, not a parallel category. Result: the identity-divergence comparison was
   **retired** (wrong observation domain for its conclusion), replaced by an observation-only
   login-surface surface that concludes nothing.
+
+## Ratification Note — 2026-08-14 (TD-CONFIG-003)
+
+The evidential-sufficiency principle is ratified from current executable
+evidence. Detector ownership remains in the core onboarding boundary; the
+identity-divergence comparison was retired when its observation domain could
+not support the conclusion, and the replacement login-surface owner records
+observations without inferring application identity. Ground-truth and
+login-surface tests exercise representational, discriminative, and domain
+boundaries, including explicit unknown/inconclusive behavior. The completed
+TD-148 audit found no remaining material contradiction in its governed
+user-visible detector surfaces. This ratification does not claim that every
+future detector is competent; new or changed detectors must prove the same
+contract.

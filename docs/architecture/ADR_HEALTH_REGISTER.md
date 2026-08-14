@@ -16,7 +16,7 @@ An ADR is accepted, amended, superseded, retired, or materially diverges from
 implementation
 
 Last Verified:
-2026-08-14 at `5432840808d99b34e8a18a01f089054c16ffaec0`
+2026-08-14 at `5b85bcb2aab3199c5799d3b68697ccd2c81594d6`
 
 ---
 
@@ -43,13 +43,13 @@ principle; implementation does not silently ratify a proposal.
 | ADR-012 Engine Job Architecture | CURRENT WITH IMPLEMENTATION NOTE | Process-local job ownership remains valid for the local Product and is explicitly not cloud-safe |
 | ADR-013 Credential Resolution | CURRENT WITH IMPLEMENTATION NOTE | ExecutionContext/provider direction remains; TD-SEC-001 narrows credential material to operation scope and forbids persistence |
 | ADR-014 Execution Lifecycle Concurrency | PARTIALLY SUPERSEDED | Product lifecycle/lock/recovery authority moved to ADR-023/024/025 and `ExecutionService`; legacy concurrency behavior remains separate |
-| ADR-015 Provenance Follows Evidence | PROPOSED | Principle is implemented across canonical slices but the ADR itself remains recorded as Proposed |
-| ADR-016 Map the Gap | PROPOSED | Canonical ObservationGap and execution reason vocabularies implement bounded portions; the ADR remains Proposed |
-| ADR-017 What FORGE Observes, FORGE Keeps | PROPOSED | Canonical persistence follows it for adopted paths; the proposal is not silently promoted to Accepted |
+| ADR-015 Provenance Follows Evidence | PROPOSED | Canonical slices implement it, but TD-UI-032/035/037/054 leave material declared-scope contradictions |
+| ADR-016 Map the Gap | PROPOSED | Bounded gaps/reasons exist; TD-UI-039/053 leave the universal structured remedy contract incomplete |
+| ADR-017 What FORGE Observes, FORGE Keeps | PROPOSED | Canonical paths comply; TD-UI-041 and open P1/P2/P3 legacy findings prevent repository-wide ratification |
 | ADR-018 Aggregate to Weakest Truth | CURRENT WITH IMPLEMENTATION NOTE | Product persisted aggregation is canonical in `PersistedEvidenceAggregator`; legacy aggregators are not federated |
-| ADR-019 Vocabulary Competence | PROPOSED | Competence gates are implemented in bounded producers; ADR status remains Proposed |
-| ADR-020 Evidence-Derived Confidence | PROPOSED | Evidence-derived confidence exists in bounded paths; no claim of complete system-wide adoption |
-| ADR-021 Semantic Claim Alignment | PROPOSED | Current contracts use narrower claim-aligned vocabulary; formal ADR status remains Proposed |
+| ADR-019 Vocabulary Competence | CURRENT | Ratified after the completed TD-148 user-visible detector audit, retirement of the unsupported identity conclusion, and focused domain/competence tests |
+| ADR-020 Evidence-Derived Confidence | CURRENT | Ratified with core grade owners, source/reason provenance, unknown floors, and focused confidence/ground-truth tests |
+| ADR-021 Semantic Claim Alignment | PROPOSED | Rendering correction is implemented, but the ADR-recorded TD-170 `FlowDetector.isSpa` contradiction remains |
 | ADR-022 Atomic SQLite Migration Coordination | CURRENT | Migration coordinator owns connection, transaction, history, and postconditions |
 | ADR-023 Workspace-Scoped Execution Authority | CURRENT | Selected Product workspace DB is authoritative; legacy runtime is not fallback authority |
 | ADR-024 ExecutionService Runner Boundary | CURRENT | `ExecutionService` is sole Product runner caller and preflight owner |
@@ -62,13 +62,14 @@ principle; implementation does not silently ratify a proposal.
 
 | Classification | Count |
 |---|---:|
-| CURRENT | 8 |
+| CURRENT | 10 |
 | CURRENT WITH IMPLEMENTATION NOTE | 11 |
 | PARTIALLY SUPERSEDED | 3 |
-| PROPOSED | 6 |
+| PROPOSED | 4 |
 | SUPERSEDED | 0 |
 | RETIRED | 0 |
 
-The six proposed ADRs are a governance risk because implemented code relies
-on parts of their principles without a formal status transition. This task does
-not ratify them; the Architecture Authority must disposition them separately.
+TD-CONFIG-003 audited all six formerly Proposed ADRs. ADR-019 and ADR-020 meet
+the ratification bar. ADR-015, ADR-016, ADR-017, and ADR-021 remain Proposed
+because current executable/debt evidence records material incomplete or
+contradictory scope; their dated audit notes name the exact boundary.

@@ -47,3 +47,12 @@ ADR-025 clarifies that this canonical Run identity is not an Execution identity.
 Product Runs retain their own immutable `run_id` and relate to an accepted
 Execution through nullable `execution_id` plus `attempt_ordinal`; legacy CLI/CI
 Runs remain unlinked and keep the identity behavior decided here.
+
+## Scope Boundary Note — 2026-08-14 (TD-CONFIG-003)
+
+This ADR is **partially superseded**. `CURRENT_RUN_ID` remains authoritative for
+the separate legacy CLI/CI pipeline and means operation/run identity only. It
+does not identify an Observation, Observation provenance, Product Execution,
+Product Run, or Product Result. ADR-023 through ADR-025 govern the Product
+replacement: Execution, Run, and Result have distinct immutable identities and
+explicit persisted relationships.

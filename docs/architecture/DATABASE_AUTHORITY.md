@@ -17,7 +17,7 @@ Database modes, resolution, migration ceilings, legacy import policy, or
 Product workspace scoping changes
 
 Last Verified:
-2026-08-11
+2026-08-14
 
 ---
 
@@ -30,9 +30,9 @@ migration policy, legacy-import eligibility, Product eligibility, and whether
 
 | Mode | Location source | SQLite ceiling | Migration 004 import | Product schema authority | `DB_URL` |
 |---|---|---|---|---|---|
-| `PRODUCT_WORKSPACE` | Exact selected workspace `<root>/.forge/forge.db` | `025_historical_observation_import` | Forbidden; migration name is recorded with a governed no-op body | Yes | Ignored |
-| `LEGACY_RUNTIME` | Repository-root `.forge/forge.db`, explicit `DB_PATH`, explicit reporter path, or governed legacy PostgreSQL URL | `025_historical_observation_import`; PostgreSQL remains capped at `020_execution_lifecycle` | Allowed only from the import root captured when authority is established | No, even where compatible tables exist | Allowed |
-| `DISPOSABLE_CERTIFICATION` | Required explicit SQLite path | `025_historical_observation_import` | Forbidden; migration name is recorded with a governed no-op body | Eligible only so Product repositories can be certified hermetically | Ignored |
+| `PRODUCT_WORKSPACE` | Exact selected workspace `<root>/.forge/forge.db` | `027_canonical_v2_execution_authority` | Forbidden; migration name is recorded with a governed no-op body | Yes | Ignored |
+| `LEGACY_RUNTIME` | Repository-root `.forge/forge.db`, explicit `DB_PATH`, explicit reporter path, or governed legacy PostgreSQL URL | SQLite: `027_canonical_v2_execution_authority`; PostgreSQL: `020_execution_lifecycle` | Allowed only from the import root captured when authority is established | No, even where compatible tables exist | Allowed |
+| `DISPOSABLE_CERTIFICATION` | Required explicit SQLite path | `027_canonical_v2_execution_authority` | Forbidden; migration name is recorded with a governed no-op body | Eligible only so Product repositories can be certified hermetically | Ignored |
 
 Migration ceilings are explicit constants. Adding a migration does not silently
 expand any authority; the ceiling must move as part of an approved change.

@@ -84,3 +84,13 @@ durable request and releases the lock atomically.
 ## References
 TD-UI-020 (the blocker); TD-114 (per-app DB singleton); ADR-012 (worker_threads
 Phase 2); ADR-013 (credential provider — the other ExecutionContext pre-flight).
+
+## Scope Boundary Note — 2026-08-14 (TD-CONFIG-003)
+
+This ADR is **partially superseded**. `ExecutionContext` serialization and
+close-on-workspace-switch remain authoritative local-process containment.
+Product acceptance, durable locks, lifecycle events, cancellation intent,
+recovery evidence, Run attempts, Results, and terminal aggregation are governed
+by ADR-023, ADR-024, and ADR-025 and owned by `ExecutionService` plus their
+repositories. The original process-local queue is not a distributed ownership
+or cloud-concurrency contract.

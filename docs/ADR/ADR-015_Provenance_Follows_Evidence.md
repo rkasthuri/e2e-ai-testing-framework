@@ -116,3 +116,14 @@ coverage limits, exact ObservationGap IDs. An operation ID, UI reconstruction,
 projection-derived ID, log message, or copied fact payload cannot substitute for
 that support. The App Model row and all support relationships for its revision
 are committed atomically after their source Observations and gaps are durable.
+
+## Status Audit Note — 2026-08-14 (TD-CONFIG-003)
+
+This ADR remains **Proposed**. Canonical Observation, App Model, Definition,
+Execution, Run, and Result paths implement its principle and have contract
+tests, but ratification requires no material contradiction across its declared
+artifact scope. Open legacy and generation findings still include the
+partial-empty GenerationManifest provenance case (TD-UI-032), the legacy
+verification/run separation (TD-UI-037), and sentinel/coverage-state follow-ups
+(TD-UI-035 and TD-UI-054). Bounded implementation is real; system-wide
+ratification would overstate it.

@@ -18,6 +18,9 @@ architecture, operating procedures, or project status.
   against `package.json` and the current CLI.
 - For current work, consult the project snapshot documents, then verify their
   claims against Git, CI, code, tests, and the on-disk `TECH_DEBT.md`.
+- For current constraints, accepted debt, legacy boundaries, and safe next
+  work, read
+  [`architecture/CURRENT_LIMITATIONS.md`](architecture/CURRENT_LIMITATIONS.md).
 
 ### AI and implementation agents
 

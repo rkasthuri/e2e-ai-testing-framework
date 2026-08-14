@@ -191,3 +191,13 @@ ADR-015 (provenance — sibling), ADR-019 (sufficiency — sibling), ADR-020 (gr
 TD-163 (the detectAppType rendering-vs-routing overclaim this governs), TD-162 (closed WAD —
 the same-origin `realLinks` definition), the ground-truth-fixture work that surfaced both.
 TD-175 (this correction — the worked example's navigation claim, falsified by direct observation).
+
+## Status Audit Note — 2026-08-14 (TD-CONFIG-003)
+
+This ADR remains **Proposed**. The `detectAppType` to
+`detectRenderingModel` correction is implemented and tested, and current
+canonical route evidence names the route property it actually measures. The ADR
+itself records the remaining `FlowDetector.isSpa` routing inference as TD-170.
+Because that producer still claims navigation architecture from insufficiently
+aligned inputs, the repository contains a material contradiction to the broad
+principle and ratification would be premature.

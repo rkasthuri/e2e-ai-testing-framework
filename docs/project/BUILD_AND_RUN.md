@@ -139,6 +139,14 @@ evidence-bearing assessment:
 npm run validate:baseline -- --profile offline --db .forge/forge.db
 ```
 
+The repository currently carries registered App Model baseline debt. For the
+canonical comparison that distinguishes accepted debt from a new regression,
+run:
+
+```bash
+npm run validate:baseline -- --profile offline --db .forge/forge.db --baseline docs/configuration/baselines/offline-app-model-debt-v1.json
+```
+
 The offline profile runs root/eval TypeScript checks, the complete automated unit
 suite, the forge-ui TypeScript check, and read-only SQLite integrity checks.
 Additional profiles and evidence semantics are documented in
@@ -192,13 +200,13 @@ export default {
     name: '<appname>',
     displayName: '<Display Name>',
     baseUrl: 'https://example.com',
-    appType: 'spa',      // 'mpa' | 'spa' | 'rest-api' | 'graphql-api'
+    appType: 'web-ui',   // platform discriminator; rendering/routing are observed separately
   },
   roles: [
     {
       id: 'admin',
       displayName: 'Admin',
-      authFlow: 'form',
+      authFlow: 'form-login',
       credentialsEnvKey: 'MYAPP_ADMIN_CREDENTIALS',
     }
   ],

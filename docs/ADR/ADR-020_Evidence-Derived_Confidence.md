@@ -5,7 +5,7 @@
 # ADR-020: Evidence-Derived Confidence
 
 ## Status
-Proposed
+Accepted (ratified 2026-08-14)
 
 ## Date
 2026-07-20
@@ -219,3 +219,14 @@ outcomes; `unknown` remains a projected truth/confidence state, not an outcome
 stored in place of method results. A gap, partial boundary, unresolved conflict,
 or lower-integrity legacy provenance constrains the derived grade and can never
 be erased by a newer timestamp or a stronger literal.
+
+## Ratification Note — 2026-08-14 (TD-CONFIG-003)
+
+The confidence-grade principle is ratified from current executable evidence.
+Core detection and characterization owners derive grades from recorded signals,
+carry source/reason provenance, preserve unknown when absence is not
+informative, and cap downstream truth at the supporting evidence boundary.
+`verify-adr020-confidence.test.ts`, ground-truth tests, and canonical
+Observation/App Model tests exercise those contracts. This ratification does
+not bless historical threshold choices as permanently optimal and does not
+convert deferred confidence improvements into current capability.

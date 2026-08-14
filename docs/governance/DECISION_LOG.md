@@ -115,7 +115,7 @@ at a different path." Same-app re-crawls stay idempotent.
 
 ### ADR-015 — Provenance Follows Evidence
 
-**Status:** ACTIVE
+**Status:** PROPOSED — bounded canonical implementation; material legacy and generation contradictions remain
 **Decided:** Mid-pipeline sessions
 
 **Summary:**
@@ -141,7 +141,7 @@ categorically different states.
 
 ### ADR-016 — Map the Gap, Prescribe the Remedy
 
-**Status:** ACTIVE (ADR file: Proposed, 2026-07-13)
+**Status:** PROPOSED — structured remedy coverage is incomplete (TD-UI-039/053)
 **Decided:** Post-ADR-015 — "honesty is only half a product"
 
 **Summary:**
@@ -159,7 +159,7 @@ FORGE closes its own gaps rather than lowering the bar or handing the operator w
 
 ### ADR-017 — What FORGE Observes, FORGE Keeps (the "honest write / honest read" archetypes)
 
-**Status:** ACTIVE
+**Status:** PROPOSED — canonical paths comply; repository-wide persistence/read coverage is incomplete
 **Decided:** Storage and reporting sessions
 
 **Summary:**
@@ -216,7 +216,7 @@ classification. The weakest signal is often the most important one.
 
 ### ADR-019 — Vocabulary Competence Boundary
 
-**Status:** ACTIVE
+**Status:** ACTIVE — ratified 2026-08-14 (TD-CONFIG-003)
 **Decided:** Detector and triage design sessions
 
 **Summary:**
@@ -250,7 +250,7 @@ is not a real control.
 
 ### ADR-020 — Evidence-Derived Confidence
 
-**Status:** ACTIVE (ADR file: Proposed, 2026-07-20)
+**Status:** ACTIVE — ratified 2026-08-14 (TD-CONFIG-003)
 **Decided:** Confidence-grading arc (TD-156 / TD-157 / TD-158)
 
 **Summary:**
@@ -271,7 +271,7 @@ mirror-image confidence.
 
 ### ADR-021 — Semantic Claim Alignment
 
-**Status:** ACTIVE (ADR file: Proposed, 2026-07-21)
+**Status:** PROPOSED — TD-170 remains a material claim-alignment contradiction
 **Decided:** TD-163 refactor — appType claimed routing from a rendering marker
 
 **Summary:**

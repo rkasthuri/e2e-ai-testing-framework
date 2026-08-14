@@ -1,9 +1,13 @@
 # KNOWN_LIMITATIONS.md
-<!-- version: 1.0 | status: ACTIVE | owner: Raj Kasthuri (AnvilQ Technologies LLC) -->
+<!-- version: 1.0 | status: RETAINED SNAPSHOT | owner: Raj Kasthuri (AnvilQ Technologies LLC) -->
 
-> This document describes current product limitations, known constraints,
-> intentionally deferred capabilities, and honest boundaries of what FORGE
-> can and cannot do today.
+> **Current authority:**
+> [`CURRENT_LIMITATIONS.md`](CURRENT_LIMITATIONS.md) is the single current
+> limitations register. This older detailed catalog is retained for dated
+> feature-level context and must not be used as a second current-status source.
+
+> This document preserves the earlier feature-level limitation catalog. Verify
+> every entry against the current authority before acting on it.
 >
 > Limitations are not failures — many are deliberate sequencing decisions.
 > Every entry states: what the limitation is, why it exists, and what (if
