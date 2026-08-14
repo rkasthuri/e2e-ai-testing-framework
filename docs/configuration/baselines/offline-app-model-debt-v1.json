@@ -1,0 +1,60 @@
+{
+  "comparison": {
+    "baselinePath": null,
+    "mode": "establish"
+  },
+  "databasePath": ".forge/forge.db",
+  "environment": {
+    "architecture": "x64",
+    "node": "v24.13.0",
+    "platform": "win32"
+  },
+  "gates": [
+    {
+      "detail": "1 active App Model row(s) are malformed or schema-invalid.",
+      "evidence": {
+        "checked": 2,
+        "invalidCount": 1
+      },
+      "findingKind": "BASELINE_DEBT",
+      "fingerprint": "3c75df891801910b9d335109b05b37db867489b3aefe5ffc015fe352c4cfc3ef",
+      "id": "storage.active-model-json",
+      "remedy": {
+        "action": "Regenerate or explicitly migrate each reported active App Model from valid observed evidence.",
+        "tier": 1
+      },
+      "required": true,
+      "status": "FAIL",
+      "title": "Active App Model JSON validity"
+    },
+    {
+      "detail": "12 stored App Model row(s) are malformed or schema-invalid.",
+      "evidence": {
+        "checked": 19,
+        "invalidCount": 12
+      },
+      "findingKind": "BASELINE_DEBT",
+      "fingerprint": "10a95e848d17bc97956635ec0ce38b957dbcf3c6b14ff30052cfc579e600cdd1",
+      "id": "storage.all-model-json",
+      "remedy": {
+        "action": "Review and explicitly migrate or retire each reported historical snapshot; do not silently discard it.",
+        "tier": 2
+      },
+      "required": true,
+      "status": "FAIL",
+      "title": "Stored App Model JSON validity"
+    }
+  ],
+  "overallStatus": "FAIL",
+  "profile": "offline",
+  "referenceApplication": {
+    "baseUrl": "https://www.saucedemo.com",
+    "name": "SauceDemo",
+    "smokeTests": []
+  },
+  "repository": {
+    "commit": "5432840808d99b34e8a18a01f089054c16ffaec0",
+    "dirty": true
+  },
+  "schemaVersion": "forge-validation-baseline/v1"
+}

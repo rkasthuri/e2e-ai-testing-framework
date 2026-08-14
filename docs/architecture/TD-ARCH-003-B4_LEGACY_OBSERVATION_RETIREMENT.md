@@ -50,3 +50,23 @@ authorized; B4 does not delete or rewrite it.
   above, once supported consumers and retention obligations are zero.
 - REMOVE NOW: no whole file. B4 removes only the unused writer surface and
   silent Product fallbacks; legacy deletion is explicitly out of scope.
+
+## Cross-program compatibility disposition (2026-08-14)
+
+This table extends the Observation-specific retirement plan without granting
+legacy paths new authority.
+
+| Surface | Current role | Disposition | Retirement condition |
+|---|---|---|---|
+| Canonical Test Definition v1 | Historical readable singular provenance; new Product execution fails closed | KEEP | Retain for historical audit |
+| v1 execution compatibility helpers | Read/presentation compatibility only | RETIRE LATER | Approved historical upgrade or explicit end-of-support decision |
+| Legacy Observation files and `ObservationStore` | Read-only historical compatibility | RETIRE NEXT | Zero supported endpoint consumers plus approved retention/archive plan |
+| `LegacyObservationCompatibilityProjection`, `ObservationHistoryPresenter`, `EvidenceLedgerController`, and presenters | Explicit compatibility API/presentation | RETIRE NEXT | Canonical/import projections satisfy all supported historical readers |
+| Bootstrap evidence | Compatibility metadata, never auto-promoted | KEEP | Separate import/retention decision |
+| Agent memory | Experimental compatibility, outside Product Observation authority | KEEP | Agent-memory architecture review |
+| Legacy CLI/CI Run/results pipeline | Separate legacy runtime authority | KEEP | Dedicated producer/consumer migration, not Observation retirement |
+| Legacy healing and reporting | Separate legacy pipeline consumers/producers | RETIRE LATER | Canonical Product authority design and migration for those domains |
+| `src/platform` dashboard/query code | Retired/local-only historical tooling | RETIRE NEXT | Confirm zero supported operators, then separately delete |
+
+No surface in this table may be used as a silent fallback for canonical Product
+Observation, Definition, Execution, Run, Result, or presentation truth.

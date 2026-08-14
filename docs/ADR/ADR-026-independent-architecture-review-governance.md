@@ -261,7 +261,22 @@ system, not validate its authors.
 - `docs/templates/ARCHITECTURE_REVIEW_TREND.md`
 - `docs/prompts/architecture-review.md`
 - `docs/governance/AI_WORKFLOW.md`
+- `docs/architecture/reviews/README.md`
+- `docs/architecture/reviews/FORGE_ARCHITECTURE_REVIEW_v1.0.md`
+- `docs/architecture/reviews/FORGE_ARCHITECTURE_REVIEW_v2.0.md`
+- `docs/architecture/reviews/FORGE_ARCHITECTURE_REVIEW_TREND.md`
+- `docs/architecture/reviews/FORGE_ARCHITECTURE_SCORECARD.md`
 - `docs/ADR/ADR-006_Truth-Telling and Earned Evidence.md`
 - `docs/ADR/ADR-011_Verify_Before_Assert.md`
 - `docs/ADR/ADR-015_Provenance_Follows_Evidence.md`
 - `docs/ADR/ADR-018_Aggregate_to_the_Weakest_Truth.md`
+
+## Implementation Note - 2026-08-14
+
+TD-CONFIG-002 published the accepted v1.0 and v2.0 whole-system conclusions in
+the governed review directory. Their original chat bodies were unavailable, so
+both immutable files identify themselves as reconstructed from accepted review
+records and do not claim verbatim provenance. The accepted overall scores and
+verdicts are preserved; reconstructed category values are labelled as such.
+The review index, trend, and scorecard register make this limitation
+repository-local and discoverable.

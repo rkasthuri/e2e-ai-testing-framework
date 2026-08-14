@@ -17,7 +17,7 @@ Module ownership, entry points, persistence boundaries, UI routes, or validation
 paths change
 
 Last Verified:
-2026-08-13
+2026-08-14
 
 ---
 
@@ -55,6 +55,29 @@ counts and status labels here as permanent.
 | `workspace/` | Workspace and file-safety utilities | Shared infrastructure, not business ownership |
 
 ## Storage and Recovery Boundary
+
+### Canonical local Product chain
+
+The implemented, adopted Product authority chain is:
+
+`Crawl -> ObservationRun/Observation/Gap -> App Model + support seal -> CanonicalTestDefinition v2 -> ExecutablePlan v2 -> Execution -> Run/Result -> Results Projection -> API/UI`
+
+Each arrow crosses an explicit contract. Observation truth commits before App
+Model derivation; Test Definition v2 references exact sealed support; execution
+revalidates Definition, support, route, and authentication identities; Results
+projection reads persisted Execution/Run/Result truth without recovery or
+writes.
+
+| Classification | Current paths | Authority rule |
+|---|---|---|
+| CANONICAL | Core Observation, App Model support, Test Definition v2, Execution v2, Run/Result, and read projections | May create or interpret active Product truth |
+| COMPATIBILITY | Legacy Observation readers/endpoints and v1 Test Definition presentation | Readable and explicitly labelled; never fallback canonical authority |
+| LEGACY | CLI/CI run identity, result storage, healing, reporting, and generated-source manifests | Retains its own historical/runtime contract; never merged into Product authority |
+| EXPERIMENTAL | Agent memory and bounded AI/agentic paths not adopted into the Product authority chain | No authority over canonical Product facts |
+
+Deployment assumptions for this chain are documented in
+[`LOCAL_PRODUCT_CONSTRAINTS.md`](LOCAL_PRODUCT_CONSTRAINTS.md). It is a local,
+single-host architecture and is not evidence of cloud readiness.
 
 Database selection is governed by explicit `PRODUCT_WORKSPACE`,
 `LEGACY_RUNTIME`, and `DISPOSABLE_CERTIFICATION` modes in

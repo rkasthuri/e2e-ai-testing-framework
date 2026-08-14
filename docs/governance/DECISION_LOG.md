@@ -713,5 +713,26 @@ readable legacy provenance and fails closed for new Product execution.
 **ADR:** [`ADR-028`](../ADR/ADR-028-canonical-test-definition-v2-and-execution-authority.md)
 
 ---
+
+### Configuration Decision - Versioned Architecture Review and Accepted Baseline Registration
+
+**Status:** ACTIVE
+**Date:** 2026-08-14
+**Decision:** Accepted whole-system architecture reviews are discoverable under
+[`docs/architecture/reviews/`](../architecture/reviews/README.md). Because the
+original v1/v2 chat bodies were not retained, their immutable publications are
+explicitly reconstructed from accepted review records and preserve the fixed
+overall scores and verdicts without claiming verbatim prose. ADR health is
+registered separately from ADR history. Accepted App Model debt is represented
+by a machine-readable baseline comparison input so an exact known fingerprint
+is `BASELINE_DEBT` and any drift is `NEW_REGRESSION`.
+
+**Related:**
+[`ADR-026`](../ADR/ADR-026-independent-architecture-review-governance.md),
+[`ADR health register`](../architecture/ADR_HEALTH_REGISTER.md),
+[`accepted baseline debt`](../configuration/ACCEPTED_BASELINE_DEBT.md), and
+[`local Product constraints`](../architecture/LOCAL_PRODUCT_CONSTRAINTS.md).
+
+---
 *FORGE™ — AI-Augmented Quality Engineering Platform*
 *AnvilQ Technologies LLC — Copyright © 2026 Raj Kasthuri*

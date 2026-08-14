@@ -55,9 +55,9 @@ The highest-value section for an agentic assistant. Without it, the assistant gu
 ### B. Architecture & References (Layering)
 Don't paste your architecture into `CLAUDE.md`. Keep it thin and **link out** to detailed docs.
 - Use links the tooling can actually resolve. Repo-relative paths are the safest and most portable:
-  - `[Architecture](docs/ARCHITECTURE.md)`
-  - `[Technical Debt](TECH_DEBT.md)`
-  - `[Memory Log](MEMORY.md)`
+  - `[Architecture](../architecture/CODEBASE_MAP.md)`
+  - `[Technical Debt](../../TECH_DEBT.md)`
+  - `[Memory Log](../../MEMORY.md)`
 - Avoid `file:///docs/...` style links with a leading slash — those resolve to a nonexistent filesystem root. If you must use absolute `file://` URIs, make them fully qualified (`file:///c:/Projects/forge/docs/ARCHITECTURE.md`) and be aware they break for anyone who clones to a different path.
 
 ### C. Standing Rules
