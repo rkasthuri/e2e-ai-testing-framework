@@ -81,7 +81,8 @@ Read the relevant source before touching the governed area:
 |---|---|
 | Architecture, module boundaries, or structural design | [`docs/architecture/ARCHITECTURE_NORTH_STAR.md`](docs/architecture/ARCHITECTURE_NORTH_STAR.md), [`docs/architecture/CODEBASE_MAP.md`](docs/architecture/CODEBASE_MAP.md), and [`docs/governance/DECISION_LOG.md`](docs/governance/DECISION_LOG.md) |
 | Product goals, branding, or roadmap | [`docs/product/PRODUCT_VISION.md`](docs/product/PRODUCT_VISION.md) and [`docs/project/ROADMAP.md`](docs/project/ROADMAP.md) |
-| Current limitations or capability claims | [`docs/architecture/KNOWN_LIMITATIONS.md`](docs/architecture/KNOWN_LIMITATIONS.md), [`TECH_DEBT.md`](TECH_DEBT.md), and observable code/tests |
+| Current limitations or capability claims | [`docs/architecture/CURRENT_LIMITATIONS.md`](docs/architecture/CURRENT_LIMITATIONS.md), [`TECH_DEBT.md`](TECH_DEBT.md), and observable code/tests |
+| Historical limitation context or evolution | [`docs/architecture/KNOWN_LIMITATIONS.md`](docs/architecture/KNOWN_LIMITATIONS.md) (retained snapshot; never current operational truth) |
 | App state or App Model ownership | [`docs/ADR/ADR-001_App Model.md`](docs/ADR/ADR-001_App%20Model.md) |
 | Database strategy | [`docs/ADR/ADR-002_Database Strategy.md`](docs/ADR/ADR-002_Database%20Strategy.md) |
 | Human review and promotion | [`docs/ADR/ADR-003_Human Review Gate.md`](docs/ADR/ADR-003_Human%20Review%20Gate.md) |

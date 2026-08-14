@@ -16,8 +16,15 @@ Refresh Trigger:
 A local-product constraint, accepted debt fingerprint, compatibility surface,
 deployment claim, deferred capability, or migration ceiling changes
 
-Last Verified:
-2026-08-14 at `5b85bcb2aab3199c5799d3b68697ccd2c81594d6`
+Implementation Baseline:
+`5b85bcb2aab3199c5799d3b68697ccd2c81594d6`
+
+Publication Provenance:
+Prepared against that committed implementation plus the governed
+TD-CONFIG-003 documentation tree, then introduced by commit
+`919d5a1352801e5a1efb9c7ee9273de09daf1648`. The authority-chain correction
+was audited on 2026-08-14 under TD-CONFIG-003-R1 against that parent commit;
+Git history records the resulting commit identity.
 
 ---
 
@@ -25,6 +32,11 @@ This is the single current limitations register. It separates constraints that
 are acceptable for today's local Product from debt and future capability. A
 deferred capability is not a Product defect unless a current requirement
 depends on it.
+
+All authorized onboarding and repository routing must lead here for current
+Product limitations. [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) preserves a
+dated historical catalog only. It may explain evolution, but it cannot establish
+or override current operational truth.
 
 ## Accepted local Product constraints
 
@@ -47,6 +59,11 @@ and rationale are in
 
 The offline baseline has two accepted App Model findings. Acceptance makes them
 comparable; it does not make the malformed rows valid.
+
+The canonical offline profile therefore has overall status `FAIL`: both
+required malformed-model gates fail. Governed comparison classifies those two
+failures as exact `BASELINE_DEBT`, with `NEW_REGRESSION = 0`. This is not an
+overall baseline pass.
 
 | Gate | Accepted fingerprint | Classification |
 |---|---|---|
@@ -104,9 +121,9 @@ certified local Product vertical:
 - mobile and IoT Product support; and
 - complete operator remedy coverage for every gap-producing subsystem.
 
-Detailed older feature limitations remain in
-[`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md), but that dated catalog is not a
-second current authority.
+Detailed older feature statements remain in
+[`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) as historical snapshot material.
+Its resolved or unverified entries are not current capability claims.
 
 ## Current canonical path and migration ceiling
 

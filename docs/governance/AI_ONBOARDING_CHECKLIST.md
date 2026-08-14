@@ -113,20 +113,23 @@ Do not summarise. Do not say "understood." Show what you understood.
 
 ---
 
-### 1.5 — Read KNOWN_LIMITATIONS.md
+### 1.5 — Read CURRENT_LIMITATIONS.md
 
 ```
-□ Read KNOWN_LIMITATIONS.md
-□ Note L-001 (TD-013) — stateful page limitation
-□ Note L-002 (TD-014) — single-hop SPA discovery
-□ Note L-008 — identity divergence detection retired
-□ Note Section 8 — What FORGE Does Not Claim
+□ Read ../architecture/CURRENT_LIMITATIONS.md as the sole current Product
+  limitations authority
+□ Understand the accepted local Product constraints and explicit cloud non-claims
+□ Record the exact accepted App Model debt fingerprints and classification rule
+□ Distinguish canonical Product authority from retained legacy/compatibility paths
+□ Treat ../architecture/KNOWN_LIMITATIONS.md only as a retained historical
+  catalog; do not repeat its entries as current without fresh executable evidence
 ```
 
 **Confirmation required:**
-> "I have read KNOWN_LIMITATIONS.md. I understand that FORGE currently
-> cannot [key limitations relevant to my role]. I will not attempt to
-> work around L-001 without a design conversation."
+> "I have read CURRENT_LIMITATIONS.md. The current constraints relevant to my
+> role are [constraints]. The accepted debt is [classification], and the
+> canonical/legacy boundary is [boundary]. I will use KNOWN_LIMITATIONS.md only
+> for historical evolution, never as current operational truth."
 
 ---
 

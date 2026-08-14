@@ -5,6 +5,9 @@
 > [`CURRENT_LIMITATIONS.md`](CURRENT_LIMITATIONS.md) is the single current
 > limitations register. This older detailed catalog is retained for dated
 > feature-level context and must not be used as a second current-status source.
+> Statements below describe their historical snapshot unless an explicit
+> disposition says otherwise. Present-tense wording retained inside a snapshot
+> describes the earlier record and is not a current capability claim.
 
 > This document preserves the earlier feature-level limitation catalog. Verify
 > every entry against the current authority before acting on it.
@@ -18,11 +21,35 @@
 
 ---
 
-## 1. Crawl Limitations
+## TD-CONFIG-003-R1 snapshot disposition
+
+This audit prevents historical present-tense prose from becoming current
+operational guidance. L-001 and L-002 are resolved by current executable
+evidence. L-003 through L-017 remain preserved, unratified historical entries;
+their current relevance must be established through
+[`CURRENT_LIMITATIONS.md`](CURRENT_LIMITATIONS.md),
+[`TECH_DEBT.md`](../../TECH_DEBT.md), and executable evidence before use.
+
+| Entry | Current disposition |
+|---|---|
+| L-001 | **RESOLVED** — `VerificationRunner` executes declared prerequisite steps before element verification |
+| L-002 | **RESOLVED** — `SPAStrategy` enqueues newly discovered routes with incremented depth under governed depth/budget limits |
+| L-003–L-017 | **HISTORICAL SNAPSHOT / NOT CURRENTLY RATIFIED** — retained without a current capability claim |
+
+## 1. Crawl Limitations — Historical Snapshot
 
 ---
 
-### L-001 — No Stateful Page Setup Before Verification (TD-013)
+### L-001 — Stateful Page Setup Before Verification (TD-013) — RESOLVED
+
+**Current disposition (2026-08-14):**
+Resolved. `VerificationRunner` selects declared prerequisites for the
+authenticated role and executes each step before navigating to the target page
+and checking its elements. Setup failure is surfaced and element checks are
+skipped rather than treated as verified. See
+[`VerificationRunner.ts`](../../src/core/onboarding/VerificationRunner.ts).
+
+**Historical snapshot:**
 
 **What it means:**
 `VerificationRunner` navigates directly to a page URL with no prerequisite state
@@ -55,7 +82,15 @@ motivation for the agentic architecture.
 
 ---
 
-### L-002 — Single-Hop Discovery in SPAStrategy (TD-014)
+### L-002 — Single-Hop Discovery in SPAStrategy (TD-014) — RESOLVED
+
+**Current disposition (2026-08-14):**
+Resolved. `SPAStrategy` carries a depth on each scheduled visit and enqueues
+newly discovered routes at `depth + 1` while the configured depth and page
+budgets permit. It no longer implements the single-hop behavior described
+below. See [`SPAStrategy.ts`](../../src/core/onboarding/SPAStrategy.ts).
+
+**Historical snapshot:**
 
 **What it means:**
 `SPAStrategy.crawl()` discovers pages one hop from the start URL but does not
@@ -134,7 +169,7 @@ assuming a framework bug.
 
 ---
 
-## 2. Verification Limitations
+## 2. Verification Limitations — Historical Snapshot
 
 ---
 
@@ -176,7 +211,7 @@ FORGE can flag elements that only have text selectors as lower-confidence.
 
 ---
 
-## 3. Triage Limitations
+## 3. Triage Limitations — Historical Snapshot
 
 ---
 
@@ -218,7 +253,7 @@ None — this is the correct state. "Narrower, not weaker."
 
 ---
 
-## 4. Healing Limitations
+## 4. Healing Limitations — Historical Snapshot
 
 ---
 
@@ -264,7 +299,7 @@ to understand business intent, which it does not claim.
 
 ---
 
-## 5. Platform UI Limitations
+## 5. Platform UI Limitations — Historical Snapshot
 
 ---
 
@@ -300,7 +335,7 @@ TD-UI-064 — logged, not yet scheduled.
 
 ---
 
-## 6. Pipeline Scope Limitations
+## 6. Pipeline Scope Limitations — Historical Snapshot
 
 ---
 
@@ -357,7 +392,7 @@ first so the eval harness can measure the A/B comparison accurately.
 
 ---
 
-## 7. CI and Infrastructure Limitations
+## 7. CI and Infrastructure Limitations — Historical Snapshot
 
 ---
 
@@ -394,9 +429,10 @@ local-only. Do not default to "add everywhere."
 
 ---
 
-## 8. What FORGE Does Not Claim
+## 8. What FORGE Did Not Claim at Snapshot Time
 
-These are explicit non-claims. FORGE does not assert capability in these areas:
+At snapshot time, these were explicit non-claims. This table preserves that
+historical posture; it does not establish current capability truth.
 
 | Non-claim | Notes |
 |---|---|
