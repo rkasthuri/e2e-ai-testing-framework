@@ -12,13 +12,14 @@
 
 /**
  * TD-114/117/118 — proof tests (Project manifest, per-app DB isolation via the
- * initDb seam, migration-004 no-op safety, fossil trends.json removal).
+ * explicit Product authority seam, migration-004 no-op safety, fossil
+ * trends.json removal).
  *
  * node:test + node:assert/strict under tsx (auto-covered by `npm run test:unit`).
  *
  * SINGLETON NOTE: the DB tests (T7-T10, T12) share the module-level Kysely
  * singleton deliberately — that IS the seam under test. They run in declaration
- * order (node:test default), open ONE temp project DB, exercise the initDb
+ * order (node:test default), open ONE temp project DB, exercise the authority
  * rules against it, and close it in the final cleanup test. Each test file runs
  * in its own process under the runner, so no cross-file singleton bleed.
  *
@@ -34,7 +35,7 @@ import * as path from 'path'
 import { createWorkspace } from '../src/core/workspace/WorkspaceManager'
 import { ProjectManifest, buildProjectManifest, getFrameworkVersion } from '../src/core/workspace/Project'
 import { openProjectDatabase, getMigrationCount } from '../src/core/storage/DatabaseFactory'
-import { initDb, closeDb } from '../src/core/storage/db'
+import { initProductWorkspaceDatabase, closeDb } from '../src/core/storage/db'
 import { TrendRepository } from '../src/core/storage/repositories/TrendRepository'
 
 function tempRoot(): string {
@@ -137,15 +138,16 @@ test('T10 migration 004 completed without error on the fresh DB (all migrations)
   assert.equal(await getMigrationCount(), expected)
 })
 
-test('T7 initDb(): re-init at the SAME path is a no-op (idempotent)', () => {
-  initDb(dbWs.dbPath())   // must not throw
+test('T7 Product authority re-init at the SAME workspace is a no-op (idempotent)', () => {
+  initProductWorkspaceDatabase(dbWs.root, dbWs.dbPath())   // must not throw
   assert.ok(true)
 })
 
-test('T8 initDb(): re-init at a DIFFERENT path throws the descriptive error', () => {
+test('T8 Product authority re-init at a DIFFERENT workspace throws the descriptive error', () => {
+  const otherRoot = path.join(dbRoot, 'other-workspace')
   assert.throws(
-    () => initDb(path.join(dbRoot, 'other.db')),
-    /DB already open at .*Cannot re-initialize for .*Call closeDb\(\) first/s,
+    () => initProductWorkspaceDatabase(otherRoot, path.join(otherRoot, '.forge', 'forge.db')),
+    /Database authority PRODUCT_WORKSPACE is already selected.*PRODUCT_WORKSPACE/s,
   )
 })
 

@@ -122,7 +122,7 @@ async function readAllModels(
     const raw = await engine.readAppModelHistory(projectId, { limit: 50, cursor, requestedRowId: null })
     const presented = presentApplicationModelHistory(raw, { id: projectId, name: projectName }, {
       limit: 50,
-      observations: store,
+      projection: { runs: [], observations: [] },
     })
     if (presented.kind !== 'ok') return presented
     for (const model of presented.value.models) {

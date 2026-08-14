@@ -18,7 +18,7 @@ import type {
   EvidenceLedgerResponse, EvidenceLedgerSourceClass, EvidenceLedgerSupport, EvidenceLedgerIntegrity,
   ApplicationReadinessResponse,
   TestInventoryResponse, TestGenerationResponse, TestGenerationStatusResponse,
-  GenerationManifest, TestFileContent,
+  GenerationManifest, TestFileContent, ExecutionPreflightResponse,
 } from '../api/types'
 
 /** GET /api/v1/projects — the project switcher + lists consume this. */
@@ -280,6 +280,30 @@ export function useTestFile(appName: string | null, fileId: string | null) {
     queryFn: () =>
       apiClient.get<TestFileContent>(`/api/v1/projects/${appName}/tests/file/${fileId}`),
     enabled: !!appName && !!fileId,
+    retry: false,
+  })
+}
+
+/**
+ * POST /api/v1/projects/:appName/execution/preflight — TD-UI-069A-C. Read-only
+ * and side-effect-free despite the verb: the server never submits work through
+ * ExecutionContext or persists anything. `enabled` should stay false until the
+ * caller has loaded the current test-set revision (so `revision` reflects a
+ * real read, not a guess).
+ */
+export function useExecutionPreflight(
+  appName: string | null,
+  definitionIds: string[],
+  revision: number | null,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['execution-preflight', appName, definitionIds, revision],
+    queryFn: () => apiClient.post<ExecutionPreflightResponse>(
+      `/api/v1/projects/${encodeURIComponent(appName!)}/execution/preflight`,
+      { definitionIds, revision },
+    ),
+    enabled: !!appName && enabled,
     retry: false,
   })
 }

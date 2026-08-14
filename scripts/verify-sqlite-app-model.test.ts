@@ -17,7 +17,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { sql } from 'kysely'
 import { initDb, getDb, closeDb, getOpenSqlitePath, resolveSqlitePath } from '../src/core/storage/db'
-import { runMigrations } from '../src/core/storage/migrate'
+import { runMigrations, runSqliteMigrationCoordinator } from '../src/core/storage/migrate'
 import {
   AppModelPersistenceError,
   AppModelRepository,
@@ -99,10 +99,7 @@ class Through015Provider {
 
 async function create015Database(dbPath: string): Promise<void> {
   initDb(dbPath)
-  const { Migrator } = require('kysely/migration')
-  const migrator = new Migrator({ db: getDb(), provider: new Through015Provider() })
-  const result = await migrator.migrateToLatest()
-  if (result.error) throw result.error
+  await runSqliteMigrationCoordinator(getDb(), await new Through015Provider().getMigrations())
   await closeDb()
 }
 

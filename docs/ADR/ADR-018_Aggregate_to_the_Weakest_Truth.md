@@ -158,6 +158,28 @@ fewer.
    A part FORGE could not verify no longer inflates a green score, and is never
    punished as a red failure it did not earn.
 
+## Implementation note - 2026-08-11 (TD-ARCH-002)
+
+Product Execution/Run/Result truth now has one implementation owner:
+`src/core/execution/PersistedEvidenceAggregator.ts`. The owner reads only
+persisted Execution, manifest, lifecycle, Product Run, and immutable Product
+Result evidence. Terminalization, recovery, cancellation, Results projection,
+and status all consume its typed result; none may independently derive Product
+truth.
+
+The Product tie-break is explicit and deterministic: failed Results dominate
+all missing or unverified evidence; otherwise persisted `could_not_verify`
+dominates a manifest gap; otherwise a manifest gap yields
+`expected_result_missing`; only a complete all-pass manifest yields passed.
+Reasons come from the first applicable Result in immutable manifest order. A
+missing Result remains absent and is never manufactured for aggregation.
+
+`VerificationRunner` remains the reference implementation for its onboarding
+domain. It is no longer a claim that one function owns every FORGE aggregation
+domain. Product execution's canonical owner and permanent cross-path invariant
+are documented in
+`docs/architecture/CANONICAL_PERSISTED_EVIDENCE_AGGREGATION.md`.
+
 ## Relationship to other ADRs
 - **ADR-017 (What FORGE Observes, FORGE Keeps)** — supplies the honest
   constituents. ADR-018 governs how they combine. Without 017 there is nothing

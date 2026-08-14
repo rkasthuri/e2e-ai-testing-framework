@@ -24,6 +24,17 @@ import {
   type ObservationStartRecord,
   type ObservationTerminalRecord,
 } from '../forge-ui/server/registry/ObservationStore'
+
+const fixtureResolvers = new WeakMap<ObservationStore, WorkspaceResolver>()
+
+function persistLegacyFixture(store: ObservationStore, start: ObservationStartRecord, terminal?: ObservationTerminalRecord): void {
+  const resolver = fixtureResolvers.get(store)
+  assert.ok(resolver)
+  const dir = path.join(resolver.resolve(start.projectId).forgeDir, 'observations', start.observationId)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'started.json'), JSON.stringify(start, null, 2), 'utf8')
+  if (terminal) fs.writeFileSync(path.join(dir, 'terminal.json'), JSON.stringify(terminal, null, 2), 'utf8')
+}
 import {
   authenticationAttempts,
   authenticationFailureRecommendation,
@@ -46,6 +57,7 @@ function disposableStore(projects: string[]): {
   const store = new ObservationStore(resolver, {
     list: () => projects.map(appName => ({ appName })) as any,
   })
+  fixtureResolvers.set(store, resolver)
   return { root, resolver, store }
 }
 
@@ -140,8 +152,7 @@ test('terminal status and immutable evidence survive a simulated backend restart
   const { store } = disposableStore(['alpha'])
   const start = startRecord('alpha', 'terminal-observation')
   const terminal = terminalRecord(start)
-  store.begin(start)
-  store.complete(terminal)
+  persistLegacyFixture(store, start, terminal)
 
   const restartedRunner = new JobRunner(store)
   const status = restartedRunner.getStatus(start.observationId, start.projectId)
@@ -155,7 +166,7 @@ test('terminal status and immutable evidence survive a simulated backend restart
 test('a persisted start without a terminal record is interrupted, never active', () => {
   const { store } = disposableStore(['alpha'])
   const start = startRecord('alpha', 'interrupted-observation')
-  store.begin(start)
+  persistLegacyFixture(store, start)
 
   const restartedRunner = new JobRunner(store)
   const status = restartedRunner.getStatus(start.observationId, start.projectId)
@@ -168,8 +179,7 @@ test('a persisted start without a terminal record is interrupted, never active',
 test('mismatched projects, malformed records, and unknown IDs fail closed', () => {
   const { root, resolver, store } = disposableStore(['alpha', 'beta'])
   const start = startRecord('alpha', 'owned-observation')
-  store.begin(start)
-  store.complete(terminalRecord(start, 'completed'))
+  persistLegacyFixture(store, start, terminalRecord(start, 'completed'))
 
   const runner = new JobRunner(store)
   assert.equal(runner.getStatus(start.observationId, 'beta'), null)
@@ -210,8 +220,7 @@ test('persisted authentication diagnostics with an unapproved field fail closed'
       selector: '[unapproved-raw-selector]',
     } as any],
   }]
-  store.begin(start)
-  store.complete(terminal)
+  persistLegacyFixture(store, start, terminal)
 
   assert.equal(store.resolve(start.observationId, start.projectId).kind, 'malformed')
   assert.throws(
@@ -344,11 +353,11 @@ test('disposable login success traces all safe stages without diagnostic values'
   const envKey = 'FORGE_TD_UI_064A_S_SUCCESS_FIXTURE'
   const username = 'fixture-user-sensitive'
   const password = 'fixture-password-sensitive'
-  process.env[envKey] = `${username}:${password}`
   try {
     const { config, role } = fixtureConfig(envKey)
-    const authStateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-auth-state-'))
-    const result = await new AuthManager(config, { authStateDir }).authenticate(role, fixtureBrowser('success'))
+    const result = await new AuthManager(config, {
+      credentialMaterial: { username, password },
+    }).authenticate(role, fixtureBrowser('success'))
     assert.equal(result.authenticated, true)
     assert.equal(result.authenticationStages.length, 9)
     assert.equal(stage(result.authenticationStages, 'credential-reference-resolution').outcome, 'succeeded')
@@ -460,7 +469,8 @@ test('production wiring uses the durable status owner and only the staged authen
   )
 
   assert.match(routeSource, /jobRunner\.getStatus\(req\.params\.jobId, expectedProjectId\)/)
-  assert.match(routeSource, /status:\s+observation\?\.terminalState \?\? view\.status/)
+  assert.match(routeSource, /status:\s+canonical\?\.runs\?\.\[0\]\?\.lifecycle \?\? view\.status/)
+  assert.match(routeSource, /readObservationHistoryView/)
   assert.doesNotMatch(crawlerSource, /observeLoginSurface|buildAllNotObservedDiagnostic/)
   for (const label of [
     'Authentication stage diagnostics',

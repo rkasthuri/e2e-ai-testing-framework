@@ -11,6 +11,7 @@
  */
 
 import { Kysely, sql } from 'kysely'
+import { currentMigrationDialect } from '../MigrationContext'
 
 /**
  * 013 — TD-UI-031 Block 2: app_models provenance honesty (ADR-015).
@@ -37,7 +38,7 @@ import { Kysely, sql } from 'kysely'
  * Mirrors migration 012's completed_at pattern.
  */
 export async function up(db: Kysely<any>): Promise<void> {
-  const isPostgres = !!process.env.DB_URL
+  const isPostgres = currentMigrationDialect() === 'postgres'
   const backfill = `CASE WHEN page_count > 0 OR flow_count > 0 THEN 'crawled' ELSE 'crawled-empty' END`
 
   if (isPostgres) {
@@ -92,7 +93,7 @@ export async function up(db: Kysely<any>): Promise<void> {
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
-  const isPostgres = !!process.env.DB_URL
+  const isPostgres = currentMigrationDialect() === 'postgres'
 
   if (isPostgres) {
     // NULLs would block the NOT NULL restore; backfill first (sentinel epoch).

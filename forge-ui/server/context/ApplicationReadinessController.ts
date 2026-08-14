@@ -11,17 +11,18 @@
  */
 
 import { fail, ok } from '../http'
-import { projectObservationHistoryItem } from '../registry/ObservationHistoryPresenter'
-import { observationStore, type ObservationStore } from '../registry/ObservationStore'
 import {
   presentApplicationReadiness,
   type ApplicationReadinessInput,
   type ReadinessEvidenceInput,
   type ReadinessModelInput,
   type ReadinessObservationInput,
+  type ReadinessTestDefinitionAuthorityInput,
 } from '../registry/ApplicationReadinessPresenter'
 import { readApplicationModelHistory, type ApplicationModelHttpResult } from './ApplicationModelHistoryController'
-import { readEvidenceLedger, type EvidenceLedgerHttpResult } from './EvidenceLedgerController'
+import type { EvidenceLedgerHttpResult } from './EvidenceLedgerController'
+import { readApplicationEvidenceInventory as readEvidenceLedger } from './ApplicationEvidenceInventoryController'
+import { executionContext, type ExecutionContext } from './ExecutionContext'
 
 export interface ApplicationReadinessHttpResult {
   status: number
@@ -29,9 +30,65 @@ export interface ApplicationReadinessHttpResult {
 }
 
 interface Dependencies {
-  observations?: Pick<ObservationStore, 'history'>
+  observationReader?: Pick<ExecutionContext, 'readObservationHistoryView'>
+  authorityReader?: Pick<ExecutionContext, 'readTestDefinitionAuthority'>
+  semanticAdmissionReader?: Pick<ExecutionContext, 'readCanonicalTestDefinitionAdmission'>
   modelReader?: typeof readApplicationModelHistory
   evidenceReader?: typeof readEvidenceLedger
+}
+
+function authorityInput(value: unknown): ReadinessTestDefinitionAuthorityInput | null {
+  if (!isRecord(value) || !['ok', 'refused'].includes(String(value.kind))) return null
+  if (value.kind === 'refused') {
+    return typeof value.code === 'string'
+      && (value.authorityClass === 'canonical_v2' || value.authorityClass === 'legacy_v1')
+      ? { kind: 'refused', authorityClass: value.authorityClass, code: value.code }
+      : null
+  }
+  if (!isRecord(value.authority)) return null
+  const authority = value.authority
+  if (authority.authorityClass !== 'canonical_v2'
+    || !isRecord(authority.characterizationPolicy)
+    || !Array.isArray(authority.supportingObservationIds)
+    || !Array.isArray(authority.supportingGapIds)
+    || !Array.isArray(authority.subjectSupport)) return null
+  return {
+    kind: 'ok',
+    authorityClass: 'canonical_v2',
+    modelRowId: Number(authority.modelRowId),
+    modelVersion: String(authority.modelVersion),
+    observationRunId: String(authority.observationRunId),
+    supportSealHash: String(authority.supportSealHash),
+    characterizationPolicy: {
+      id: String(authority.characterizationPolicy.id),
+      version: String(authority.characterizationPolicy.version),
+    },
+    supportingObservationIds: authority.supportingObservationIds.map(String),
+    supportingGapIds: authority.supportingGapIds.map(String),
+    subjectIds: authority.subjectSupport.map(item => isRecord(item) ? String(item.canonicalSubjectId) : '').sort(),
+  }
+}
+
+function semanticAdmissionInput(value: unknown): NonNullable<ApplicationReadinessInput['testDefinitionSemanticAdmission']> | null {
+  if (!isRecord(value) || (value.kind !== 'ok' && value.kind !== 'refused')) return null
+  if (value.kind === 'refused') {
+    const code = typeof value.code === 'string' ? value.code : null
+    if (!code) return null
+    return {
+      kind: 'refused',
+      routeState: code === 'route_conflicted' ? 'conflicted' : code === 'route_unknown' ? 'unknown' : 'refused',
+      authenticationExpectation: 'unknown',
+      generationAvailable: false,
+      code,
+    }
+  }
+  if (!isRecord(value.authenticationExpectation)
+    || !['required', 'not_required', 'unknown', 'conflicted'].includes(String(value.authenticationExpectation.state))) return null
+  return {
+    kind: 'ok', routeState: 'ready',
+    authenticationExpectation: value.authenticationExpectation.state as 'required' | 'not_required' | 'unknown' | 'conflicted',
+    generationAvailable: true, code: null,
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -51,20 +108,36 @@ function safeString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
-function observationInput(value: ReturnType<typeof projectObservationHistoryItem>): ReadinessObservationInput {
+function observationInput(value: any): ReadinessObservationInput | null {
+  if (!isRecord(value) || typeof value.observationId !== 'string'
+    || typeof value.projectId !== 'string' || typeof value.startedAt !== 'string'
+    || !isRecord(value.authentication) || !Array.isArray(value.observedSubjects)
+    || !Array.isArray(value.evidence) || !Array.isArray(value.blockers)
+    || !Array.isArray(value.unknowns) || !Array.isArray(value.limitations)) return null
+  const completedAt = value.completedAt === null ? null : safeString(value.completedAt)
+  const outcome = safeString(value.terminalState)
+  const expectation = safeString(value.authentication.expectation)
+  const availability = safeString(value.authentication.credentialAvailability)
+  const authOutcome = value.authentication.outcome === null
+    ? null
+    : safeString(value.authentication.outcome)
+  if ((value.completedAt !== null && completedAt === null)
+    || !outcome || !expectation
+    || !['available', 'missing', 'not_required', 'unknown'].includes(availability ?? '')
+    || ![null, 'succeeded', 'failed', 'not_evaluated', 'not_required'].includes(authOutcome)) return null
   return {
     id: value.observationId,
     projectId: value.projectId,
     startedAt: value.startedAt,
-    completedAt: value.completedAt,
-    outcome: value.terminalState,
+    completedAt,
+    outcome: outcome as ReadinessObservationInput['outcome'],
     authentication: {
-      expectation: value.authentication.expectation,
-      credentialAvailability: value.authentication.credentialAvailability,
-      outcome: value.authentication.outcome,
+      expectation,
+      credentialAvailability: availability as ReadinessObservationInput['authentication']['credentialAvailability'],
+      outcome: authOutcome as ReadinessObservationInput['authentication']['outcome'],
     },
-    subjectIds: value.observedSubjects.map(subject => subject.id),
-    evidence: value.evidence.map(item => ({
+    subjectIds: value.observedSubjects.map((subject: any) => subject.id),
+    evidence: value.evidence.map((item: any) => ({
       id: item.id,
       integrity: item.integrity,
       capturedAt: item.capturedAt,
@@ -167,21 +240,23 @@ export async function readApplicationReadiness(
 ): Promise<ApplicationReadinessHttpResult> {
   const project = await resolveProject(appName)
   if (!project) return { status: 404, body: fail('Project not found', 'NOT_FOUND') }
-  const observations = dependencies.observations ?? observationStore
+  const observationReader = dependencies.observationReader ?? executionContext
+  const authorityReader = dependencies.authorityReader ?? executionContext
+  const semanticAdmissionReader = dependencies.semanticAdmissionReader ?? executionContext
   const modelReader = dependencies.modelReader ?? readApplicationModelHistory
   const evidenceReader = dependencies.evidenceReader ?? readEvidenceLedger
   const resolvedProject = async () => project
   try {
-    const observationRead = observations.history(appName, { limit: 1, cursor: null })
-    if (observationRead.kind === 'ownership_mismatch') {
-      return { status: 409, body: fail('A readiness authority contains a project ownership conflict.', 'READINESS_AUTHORITY_CONFLICT') }
-    }
-    if (observationRead.kind !== 'ok') {
+    const observationRead = await observationReader.readObservationHistoryView(appName, { limit: 1 }) as any
+    if (!isRecord(observationRead) || observationRead.authority !== 'canonical_product'
+      || !Array.isArray(observationRead.observations)) {
       return { status: 422, body: fail('Observation history could not be validated safely.', 'READINESS_SOURCE_INVALID') }
     }
-    const [modelResult, evidenceResult] = await Promise.all([
+    const [modelResult, evidenceResult, authorityResult, semanticAdmissionResult] = await Promise.all([
       modelReader(appName, { limit: '25' }, resolvedProject),
       evidenceReader(appName, { limit: '50', support: 'current' }, resolvedProject),
+      authorityReader.readTestDefinitionAuthority(appName),
+      semanticAdmissionReader.readCanonicalTestDefinitionAdmission(appName),
     ])
     if (modelResult.status !== 200) return dependencyFailure(modelResult)
     if (evidenceResult.status !== 200) return dependencyFailure(evidenceResult)
@@ -189,12 +264,15 @@ export async function readApplicationReadiness(
     const evidenceData = envelopeData(evidenceResult)
     const model = modelData ? modelInput(modelData) : null
     const evidence = evidenceData ? evidenceInput(evidenceData) : null
-    if (!model || !evidence) {
+    const authority = authorityInput(authorityResult)
+    const semanticAdmission = semanticAdmissionInput(semanticAdmissionResult)
+    if (!model || !evidence || !authority || !semanticAdmission) {
       return { status: 422, body: fail('Readiness authority projections could not be validated safely.', 'READINESS_SOURCE_INVALID') }
     }
-    const latest = observationRead.observations[0]
-      ? observationInput(projectObservationHistoryItem(observationRead.observations[0]))
-      : null
+    const latest = observationRead.observations[0] ? observationInput(observationRead.observations[0]) : null
+    if (observationRead.observations[0] && !latest) {
+      return { status: 422, body: fail('Observation history could not be validated safely.', 'READINESS_SOURCE_INVALID') }
+    }
     const input: ApplicationReadinessInput = {
       project: { id: appName, name: project.appName },
       observation: latest,
@@ -202,6 +280,8 @@ export async function readApplicationReadiness(
       modelTotal: model.total,
       activeModelCount: model.activeCount,
       evidence,
+      testDefinitionAuthority: authority,
+      testDefinitionSemanticAdmission: semanticAdmission,
     }
     const presented = presentApplicationReadiness(input)
     if (presented.kind === 'ownership_mismatch') {

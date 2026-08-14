@@ -148,13 +148,6 @@ export interface ObservationTerminalRecord extends ObservationStartRecord {
   }
 }
 
-export class ObservationPersistenceError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options)
-    this.name = 'ObservationPersistenceError'
-  }
-}
-
 export type ObservationLookup =
   | { kind: 'terminal'; start: ObservationStartRecord; terminal: ObservationTerminalRecord }
   | { kind: 'interrupted'; start: ObservationStartRecord }
@@ -547,22 +540,15 @@ function isHistorySafeTerminal(terminal: ObservationTerminalRecord): boolean {
 }
 
 /**
- * Append-only observation persistence. A run owns one immutable start record
- * and one immutable terminal record. Prior runs are never replaced.
+ * Read-only compatibility access to pre-canonical Observation files.
+ * Active Product code must use ObservationService and
+ * ObservationReadProjectionService instead.
  */
 export class ObservationStore {
   constructor(
     private readonly workspaces = workspaceResolver,
     private readonly projects: Pick<ProjectRegistry, 'list'> = projectRegistry,
   ) {}
-
-  begin(record: ObservationStartRecord): void {
-    this.writeImmutable(record.projectId, record.observationId, 'started.json', record)
-  }
-
-  complete(record: ObservationTerminalRecord): void {
-    this.writeImmutable(record.projectId, record.observationId, 'terminal.json', record)
-  }
 
   get(projectId: string, observationId: string): ObservationTerminalRecord | null {
     const lookup = this.resolve(observationId, projectId)
@@ -780,31 +766,6 @@ export class ObservationStore {
     if (!isTerminalRecord(terminal.value, projectId, observationId)) return { kind: 'malformed' }
     if (!sameStartRecord(started.value, terminal.value)) return { kind: 'malformed' }
     return { kind: 'terminal', start: started.value, terminal: terminal.value }
-  }
-
-  private writeImmutable(
-    projectId: string,
-    observationId: string,
-    fileName: 'started.json' | 'terminal.json',
-    value: ObservationStartRecord | ObservationTerminalRecord,
-  ): void {
-    try {
-      assertValidAppName(projectId)
-      if (!OBSERVATION_ID.test(observationId)) {
-        throw new Error('observationId contains unsupported characters')
-      }
-      const dir = this.runDir(this.workspaces.resolve(projectId), observationId)
-      fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(path.join(dir, fileName), JSON.stringify(value, null, 2), {
-        encoding: 'utf8',
-        flag: 'wx',
-      })
-    } catch (cause) {
-      throw new ObservationPersistenceError(
-        `Observation persistence failed for '${projectId}' run '${observationId}' (${fileName}).`,
-        { cause },
-      )
-    }
   }
 
   private runDir(workspace: ResolvedWorkspace, observationId: string): string {

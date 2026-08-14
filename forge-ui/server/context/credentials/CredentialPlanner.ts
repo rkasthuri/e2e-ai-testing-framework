@@ -11,7 +11,7 @@
  */
 
 import { CredentialSlotError } from './CredentialTypes'
-import type { CredentialMaterial } from './CredentialTypes'
+import type { CredentialReference } from './CredentialTypes'
 
 /** The engine config fields the crawl credential planner reads (read-only). */
 export interface EngineConfigView {
@@ -36,12 +36,12 @@ export type CrawlCredentialPlan = { path: 'A' } | { path: 'B'; envKey: string }
  */
 export function planCrawlCredentials(
   config: EngineConfigView | null,
-  material: CredentialMaterial | null,
+  reference: CredentialReference | null,
   options: { force?: boolean },
 ): CrawlCredentialPlan {
   // `material` is the resolved-credentials precondition (see above); the path
   // decision itself is force/config/envKey-driven.
-  void material
+  void reference
   if (options.force === true || !config) return { path: 'A' }
   const envKey = config.credentials?.envKey
   if (envKey) return { path: 'B', envKey }

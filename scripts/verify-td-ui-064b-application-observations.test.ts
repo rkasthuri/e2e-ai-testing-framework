@@ -28,12 +28,24 @@ import { projectObservationHistoryItem } from '../forge-ui/server/registry/Obser
 import { buildApplicationObservationsReadModel } from '../forge-ui/src/components/application-workspace/applicationObservationsAdapter'
 import type { ObservationHistoryResponse } from '../forge-ui/src/api/types'
 
+const fixtureResolvers = new WeakMap<ObservationStore, WorkspaceResolver>()
+
+function persistLegacyFixture(store: ObservationStore, start: ObservationStartRecord, terminal?: ObservationTerminalRecord): void {
+  const resolver = fixtureResolvers.get(store)
+  assert.ok(resolver)
+  const dir = path.join(resolver.resolve(start.projectId).forgeDir, 'observations', start.observationId)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'started.json'), JSON.stringify(start, null, 2), 'utf8')
+  if (terminal) fs.writeFileSync(path.join(dir, 'terminal.json'), JSON.stringify(terminal, null, 2), 'utf8')
+}
+
 function disposableStore(projects: string[] = ['alpha']) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-td-ui-064b-'))
   const resolver = new WorkspaceResolver(root)
   const store = new ObservationStore(resolver, {
     list: () => projects.map(appName => ({ appName })) as any,
   })
+  fixtureResolvers.set(store, resolver)
   return { root, resolver, store }
 }
 
@@ -127,8 +139,7 @@ function persistTerminal(
   completedAt: string,
 ) {
   const start = startRecord(id, startedAt)
-  store.begin(start)
-  store.complete(terminalRecord(start, state, completedAt))
+  persistLegacyFixture(store, start, terminalRecord(start, state, completedAt))
 }
 
 test('history orders newest first and uses ascending observation ID as a stable timestamp tie-breaker', () => {
@@ -158,7 +169,7 @@ test('completed, partial, blocked, failed, unknown, and start-only interrupted s
     `2026-08-05T0${index}:00:00.000Z`,
     `2026-08-05T0${index}:30:00.000Z`,
   ))
-  store.begin(startRecord('state-interrupted', '2026-08-05T08:00:00.000Z'))
+  persistLegacyFixture(store, startRecord('state-interrupted', '2026-08-05T08:00:00.000Z'))
 
   const result = store.history('alpha')
   assert.equal(result.kind, 'ok')
@@ -237,8 +248,7 @@ test('malformed JSON, duplicate identities, ownership mismatches, and invalid ti
   const duplicateStart = startRecord('duplicate-evidence', '2026-08-05T10:00:00.000Z')
   const duplicateTerminal = terminalRecord(duplicateStart, 'completed', '2026-08-05T10:30:00.000Z')
   duplicateTerminal.evidence.push({ ...duplicateTerminal.evidence[0] })
-  duplicate.store.begin(duplicateStart)
-  duplicate.store.complete(duplicateTerminal)
+  persistLegacyFixture(duplicate.store, duplicateStart, duplicateTerminal)
   assert.deepEqual(duplicate.store.history('alpha'), { kind: 'malformed' })
 
   const ownership = disposableStore(['alpha', 'beta'])
@@ -252,7 +262,7 @@ test('malformed JSON, duplicate identities, ownership mismatches, and invalid ti
   assert.deepEqual(ownership.store.history('alpha'), { kind: 'ownership_mismatch' })
 
   const timestamp = disposableStore()
-  timestamp.store.begin(startRecord('bad-time', 'not-an-iso-timestamp'))
+  persistLegacyFixture(timestamp.store, startRecord('bad-time', 'not-an-iso-timestamp'))
   assert.deepEqual(timestamp.store.history('alpha'), { kind: 'malformed' })
 
   const unknownField = disposableStore()
@@ -315,8 +325,7 @@ test('safe projection preserves authentication stages, evidence, and provenance 
       causeChain: [{ name: 'Error', code: null, summary: 'sqlite-secret-detail-must-not-cross' }],
     },
   }
-  store.begin(start)
-  store.complete(terminal)
+  persistLegacyFixture(store, start, terminal)
   const history = store.history('alpha')
   assert.equal(history.kind, 'ok')
   if (history.kind !== 'ok') return

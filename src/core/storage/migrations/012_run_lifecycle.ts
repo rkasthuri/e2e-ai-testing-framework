@@ -11,6 +11,7 @@
  */
 
 import { Kysely, sql } from 'kysely'
+import { currentMigrationDialect } from '../MigrationContext'
 
 /**
  * 012 — TD-126: run lifecycle + nullable completed_at.
@@ -35,7 +36,7 @@ import { Kysely, sql } from 'kysely'
  * to started_at if that was genuinely intended.
  */
 export async function up(db: Kysely<any>): Promise<void> {
-  const isPostgres = !!process.env.DB_URL
+  const isPostgres = currentMigrationDialect() === 'postgres'
 
   if (isPostgres) {
     await db.schema.alterTable('runs')
@@ -97,7 +98,7 @@ export async function up(db: Kysely<any>): Promise<void> {
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
-  const isPostgres = !!process.env.DB_URL
+  const isPostgres = currentMigrationDialect() === 'postgres'
 
   if (isPostgres) {
     // Existing NULLs would block the NOT NULL restore; backfill first.

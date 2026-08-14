@@ -562,12 +562,13 @@ test('T13 complete CrawlRunner retry skips timestamp regeneration and replays th
 
   const repository = new AppModelRepository()
   const service = new AppModelService(repository)
-  let generatedTime = '2026-07-27T12:00:00.000Z'
+  let generatedTime = new Date().toISOString()
   let crawlerInvocations = 0
   let projectionAttempts = 0
   const createCrawler = () => ({
     crawl: async (): Promise<AppModelCandidate> => {
       crawlerInvocations += 1
+      if (crawlerInvocations === 1) generatedTime = new Date().toISOString()
       const draft = candidate(appName, `observation-${crawlerInvocations}`)
       return {
         ...draft,
@@ -626,7 +627,7 @@ test('T13 complete CrawlRunner retry skips timestamp regeneration and replays th
   const first = await repository.getCommittedById(Number(firstHistory[0].id))
   assert.equal(first.snapshot.generatedAt, generatedTime)
 
-  generatedTime = '2026-07-27T12:05:00.000Z'
+  generatedTime = new Date(Date.parse(generatedTime) + 5 * 60_000).toISOString()
   const replay = await runner.run({
     url: `https://${appName}.example.com`,
     appName,
@@ -643,7 +644,7 @@ test('T13 complete CrawlRunner retry skips timestamp regeneration and replays th
     'utf8',
   )) as AppModel
   assert.deepEqual(projected, first.snapshot)
-  assert.equal(projected.generatedAt, '2026-07-27T12:00:00.000Z')
+  assert.equal(projected.generatedAt, first.snapshot.generatedAt)
 
   await assert.rejects(
     () => repository.commitCandidate(

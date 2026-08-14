@@ -22,7 +22,11 @@ import { createWorkspace }    from '../workspace/WorkspaceManager'
 import { openProjectDatabase } from '../storage/DatabaseFactory'
 import { AppModelService, requireProjectedCommit } from '../storage/AppModelService'
 import { generateRunId } from './Bootstrap'
-import { getDb, initDb }      from '../storage/db'
+import {
+  getDb,
+  initLegacyRuntimeDatabase,
+  initProductWorkspaceDatabase,
+} from '../storage/db'
 import { migrateDiskModels, migrateDbBlobs, UnmigratableModelError } from './ModelMigrator'
 import { AgentRunner } from '../agent/AgentRunner'
 import { JsonAgentMemoryRepository } from '../agent/AgentMemoryRepository'
@@ -147,6 +151,7 @@ async function main() {
       // exactly as before TD-108. Deliberately NOT routed through CrawlRunner:
       // the rich .ts configs (multi-role, flows, prerequisites) are not
       // representable in AppConfig v1, and these fixtures are pinned as-is.
+      initLegacyRuntimeDatabase()
       await runMigrations()
       const config  = await resolveConfig(appName)
 
@@ -183,6 +188,7 @@ async function main() {
     }
 
     case 'verify': {
+      initLegacyRuntimeDatabase()
       const config = await resolveConfig(appName)
       const runner = new VerificationRunner(
         appName,
@@ -206,19 +212,21 @@ async function main() {
           console.error('[FORGE] No project found in this directory. Run forge crawl first.')
           process.exit(1)
         }
-        initDb(ws.dbPath())
+        initProductWorkspaceDatabase(ws.root, ws.dbPath())
         await new GeneratorRunner().generate(cfg.appName, ws)
         console.log(`[FORGE] Tests written to ${ws.testsDir}`)
         break
       }
 
       // Internal Fixture Mode — `--app=<name>`: unchanged (src/apps/ targeting).
+      initLegacyRuntimeDatabase()
       const runner = new GeneratorRunner()
       await runner.generate(appName)
       break
     }
 
     case 'refresh': {
+      initLegacyRuntimeDatabase()
       await runMigrations()
       const config = await resolveConfig(appName)
       const workspace = createWorkspace()

@@ -10,7 +10,20 @@
  * of this software is strictly prohibited.
  */
 
-export { getDb, closeDb, initDb } from './db'
+export {
+  getDb,
+  getProductDb,
+  closeDb,
+  initDb,
+  initDatabaseAuthority,
+  initProductWorkspaceDatabase,
+  initLegacyRuntimeDatabase,
+  initDisposableDatabase,
+  getDatabaseProvenance,
+  assertProductDatabaseAuthority,
+  resolveLegacyRuntimeSqlitePath,
+} from './db'
+export * from './DatabaseAuthority'
 export { runMigrations }      from './migrate'
 export { openProjectDatabase, getMigrationCount } from './DatabaseFactory'
 export * from './types'

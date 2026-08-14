@@ -67,16 +67,20 @@ export async function readApplicationModelHistory(
   const project = await resolveProject(appName)
   if (!project) return { status: 404, body: fail('Project not found', 'NOT_FOUND') }
   try {
-    const raw = await executionContext.readAppModelHistory(appName, {
-      limit: parsed.limit,
-      cursor: parsed.cursor,
-      requestedRowId: parsed.requestedRowId,
-    })
+    const [raw, projection] = await Promise.all([
+      executionContext.readAppModelHistory(appName, {
+        limit: parsed.limit,
+        cursor: parsed.cursor,
+        requestedRowId: parsed.requestedRowId,
+      }),
+      executionContext.readObservationProjection(appName, { limit: 50 }),
+    ])
     if (raw && typeof raw === 'object' && (raw as { kind?: unknown }).kind === 'invalid_cursor') {
       return { status: 400, body: fail('The model-history cursor is invalid for this project.', 'INVALID_APP_MODEL_QUERY') }
     }
     const presented = presentApplicationModelHistory(raw, { id: appName, name: project.appName }, {
       limit: parsed.limit,
+      projection: projection as any,
     })
     if (presented.kind === 'multiple_active') {
       return { status: 409, body: fail('Authoritative model history contains multiple active models. No current model is presented.', 'APP_MODEL_MULTIPLE_ACTIVE') }

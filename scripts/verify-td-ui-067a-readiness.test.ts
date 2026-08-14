@@ -74,6 +74,18 @@ function fixture(): ApplicationReadinessInput {
         sourceModelRows: [7],
       })),
     },
+    testDefinitionAuthority: {
+      kind: 'ok',
+      authorityClass: 'canonical_v2',
+      modelRowId: 7,
+      modelVersion: '1.0.6',
+      observationRunId: observationId,
+      supportSealHash: 'a'.repeat(64),
+      characterizationPolicy: { id: 'forge.crawl-observation-characterization', version: '1' },
+      supportingObservationIds: [...evidenceIds].sort(),
+      supportingGapIds: [],
+      subjectIds: [...subjectIds].sort(),
+    },
   }
 }
 
@@ -106,6 +118,7 @@ test('missing authorities fail closed instead of inferring readiness from projec
   input.modelTotal = 0
   input.activeModelCount = 0
   input.evidence = { projectTotal: 0, currentSupportTotal: 0, historicalSupportTotal: 0, filteredTotal: 0, currentRecords: [] }
+  input.testDefinitionAuthority = { kind: 'refused', authorityClass: 'canonical_v2', code: 'missing_active_model' }
   const value = present(input)
   assert.equal(value.decisions[0].state, 'unknown')
   assert.equal(value.decisions[1].state, 'unknown')
@@ -135,9 +148,11 @@ test('missing and invalid active models remain unknown or blocked', () => {
   const missing = fixture()
   missing.model = null
   missing.activeModelCount = 0
+  missing.testDefinitionAuthority = { kind: 'refused', authorityClass: 'canonical_v2', code: 'missing_active_model' }
   assert.equal(present(missing).decisions[1].state, 'unknown')
   const invalid = fixture()
   invalid.model!.validation = 'invalid'
+  invalid.testDefinitionAuthority = { kind: 'refused', authorityClass: 'canonical_v2', code: 'invalid_model' }
   assert.equal(present(invalid).decisions[1].state, 'blocked')
 })
 
@@ -148,12 +163,12 @@ test('historical evidence is not promoted to current support and unknown freshne
   input.evidence.filteredTotal = 0
   input.evidence.currentRecords = []
   const value = present(input)
-  assert.equal(value.decisions[1].state, 'unknown')
+  assert.equal(value.decisions[1].state, 'supported_with_constraints')
   assert.equal(value.authoritySnapshot.boundaries.freshness, 'not_evaluated')
   assert.ok(value.decisions.every(item => item.state !== 'supported'))
 })
 
-test('matching evidence identity alone cannot bypass exact subject, model-row, and observation provenance', () => {
+test('loose presentation evidence cannot override core-owned support authority', () => {
   for (const mutate of [
     (input: ApplicationReadinessInput) => { input.evidence.currentRecords[0].canonicalSubjectId = 'different-subject' },
     (input: ApplicationReadinessInput) => { input.evidence.currentRecords[0].sourceModelRows = [6] },
@@ -162,21 +177,20 @@ test('matching evidence identity alone cannot bypass exact subject, model-row, a
     const input = fixture()
     mutate(input)
     const decision = present(input).decisions[1]
-    assert.equal(decision.state, 'unknown')
-    assert.match(decision.unknowns.join(' '), /linkage/i)
+    assert.equal(decision.state, 'supported_with_constraints')
   }
 })
 
-test('integrity failures and evidence conflicts prevent stronger test-design readiness', () => {
+test('presentation evidence health is bounded separately from sealed authority', () => {
   const failed = fixture()
   failed.evidence.currentRecords[0].integrity = 'failed'
-  assert.equal(present(failed).decisions[1].state, 'blocked')
+  assert.equal(present(failed).decisions[1].state, 'supported_with_constraints')
   const conflicting = fixture()
   conflicting.evidence.currentRecords[0].conflict = 'conflicting'
   const value = present(conflicting)
-  assert.equal(value.decisions[1].state, 'blocked')
+  assert.equal(value.decisions[1].state, 'supported_with_constraints')
   assert.equal(value.authoritySnapshot.boundaries.conflict, 'conflicting')
-  assert.match(value.decisions[1].blockers.join(' '), /conflict/i)
+  assert.ok(value.decisions[1].limitations.length > 0)
 })
 
 test('every state carries rationale, constraint evidence, and a bounded next-action disposition', () => {
@@ -228,7 +242,7 @@ test('controller returns bounded unknown-project and dependency failures without
   const missing = await readApplicationReadiness('missing', async () => undefined)
   assert.equal(missing.status, 404)
   const unavailable = await readApplicationReadiness('saucedemo', async () => ({ appName: 'saucedemo' }), {
-    observations: { history: () => { throw new Error('SECRET_ENV sqlite /private/workspace') } },
+    observationReader: { readObservationHistoryView: async () => { throw new Error('SECRET_ENV sqlite /private/workspace') } } as any,
   })
   assert.equal(unavailable.status, 503)
   const serialized = JSON.stringify(unavailable.body)

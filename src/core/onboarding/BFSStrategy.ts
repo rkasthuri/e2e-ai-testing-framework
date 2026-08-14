@@ -21,12 +21,15 @@ export interface CrawlConfig {
   maxDepth: number
 }
 
+export type PageDiscoverySink = (discovery: PageDiscovery) => Promise<void>
+
 export class BFSStrategy {
   private visitor: PageVisitor
 
   constructor(
     private config: CrawlConfig,
-    private budget: AiBudgetTracker
+    private budget: AiBudgetTracker,
+    private onPageDiscovered?: PageDiscoverySink,
   ) {
     this.visitor = new PageVisitor(config.baseUrl, budget)
   }
@@ -61,6 +64,7 @@ export class BFSStrategy {
         context, normalized, 'bfs', depth
       )
       discovered.push(discovery)
+      await this.onPageDiscovered?.(discovery)
 
       for (const outUrl of discovery.outboundUrls) {
         const norm = normalizeUrl(outUrl)

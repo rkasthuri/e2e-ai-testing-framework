@@ -12,7 +12,7 @@
 
 import { BrowserContext } from '@playwright/test'
 import { PageDiscovery, AiBudgetTracker }  from './types'
-import { BFSStrategy, CrawlConfig } from './BFSStrategy'
+import { BFSStrategy, CrawlConfig, type PageDiscoverySink } from './BFSStrategy'
 import { SPAStrategy }    from './SPAStrategy'
 import { normalizeUrl }   from './PageVisitor'
 import { ExplorationMap, createExplorationMap } from './PageExplorationRecord'
@@ -20,7 +20,8 @@ import { ExplorationMap, createExplorationMap } from './PageExplorationRecord'
 export class HybridStrategy {
   constructor(
     private config: CrawlConfig,
-    private budget: AiBudgetTracker
+    private budget: AiBudgetTracker,
+    private onPageDiscovered?: PageDiscoverySink,
   ) {}
 
   async crawl(
@@ -36,7 +37,7 @@ export class HybridStrategy {
     // allowance on OrangeHRM → 0 new pages) and discarded BFS's unused share.
     // The CrawlScheduler now provides real fairness (visits-first) without
     // artificial budget caps: BFS uses what it needs; SPA gets the rest.
-    const bfs = new BFSStrategy(this.config, this.budget)
+    const bfs = new BFSStrategy(this.config, this.budget, this.onPageDiscovered)
     const bfsResults = await bfs.crawl(context, startUrl, explorationMap, budget)
 
     // TD-124 (Nova Q3): seed SPA's frontier with ALL BFS-discovered-but-unswept
@@ -60,7 +61,7 @@ export class HybridStrategy {
     )
 
     // Pass the same explorationMap so SPA sees BFS's discoveries (swept-gated).
-    const bfsSpa = new SPAStrategy(this.config, this.budget)
+    const bfsSpa = new SPAStrategy(this.config, this.budget, this.onPageDiscovered)
     const spaResults = await bfsSpa.crawl(
       context, startUrl, explorationMap, spaRemaining,
       unsweptPages.length > 0 ? unsweptPages : undefined,

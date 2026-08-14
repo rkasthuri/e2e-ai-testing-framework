@@ -106,6 +106,7 @@ test('A3 POST /:app/authenticate auth app, env pair unset → 400 CREDENTIALS_RE
     const res = await once('POST', `/api/v1/projects/${app}/authenticate`, {})
     assert.equal(res.status, 400)
     assert.equal(res.json.code, 'CREDENTIALS_REQUIRED')
-    assert.match(res.json.error, /ZZ_AUTHTEST_400_USERNAME and ZZ_AUTHTEST_400_PASSWORD/)
+    assert.match(res.json.error, /governed credential reference is unavailable/)
+    assert.doesNotMatch(JSON.stringify(res.json), /ZZ_AUTHTEST_400_USERNAME|ZZ_AUTHTEST_400_PASSWORD/)
   } finally { cleanup(app) }
 })

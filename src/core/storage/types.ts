@@ -40,6 +40,10 @@ export interface RunsTable {
   // TD-126: run lifecycle — 'created'|'running'|'completed'|'failed'|'interrupted'.
   // Orthogonal to `status` (test outcome); DB default 'completed' (migration 012).
   lifecycle:           Generated<string>;
+  // Migration 021: legacy remains the default; Product linkage is explicit.
+  execution_id:        Generated<string | null>;
+  origin:              Generated<string>;
+  attempt_ordinal:     Generated<number | null>;
 }
 
 // ── Test Results ──────────────────────────────────────────────────────────────
@@ -62,6 +66,11 @@ export interface TestResultsTable {
   screenshot_path:   string | null;
   video_path:        string | null;
   metadata:          string;
+  // Migration 021: nullable exactly for historical/legacy Result rows.
+  result_id:                  Generated<string | null>;
+  execution_item_ordinal:     Generated<number | null>;
+  definition_id:              Generated<string | null>;
+  executable_plan_hash:       Generated<string | null>;
 }
 
 // ── Test Steps ────────────────────────────────────────────────────────────────
@@ -280,9 +289,14 @@ export interface TestSetRevisionsTable {
   revision: number;
   project_id: string;
   generation_id: string;
-  source_observation_id: string;
+  schema_version: Generated<number>;
+  source_observation_id: string | null;
   model_row_id: number;
   model_version: string;
+  observation_run_id: string | null;
+  support_seal_hash: string | null;
+  characterization_policy_id: string | null;
+  characterization_policy_version: string | null;
   generated_at: string;
   outcome: string;
   definition_count: number;
@@ -310,6 +324,202 @@ export interface TestGenerationLocksTable {
   acquired_at: string;
 }
 
+// ── Product execution lifecycle ─────────────────────────────────────────────
+export interface ExecutionEventsTable {
+  id: Generated<number>;
+  execution_id: string;
+  project_id: string;
+  event_type: string;
+  outcome: string | null;
+  occurred_at: string;
+  process_instance_id: string;
+  safe_code: string | null;
+  safe_message: string;
+  execution_plan_hash: string;
+  // Migration 023: NULL only for pre-023 rows; all new events are explicit.
+  lifecycle: Generated<string | null>;
+}
+
+export interface ExecutionLocksTable {
+  project_id: string;
+  execution_id: string;
+  process_instance_id: string;
+  acquired_at: string;
+  last_heartbeat_at: string;
+}
+
+export interface ExecutionsTable {
+  execution_id: string;
+  project_id: string;
+  accepted_at: string;
+  test_set_id: string;
+  test_set_revision: number;
+  definition_schema_version: number;
+  model_row_id: number;
+  model_version: string;
+  source_observation_id: string | null;
+  support_seal_hash: string | null;
+  route_evidence_identity_hash: string | null;
+  authentication_expectation_identity_hash: string | null;
+  manifest_hash: string;
+  max_run_attempts: number;
+  dispatch_mode: string;
+  stop_rule: string;
+}
+
+export interface ExecutionItemsTable {
+  execution_id: string;
+  item_ordinal: number;
+  definition_id: string;
+  executable_plan_hash: string;
+}
+
+// ── Canonical Observation authority ─────────────────────────────────────────
+export interface ObservationRunsTable {
+  observation_run_id: string;
+  project_id: string;
+  workspace_authority: string;
+  operation_id: string;
+  producer: string;
+  producer_version: string;
+  producer_instance_id: string;
+  producer_process_id: number;
+  acquisition_kind: string;
+  started_at: string;
+  terminal_at: string | null;
+  lifecycle: string;
+  completeness: string | null;
+  safe_reason_code: string | null;
+  safe_message: string | null;
+  policy_id: string;
+  policy_version: string;
+  acquisition_plan_hash: string;
+}
+
+export interface ObservationsTable {
+  observation_id: string;
+  observation_run_id: string;
+  project_id: string;
+  producer: string;
+  producer_version: string;
+  method: string;
+  method_version: string;
+  subject_id: string;
+  predicate: string;
+  outcome: string;
+  observed_value_json: string | null;
+  boundary_json: string;
+  captured_at: string;
+  idempotency_key: string;
+  integrity_hash: string;
+  provenance_class: string;
+  safe_reason_code: string | null;
+  safe_message: string | null;
+  artifact_links_sealed: number;
+}
+
+export interface ObservationGapsTable {
+  gap_id: string;
+  observation_run_id: string;
+  project_id: string;
+  producer: string;
+  producer_version: string;
+  intended_method: string;
+  intended_method_version: string;
+  intended_subject_id: string;
+  intended_predicate: string;
+  boundary_json: string;
+  reason: string;
+  occurred_at: string;
+  idempotency_key: string;
+  integrity_hash: string;
+  safe_message: string | null;
+}
+
+export interface ObservationArtifactsTable {
+  artifact_id: string;
+  observation_run_id: string;
+  project_id: string;
+  storage_key: string;
+  sha256: string;
+  media_type: string;
+  byte_size: number;
+  sensitivity_class: string;
+  redaction_state: string;
+  captured_at: string;
+  retention_class: string;
+  retention_policy_id: string;
+  retention_policy_version: string;
+  expires_at: string | null;
+}
+
+export interface ObservationArtifactLinksTable {
+  artifact_id: string;
+  project_id: string;
+  observation_id: string | null;
+  gap_id: string | null;
+  ordinal: number;
+}
+
+export interface AppModelObservationSupportTable {
+  model_row_id: number;
+  project_id: string;
+  observation_id: string;
+  claim_key: string;
+  support_role: string;
+  characterization_policy_id: string;
+  characterization_policy_version: string;
+  linked_at: string;
+}
+
+export interface AppModelSubjectSupportTable extends AppModelObservationSupportTable {
+  canonical_subject_id: string;
+}
+
+export interface AppModelGapSupportTable {
+  model_row_id: number;
+  project_id: string;
+  gap_id: string;
+  claim_key: string;
+  support_role: string;
+  characterization_policy_id: string;
+  characterization_policy_version: string;
+  linked_at: string;
+}
+
+export interface AppModelSupportSealsTable {
+  model_row_id: number;
+  project_id: string;
+  observation_run_id: string;
+  characterization_policy_id: string;
+  characterization_policy_version: string;
+  support_hash: string;
+  sealed_at: string;
+}
+
+export interface ObservationImportSourcesTable {
+  project_id: string;
+  source_kind: string;
+  source_path: string;
+  source_path_state: string;
+  source_schema: string;
+  original_id: string | null;
+  original_id_state: string;
+  content_hash: string;
+  capture_timestamp: string | null;
+  workspace_authority: string;
+  producer_identity: string | null;
+  producer_identity_state: string;
+  classification: string;
+  legacy_provenance_class: string;
+  reason_code: string;
+  imported_observation_id: string | null;
+  imported_observation_run_id: string | null;
+  imported_at: string;
+  import_policy_id: string;
+  import_policy_version: string;
+}
+
 // ── Master Database Interface ─────────────────────────────────────────────────
 export interface Database {
   runs:              RunsTable;
@@ -329,6 +539,20 @@ export interface Database {
   test_set_revisions: TestSetRevisionsTable;
   test_generation_events: TestGenerationEventsTable;
   test_generation_locks: TestGenerationLocksTable;
+  execution_events: ExecutionEventsTable;
+  execution_locks: ExecutionLocksTable;
+  executions: ExecutionsTable;
+  execution_items: ExecutionItemsTable;
+  observation_runs: ObservationRunsTable;
+  observations: ObservationsTable;
+  observation_gaps: ObservationGapsTable;
+  observation_artifacts: ObservationArtifactsTable;
+  observation_artifact_links: ObservationArtifactLinksTable;
+  app_model_observation_support: AppModelObservationSupportTable;
+  app_model_subject_support: AppModelSubjectSupportTable;
+  app_model_gap_support: AppModelGapSupportTable;
+  app_model_support_seals: AppModelSupportSealsTable;
+  observation_import_sources: ObservationImportSourcesTable;
 }
 
 // ── Convenience aliases ───────────────────────────────────────────────────────
@@ -378,3 +602,21 @@ export type TestSetRevision = Selectable<TestSetRevisionsTable>;
 export type NewTestSetRevision = Insertable<TestSetRevisionsTable>;
 export type TestGenerationEvent = Selectable<TestGenerationEventsTable>;
 export type NewTestGenerationEvent = Insertable<TestGenerationEventsTable>;
+export type ExecutionEvent = Selectable<ExecutionEventsTable>;
+export type NewExecutionEvent = Insertable<ExecutionEventsTable>;
+export type ExecutionLock = Selectable<ExecutionLocksTable>;
+export type NewExecutionLock = Insertable<ExecutionLocksTable>;
+export type Execution = Selectable<ExecutionsTable>;
+export type NewExecution = Insertable<ExecutionsTable>;
+export type ExecutionItem = Selectable<ExecutionItemsTable>;
+export type NewExecutionItem = Insertable<ExecutionItemsTable>;
+export type ObservationRunRow = Selectable<ObservationRunsTable>;
+export type NewObservationRunRow = Insertable<ObservationRunsTable>;
+export type ObservationRow = Selectable<ObservationsTable>;
+export type NewObservationRow = Insertable<ObservationsTable>;
+export type ObservationGapRow = Selectable<ObservationGapsTable>;
+export type NewObservationGapRow = Insertable<ObservationGapsTable>;
+export type ObservationArtifactRow = Selectable<ObservationArtifactsTable>;
+export type NewObservationArtifactRow = Insertable<ObservationArtifactsTable>;
+export type ObservationImportSourceRow = Selectable<ObservationImportSourcesTable>;
+export type NewObservationImportSourceRow = Insertable<ObservationImportSourcesTable>;

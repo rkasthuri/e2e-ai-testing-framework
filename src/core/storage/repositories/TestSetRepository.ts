@@ -10,12 +10,18 @@
  * of this software is strictly prohibited.
  */
 
-import { getDb } from '../db'
+import { getProductDb } from '../db'
 import {
+  generateCanonicalTestSetV2,
   generateEvidenceBackedTestSet,
   parseCanonicalTestSet,
+  TestDefinitionContractError,
   type CanonicalTestDefinition,
+  type CanonicalTestDefinitionV2,
   type CanonicalTestSet,
+  type CanonicalTestSetV1,
+  type CanonicalTestSetV2,
+  type CanonicalV2GenerationInput,
   type TestDesignAuthorityInput,
   type TestGenerationOutcome,
 } from '../../test-design/TestDefinitionContract'
@@ -38,9 +44,12 @@ export interface TestSetHistoryItem {
   generationId: string
   generatedAt: string
   outcome: TestGenerationOutcome
-  sourceObservationId: string
+  schemaVersion: 1 | 2
+  sourceObservationId: string | null
   modelRowId: number
   modelVersion: string
+  observationRunId: string | null
+  supportSealHash: string | null
   definitionCount: number
   contentHash: string
   startedAt: string
@@ -55,7 +64,7 @@ export interface TestInventoryRead {
   history: TestSetHistoryItem[]
   total: number
   nextCursor: string | null
-  requestedDefinition: { definition: CanonicalTestDefinition; revision: number; rowId: number } | null
+  requestedDefinition: { definition: CanonicalTestDefinition | CanonicalTestDefinitionV2; revision: number; rowId: number } | null
 }
 
 type TemporalRead = Pick<TestSetHistoryItem, 'startedAt' | 'completedAt' | 'temporalIntegrity' | 'temporalCode' | 'temporalExplanation'>
@@ -104,7 +113,7 @@ export class TestSetRepository {
     const limit = Math.min(Math.max(options.limit ?? DEFAULT_TEST_SET_HISTORY_LIMIT, 1), MAX_TEST_SET_HISTORY_LIMIT)
     const after = parseHistoryCursor(options.cursor ?? null, projectId, limit)
     if (Number.isNaN(after)) return { kind: 'invalid_cursor' }
-    const db = getDb()
+    const db = getProductDb()
     try {
       const totalRow = await db.selectFrom('test_set_revisions').select(({ fn }) => fn.countAll<number>().as('count')).where('project_id', '=', projectId).executeTakeFirstOrThrow()
       let query = db.selectFrom('test_set_revisions').selectAll().where('project_id', '=', projectId)
@@ -116,6 +125,23 @@ export class TestSetRepository {
         if (parsed.fingerprint !== row.content_hash || parsed.value.projectId !== projectId
           || parsed.value.revision !== row.revision || parsed.value.generationId !== row.generation_id
           || parsed.value.definitions.length !== row.definition_count) throw new MalformedTestSetError()
+        if (parsed.value.schemaVersion === 1) {
+          if (Number(row.schema_version) !== 1 || row.source_observation_id !== parsed.value.sourceObservationId
+            || row.model_row_id !== parsed.value.modelRowId || row.model_version !== parsed.value.modelVersion
+            || row.observation_run_id !== null || row.support_seal_hash !== null
+            || row.characterization_policy_id !== null || row.characterization_policy_version !== null) {
+            throw new MalformedTestSetError()
+          }
+        } else {
+          const authority = parsed.value.canonicalSupport
+          if (Number(row.schema_version) !== 2 || row.source_observation_id !== null
+            || row.model_row_id !== authority.modelRowId || row.model_version !== authority.modelVersion
+            || row.observation_run_id !== authority.observationRunId || row.support_seal_hash !== authority.supportSealHash
+            || row.characterization_policy_id !== authority.characterizationPolicy.id
+            || row.characterization_policy_version !== authority.characterizationPolicy.version) {
+            throw new MalformedTestSetError()
+          }
+        }
         return parsed.value
       }
       const temporalFor = async (generationId: string): Promise<TemporalRead> => {
@@ -149,8 +175,13 @@ export class TestSetRepository {
         history: parsedPage.map(({ row, value, temporal }) => ({
           rowId: Number(row.id), testSetId: value.testSetId, revision: value.revision,
           generationId: value.generationId, generatedAt: value.generatedAt, outcome: value.outcome,
-          sourceObservationId: value.sourceObservationId, modelRowId: value.modelRowId,
-          modelVersion: value.modelVersion, definitionCount: value.definitions.length,
+          schemaVersion: value.schemaVersion,
+          sourceObservationId: value.schemaVersion === 1 ? value.sourceObservationId : null,
+          modelRowId: value.schemaVersion === 1 ? value.modelRowId : value.canonicalSupport.modelRowId,
+          modelVersion: value.schemaVersion === 1 ? value.modelVersion : value.canonicalSupport.modelVersion,
+          observationRunId: value.schemaVersion === 2 ? value.canonicalSupport.observationRunId : null,
+          supportSealHash: value.schemaVersion === 2 ? value.canonicalSupport.supportSealHash : null,
+          definitionCount: value.definitions.length,
           contentHash: row.content_hash,
           ...temporal,
         })),
@@ -166,7 +197,7 @@ export class TestSetRepository {
   }
 
   async beginGeneration(projectId: string, generationId: string, processInstanceId: string, startedAt: string): Promise<void> {
-    const db = getDb()
+    const db = getProductDb()
     await db.transaction().execute(async trx => {
       const lock = await trx.selectFrom('test_generation_locks').selectAll().where('project_id', '=', projectId).executeTakeFirst()
       if (lock?.process_instance_id === processInstanceId) throw new DuplicateTestGenerationError()
@@ -180,8 +211,8 @@ export class TestSetRepository {
     })
   }
 
-  async commitGeneration(input: TestDesignAuthorityInput, generationId: string, processInstanceId: string): Promise<{ rowId: number; testSet: CanonicalTestSet; contentHash: string }> {
-    const db = getDb()
+  async commitGeneration(input: TestDesignAuthorityInput, generationId: string, processInstanceId: string): Promise<{ rowId: number; testSet: CanonicalTestSetV1; contentHash: string }> {
+    const db = getProductDb()
     return db.transaction().execute(async trx => {
       const lock = await trx.selectFrom('test_generation_locks').selectAll().where('project_id', '=', input.projectId).executeTakeFirst()
       if (!lock || lock.generation_id !== generationId || lock.process_instance_id !== processInstanceId) throw new DuplicateTestGenerationError()
@@ -208,8 +239,76 @@ export class TestSetRepository {
     })
   }
 
+  async commitCanonicalV2Generation(
+    input: CanonicalV2GenerationInput,
+    generationId: string,
+    processInstanceId: string,
+  ): Promise<{ rowId: number; testSet: CanonicalTestSetV2; contentHash: string }> {
+    const db = getProductDb()
+    return db.transaction().execute(async trx => {
+      const lock = await trx.selectFrom('test_generation_locks').selectAll()
+        .where('project_id', '=', input.projectId).executeTakeFirst()
+      if (!lock || lock.generation_id !== generationId || lock.process_instance_id !== processInstanceId) {
+        throw new DuplicateTestGenerationError()
+      }
+      const [active, seal, latest] = await Promise.all([
+        trx.selectFrom('app_models').select(['id', 'version']).where('app_name', '=', input.projectId)
+          .where('status', '=', 'active').orderBy('id', 'desc').limit(2).execute(),
+        trx.selectFrom('app_model_support_seals').selectAll()
+          .where('model_row_id', '=', input.authority.modelRowId).executeTakeFirst(),
+        trx.selectFrom('test_set_revisions').select('revision').where('project_id', '=', input.projectId)
+          .orderBy('revision', 'desc').limit(1).executeTakeFirst(),
+      ])
+      if (active.length !== 1 || Number(active[0].id) !== input.authority.modelRowId
+        || active[0].version !== input.authority.modelVersion || !seal
+        || seal.observation_run_id !== input.authority.observationRunId
+        || seal.support_hash !== input.authority.supportSealHash
+        || seal.characterization_policy_id !== input.authority.characterizationPolicy.id
+        || seal.characterization_policy_version !== input.authority.characterizationPolicy.version) {
+        throw new TestDefinitionContractError('STALE_AUTHORITY')
+      }
+      const materialized = generateCanonicalTestSetV2(input, generationId, (latest?.revision ?? 0) + 1)
+      const inserted = await trx.insertInto('test_set_revisions').values({
+        test_set_id: materialized.value.testSetId,
+        revision: materialized.value.revision,
+        project_id: input.projectId,
+        generation_id: generationId,
+        schema_version: 2,
+        source_observation_id: null,
+        model_row_id: materialized.value.canonicalSupport.modelRowId,
+        model_version: materialized.value.canonicalSupport.modelVersion,
+        observation_run_id: materialized.value.canonicalSupport.observationRunId,
+        support_seal_hash: materialized.value.canonicalSupport.supportSealHash,
+        characterization_policy_id: materialized.value.canonicalSupport.characterizationPolicy.id,
+        characterization_policy_version: materialized.value.canonicalSupport.characterizationPolicy.version,
+        generated_at: materialized.value.generatedAt,
+        outcome: materialized.value.outcome,
+        definition_count: materialized.value.definitions.length,
+        payload_json: materialized.json,
+        content_hash: materialized.fingerprint,
+      }).returning('id').executeTakeFirstOrThrow()
+      const rowId = Number(inserted.id)
+      await trx.insertInto('test_generation_events').values({
+        generation_id: generationId,
+        project_id: input.projectId,
+        event_type: 'terminal',
+        outcome: materialized.value.outcome,
+        occurred_at: input.generatedAt,
+        process_instance_id: processInstanceId,
+        test_set_row_id: rowId,
+        safe_code: null,
+        safe_message: materialized.value.outcome === 'blocked'
+          ? 'Canonical v2 definitions were persisted with unresolved authentication semantics preserved as blocked.'
+          : 'Canonical v2 definitions were persisted from sealed support, governed routes, and declared authentication expectation.',
+      }).execute()
+      await trx.deleteFrom('test_generation_locks').where('project_id', '=', input.projectId)
+        .where('generation_id', '=', generationId).execute()
+      return { rowId, testSet: materialized.value, contentHash: materialized.fingerprint }
+    })
+  }
+
   async failGeneration(projectId: string, generationId: string, processInstanceId: string, completedAt: string, code: string, message: string): Promise<void> {
-    const db = getDb()
+    const db = getProductDb()
     await db.transaction().execute(async trx => {
       const existing = await trx.selectFrom('test_generation_events').select('id').where('generation_id', '=', generationId).where('event_type', '=', 'terminal').executeTakeFirst()
       if (!existing) await trx.insertInto('test_generation_events').values({
@@ -222,7 +321,7 @@ export class TestSetRepository {
   }
 
   async readGenerationStatus(projectId: string, generationId: string, processInstanceId: string): Promise<TestGenerationStatusRead | null> {
-    const db = getDb()
+    const db = getProductDb()
     try {
       const events = await db.selectFrom('test_generation_events').selectAll().where('project_id', '=', projectId).where('generation_id', '=', generationId).orderBy('id').execute()
       const started = events.find(event => event.event_type === 'started')

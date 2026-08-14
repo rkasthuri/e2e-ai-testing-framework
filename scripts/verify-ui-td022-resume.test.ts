@@ -62,6 +62,10 @@ test('D1 getActiveJob: running job returned, then null after complete', async ()
   let p: Promise<string> | undefined
   try {
     p = jr.submit({ jobId: 'j1', type: 'generate', appName: 'app-a', options: {} })
+    // submit() intentionally exposes queued for one microtask before entering
+    // running and invoking the held engine. Wait for that documented boundary
+    // so release() cannot race ahead of resolver registration.
+    await Promise.resolve()
     const active = jr.getActiveJob('app-a')
     assert.equal(active?.jobId, 'j1')
     assert.equal(active?.status, 'running')
@@ -79,6 +83,7 @@ test('D2 getActiveJob: null after a failed job', async () => {
   let p: Promise<string> | undefined
   try {
     p = jr.submit({ jobId: 'j2', type: 'generate', appName: 'app-b', options: {} })
+    await Promise.resolve()
     assert.equal(jr.getActiveJob('app-b')?.jobId, 'j2')
     engine.release({ jobId: 'x', status: 'failed', error: 'boom' })
     await p
@@ -100,6 +105,7 @@ test('D4 getActiveJob: correct appName→jobId index across concurrent apps', as
   try {
     pA = jr.submit({ jobId: 'jA', type: 'generate', appName: 'conc-a', options: {} })
     pB = jr.submit({ jobId: 'jB', type: 'generate', appName: 'conc-b', options: {} })
+    await Promise.resolve()
     assert.equal(jr.getActiveJob('conc-a')?.jobId, 'jA')
     assert.equal(jr.getActiveJob('conc-b')?.jobId, 'jB')
     engine.release({ jobId: 'x', status: 'completed' })

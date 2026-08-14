@@ -16,9 +16,8 @@
  * A CredentialReference names WHERE the secret lives (env var names) and is the
  * only credential shape ever persisted (in the forge-ui sidecar
  * ~/.forge-projects/<app>/.forge/credentials.json). CredentialMaterial holds the
- * actual values and is created only in-memory by the resolver / ExecutionContext,
- * never written to disk. The engine (src/) sees neither type — ExecutionContext
- * translates material down to the engine's existing credential input.
+ * actual values and is created only inside the engine CredentialExecutionScope,
+ * never written to disk or owned by forge-ui.
  */
 
 /** WHERE the secret lives — env var names, never the secret itself. */
@@ -28,11 +27,6 @@ export interface CredentialReference {
 }
 
 /** The materialized secret — in-memory only; only the resolver/ExecutionContext holds it. */
-export interface CredentialMaterial {
-  username: string
-  password: string
-}
-
 /**
  * Base for all pre-flight credential refusals. Thrown BEFORE the engine runs;
  * JobRunner catches this base and surfaces `.message` to the Mission Timeline +
@@ -50,11 +44,7 @@ export class CredentialError extends CredentialErrorBase {
     readonly authType: string,
     readonly reference: CredentialReference,
   ) {
-    super(
-      `Crawl refused — ${appName} requires authentication (authType: ${authType}) ` +
-      `but no credentials were found. Set ${reference.usernameEnv} and ` +
-      `${reference.passwordEnv} in the environment before starting FORGE UI, then retry.`,
-    )
+    super(`Crawl refused: ${appName} requires authentication, but its governed credential reference is unavailable to the backend. Configure the project credential source, restart the backend, and retry.`)
     this.name = 'CredentialError'
   }
 }

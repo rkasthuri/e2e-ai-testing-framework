@@ -40,3 +40,10 @@ Negative:
 
 ## Related Documents
 TECH_DEBT.md (TD-069 resolved, TD-070 run-identity spine), ARCHITECTURE_NORTH_STAR.md.
+
+## Implementation Note - 2026-08-10
+
+ADR-025 clarifies that this canonical Run identity is not an Execution identity.
+Product Runs retain their own immutable `run_id` and relate to an accepted
+Execution through nullable `execution_id` plus `attempt_ordinal`; legacy CLI/CI
+Runs remain unlinked and keep the identity behavior decided here.

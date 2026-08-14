@@ -107,7 +107,7 @@ test('TD184A-1 rehearses 015 -> 016 -> 017 -> 018 without reconstruction, trigge
   `.execute(db)).rows.map(row => row.name)
 
   assert.deepEqual(
-    await runSqliteMigrationCoordinator(db, migrations),
+    await runSqliteMigrationCoordinator(db, through('018_app_models_recovery_provenance')),
     [
       '016_app_models_single_active',
       '017_app_models_operation_identity',

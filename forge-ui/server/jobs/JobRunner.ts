@@ -14,7 +14,6 @@ import { executionContext } from '../context/ExecutionContext'
 import { logBuffer } from '../registry/LogBuffer'
 import { workspaceResolver } from '../context/WorkspaceResolver'
 import { CredentialErrorBase } from '../context/credentials/CredentialTypes'
-import { observationStore, type ObservationStore } from '../registry/ObservationStore'
 
 /**
  * JobRunner — owns the lifecycle of a long-running engine operation (ADR-012).
@@ -66,7 +65,9 @@ export interface JobStatusView extends JobStatus {
  *  engine's OperatorFacingError across the ExecutionContext boundary (Block 4b).
  *  Structural check: forge-ui never imports the engine error class. */
 function hasOperatorFacingCode(err: unknown): boolean {
-  return !!err && typeof err === 'object' && typeof (err as { errorCode?: unknown }).errorCode === 'string'
+  return !!err && typeof err === 'object'
+    && (err as { safeForPresentation?: unknown }).safeForPresentation === true
+    && typeof (err as { errorCode?: unknown }).errorCode === 'string'
 }
 
 export class ObservationStatusReadError extends Error {
@@ -82,9 +83,9 @@ export class JobRunner {
   // remounted CrawlPage can rediscover an in-flight crawl (resume).
   private currentExecution = new Map<string, string>()
 
-  constructor(
-    private readonly observations: Pick<ObservationStore, 'resolve'> = observationStore,
-  ) {}
+  constructor(private readonly legacyCompatibilityReader?: {
+    resolve(jobId: string, expectedProjectId?: string): any
+  }) {}
 
   /**
    * Run a job to completion. The route fires this WITHOUT awaiting, so POST can
@@ -140,15 +141,23 @@ export class JobRunner {
         // catch can surface the message to the Mission Timeline. The engine's
         // typed OperatorFacingError was stringified at the ExecutionContext
         // boundary; the code is what survives (Block 4b).
-        const e = new Error(result.error ?? `${job.type} failed`) as Error & { errorCode?: string }
-        if (result.errorCode) e.errorCode = result.errorCode
+        const e = new Error(result.error ?? `${job.type} failed`) as Error & {
+          errorCode?: string
+          safeForPresentation?: true
+        }
+        if (result.errorCode) {
+          e.errorCode = result.errorCode
+          e.safeForPresentation = true
+        }
         throw e
       }
       status.result = result.result
       status.status = 'completed'
     } catch (err) {
       status.status = 'failed'
-      status.error = err instanceof Error ? err.message : String(err)
+      status.error = err instanceof CredentialErrorBase || hasOperatorFacingCode(err)
+        ? (err as Error).message
+        : 'The operation failed without safe diagnostic detail.'
       if (hasOperatorFacingCode(err)) status.errorCode = (err as Error & { errorCode: string }).errorCode
       // Surface operator-facing precondition failures to the Mission Timeline
       // (not just job status). TWO rails, both intact:
@@ -174,8 +183,8 @@ export class JobRunner {
 
   /**
    * Lifecycle + live log lines for the client poll. Live process state wins.
-   * After restart, crawl observations fall back to their immutable records;
-   * mutable Application Model state is never used to reconstruct job status.
+   * Restart reads are delegated by the route to the canonical core projection;
+   * mutable Application Model or compatibility files never reconstruct status.
    */
   getStatus(jobId: string, expectedProjectId?: string): JobStatusView | null {
     const status = this.jobs.get(jobId)
@@ -185,7 +194,11 @@ export class JobRunner {
       return { ...status, lines, complete }
     }
 
-    const persisted = this.observations.resolve(jobId, expectedProjectId)
+    // Explicitly injected compatibility readers remain available to legacy
+    // callers. Production wiring injects nothing and routes restart reads to
+    // ObservationReadProjectionService instead.
+    if (!this.legacyCompatibilityReader) return null
+    const persisted = this.legacyCompatibilityReader.resolve(jobId, expectedProjectId)
     if (persisted.kind === 'not_found' || persisted.kind === 'ownership_mismatch') return null
     if (persisted.kind === 'malformed') throw new ObservationStatusReadError()
     if (persisted.kind === 'interrupted') {

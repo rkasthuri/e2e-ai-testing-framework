@@ -26,11 +26,14 @@ import { jobRunner } from '../jobs/JobRunner'
 import { credentialResolver } from '../context/credentials/CredentialResolver'
 import { credentialStore, CredentialStore } from '../context/credentials/CredentialStore'
 import { CredentialError, CredentialErrorBase } from '../context/credentials/CredentialTypes'
-import { observationStore } from '../registry/ObservationStore'
 import { readApplicationModelHistory } from '../context/ApplicationModelHistoryController'
+import { readApplicationEvidenceInventory } from '../context/ApplicationEvidenceInventoryController'
 import { readEvidenceLedger } from '../context/EvidenceLedgerController'
 import { readApplicationReadiness } from '../context/ApplicationReadinessController'
 import { generateTestInventory, readTestDefinition, readTestGenerationStatus, readTestInventory } from '../context/TestInventoryController'
+import { readExecutionPreflight } from '../context/ExecutionPreflightController'
+import { cancelExecution, readExecutionStatus, startExecution } from '../context/ExecutionLifecycleController'
+import { listExecutionResults, readExecutionResults } from '../context/ExecutionResultsController'
 
 // Known fixture apps — last-resort fallback (fixture-specific, intentional:
 // fixtures use .ts onboarding configs, not .forge/config.json, so they won't
@@ -179,7 +182,7 @@ router.get('/:appName', async (req, res) => {
     appType: cfg.appType ?? '', crawlStrategy: cfg.crawlStrategy ?? '', authType: cfg.authType ?? '',
     createdAt: entry.createdAt, lastOpenedAt: entry.lastOpenedAt, workspacePath: entry.workspacePath,
   }
-  const latestObservation = observationStore.latest(appName)
+  const latestObservation = await executionContext.readLatestObservationView(appName)
   res.json(ok({ project, detection, latestObservation }))
 })
 
@@ -201,6 +204,18 @@ router.get('/:appName/model', async (req, res) => {
 // bounded projection over existing evidence authorities; it never creates a
 // ledger store or serializes raw model, bootstrap, diagnostic, or page content.
 router.get('/:appName/evidence', async (req, res) => {
+  const result = await readApplicationEvidenceInventory(
+    req.params.appName,
+    req.query as Record<string, unknown>,
+    async appName => projectRegistry.find(appName)
+      ?? (await discoverProjects()).find(project => project.appName === appName),
+  )
+  res.status(result.status).json(result.body)
+})
+
+// Explicit historical compatibility endpoint. It is never consulted by the
+// canonical Product evidence route or active execution/readiness consumers.
+router.get('/:appName/compatibility/evidence', async (req, res) => {
   const result = await readEvidenceLedger(
     req.params.appName,
     req.query as Record<string, unknown>,
@@ -243,6 +258,47 @@ router.get('/:appName/test-definitions/:definitionId', async (req, res) => {
 
 router.get('/:appName/test-definitions/generations/:generationId', async (req, res) => {
   const result = await readTestGenerationStatus(req.params.appName, req.params.generationId, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+// POST /api/v1/projects/:appName/execution/preflight — TD-UI-069A-C. Read-only,
+// non-persistent re-verification of whether the current test-set revision's
+// selected definitions could be executed right now. Never submits work through
+// ExecutionContext and never mints an execution identity or lock.
+router.post('/:appName/execution/preflight', async (req, res) => {
+  const result = await readExecutionPreflight(req.params.appName, req.body, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+// TD-UI-069B-B: 202 is returned only after ExecutionService atomically commits
+// the execution lock and started event. The route never invokes Playwright.
+router.post('/:appName/execution/start', async (req, res) => {
+  const result = await startExecution(req.params.appName, req.body, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+// Durable lifecycle status; missing process/lock is never promoted to success.
+router.get('/:appName/execution/:executionId/status', async (req, res) => {
+  const result = await readExecutionStatus(req.params.appName, req.params.executionId, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+// Durable operator intent is written before ExecutionService signals its
+// execution-scoped cooperative token. The route never touches the runner.
+router.post('/:appName/execution/:executionId/cancel', async (req, res) => {
+  const result = await cancelExecution(req.params.appName, req.params.executionId, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+// Read-only Product workspace Results projections. These routes never invoke
+// execution or recovery and never federate legacy repo-root evidence.
+router.get('/:appName/executions', async (req, res) => {
+  const result = await listExecutionResults(req.params.appName, req.query as Record<string, unknown>, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.get('/:appName/executions/:executionId/results', async (req, res) => {
+  const result = await readExecutionResults(req.params.appName, req.params.executionId, resolveKnownProject)
   res.status(result.status).json(result.body)
 })
 
@@ -291,8 +347,7 @@ router.post('/', async (req, res) => {
   try {
     const submittedUser = typeof username === 'string' && username.trim() ? username.trim() : undefined
     const submittedPass = typeof password === 'string' && password ? password : undefined
-    const envUser = process.env[ref.usernameEnv]
-    const envPass = process.env[ref.passwordEnv]
+    const envReference = credentialResolver.resolve(appName)
 
     if (submittedUser && submittedPass) {
       // Credentials supplied by the onboarding form are used for this run only.
@@ -303,12 +358,12 @@ router.post('/', async (req, res) => {
       })
       if (job.status === 'failed')
         return res.status(500).json(fail(job.error ?? 'onboarding failed', 'ENGINE_ERROR'))
-    } else if (envUser && envPass) {
-      // Env pair present → SINGLE authenticated bootstrap (detect + auth in one
-      // force crawl). Creds passed directly (ExecutionContext respects options).
+    } else if (envReference) {
+      // Available reference → one authenticated bootstrap. The engine scope,
+      // not this route, materializes the values.
       const job = await executionContext.submit({
         type: 'crawl', appName,
-        options: { url, appName, workspace: ws, force: true, username: envUser, password: envPass },
+        options: { url, appName, workspace: ws, force: true, credentialReference: envReference },
       })
       if (job.status === 'failed')
         return res.status(500).json(fail(job.error ?? 'onboarding failed', 'ENGINE_ERROR'))
@@ -357,13 +412,14 @@ router.post('/', async (req, res) => {
     // and do NOT register (never leave the app half-onboarded).
     if (err instanceof CredentialErrorBase)
       return res.status(400).json(fail(err.message, 'CREDENTIALS_REQUIRED'))
-    const message = err instanceof Error ? err.message : 'Unexpected onboarding failure'
-    const safeMessage = [username, password]
-      .filter((secret): secret is string => typeof secret === 'string' && secret.length > 0)
-      .reduce((safe, secret) => safe.split(secret).join('[redacted]'), message)
+    const safeMessage = 'Onboarding failed without safe diagnostic detail.'
     console.error('[FORGE UI] Onboarding failed:', safeMessage)
     return res.status(500).json(fail(safeMessage, 'INTERNAL_ERROR'))
   } finally {
+    if (req.body && typeof req.body === 'object') {
+      delete req.body.username
+      delete req.body.password
+    }
     console.log = origLog
     console.warn = origWarn
     if (jobId) logBuffer.markComplete(jobId)

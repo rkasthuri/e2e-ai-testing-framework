@@ -13,7 +13,7 @@
 import { BrowserContext, Locator, Page } from '@playwright/test'
 import { PageDiscovery, AiBudgetTracker, ElementDefinition }  from './types'
 import { PageVisitor, isDenied, isSameOrigin, normalizeUrl } from './PageVisitor'
-import { CrawlConfig }    from './BFSStrategy'
+import { CrawlConfig, type PageDiscoverySink } from './BFSStrategy'
 import { ExplorationMap, createExplorationMap, isDiscovered, isSwept, markDiscovered, markSwept } from './PageExplorationRecord'
 import { CrawlScheduler } from './CrawlScheduler'
 
@@ -74,7 +74,8 @@ export class SPAStrategy {
 
   constructor(
     private config: CrawlConfig,
-    private budget: AiBudgetTracker
+    private budget: AiBudgetTracker,
+    private onPageDiscovered?: PageDiscoverySink,
   ) {
     this.visitor = new PageVisitor(config.baseUrl, budget)
   }
@@ -131,6 +132,7 @@ export class SPAStrategy {
       // never re-classify (TD-129), whichever queue it arrived from.
       let page: Page
       let elementsForDiscovery: ElementDefinition[]
+      let pageDiscoveryToPersist: PageDiscovery | null = null
       if (isDiscovered(explorationMap, normalized)) {
         // Sweep-only (TD-129): open WITHOUT ElementClassifier — zero AI budget.
         const res = await this.visitor.visitForDiscoveryOnly(context, normalized)
@@ -143,6 +145,7 @@ export class SPAStrategy {
         const res = await this.visitor.visitKeepOpen(context, normalized, 'spa', work.depth)
         page = res.page
         discovered.push(res.discovery)
+        pageDiscoveryToPersist = res.discovery
         markDiscovered(explorationMap, normalized)
         elementsForDiscovery = res.discovery.elements
       }
@@ -150,6 +153,7 @@ export class SPAStrategy {
       markSwept(explorationMap, normalized)
 
       try {
+        if (pageDiscoveryToPersist) await this.onPageDiscovered?.(pageDiscoveryToPersist)
         // S4: budget gate before discovery unchanged. S1: per-item depth gate
         // (the flat queue has no generations — each item carries its depth).
         if (work.depth < maxDepth && pagesOpened < budget) {

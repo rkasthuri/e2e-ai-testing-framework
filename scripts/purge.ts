@@ -10,10 +10,11 @@
  * of this software is strictly prohibited.
  */
 
-import { runMigrations, closeDb } from '../src/core/storage'
+import { runMigrations, closeDb, initLegacyRuntimeDatabase } from '../src/core/storage'
 import { PurgeJob }               from '../src/core/storage/PurgeJob'
 
 async function main() {
+  initLegacyRuntimeDatabase()
   await runMigrations()
   const job = new PurgeJob()
   await job.run()

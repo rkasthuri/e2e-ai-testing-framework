@@ -74,11 +74,13 @@ test('S4 sidecar stores ONLY pointer names + schemaVersion (never secrets)', () 
 
 // ── EnvCredentialResolver ─────────────────────────────────────────────────────
 
-test('R1 resolves material from default-derived env vars (auth required)', () => {
+test('R1 resolves only the default-derived reference when material is available', () => {
   process.env.SAUCEDEMO_USERNAME = 'standard_user'
   process.env.SAUCEDEMO_PASSWORD = 'secret_sauce'
   const r = new EnvCredentialResolver(emptyStore(), () => 'form-login')
-  assert.deepEqual(r.resolve('saucedemo'), { username: 'standard_user', password: 'secret_sauce' })
+  assert.deepEqual(r.resolve('saucedemo'), {
+    usernameEnv: 'SAUCEDEMO_USERNAME', passwordEnv: 'SAUCEDEMO_PASSWORD',
+  })
   clearEnv('SAUCEDEMO_USERNAME', 'SAUCEDEMO_PASSWORD')
 })
 
@@ -89,8 +91,8 @@ test('R2 hard-fails with CredentialError when auth required + creds unset', () =
     assert.ok(e instanceof CredentialError)
     const ce = e as CredentialError
     assert.equal(ce.appName, 'saucedemo')
-    assert.match(ce.message, /requires authentication \(authType: form-login\)/)
-    assert.match(ce.message, /SAUCEDEMO_USERNAME and SAUCEDEMO_PASSWORD/)
+    assert.match(ce.message, /requires authentication/)
+    assert.doesNotMatch(ce.message, /SAUCEDEMO_USERNAME|SAUCEDEMO_PASSWORD/)
     return true
   })
 })
@@ -106,7 +108,7 @@ test('R4 custom sidecar reference overrides the default names', () => {
   store.write('saucedemo', { usernameEnv: 'CUSTOM_U', passwordEnv: 'CUSTOM_P' })
   process.env.CUSTOM_U = 'u'; process.env.CUSTOM_P = 'p'
   const r = new EnvCredentialResolver(store, () => 'form-login')
-  assert.deepEqual(r.resolve('saucedemo'), { username: 'u', password: 'p' })
+  assert.deepEqual(r.resolve('saucedemo'), { usernameEnv: 'CUSTOM_U', passwordEnv: 'CUSTOM_P' })
   clearEnv('CUSTOM_U', 'CUSTOM_P')
 })
 
@@ -120,7 +122,7 @@ test('R5 partial creds (username only) still hard-fails when auth required', () 
 
 // ── planCrawlCredentials (ADR-013 crawl injection decision) ────────────────────
 
-const MAT = { username: 'u', password: 'p' }
+const MAT = { usernameEnv: 'U', passwordEnv: 'P' }
 
 test('CP1 planCrawlCredentials: force → Path A', () => {
   assert.deepEqual(planCrawlCredentials({ credentials: { envKey: 'X' } }, MAT, { force: true }), { path: 'A' })

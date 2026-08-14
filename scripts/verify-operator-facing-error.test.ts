@@ -65,10 +65,10 @@ test('E2 END-TO-END: generate with no model → ModelNotFoundError message reach
     assert.equal(status!.status, 'failed')
     // Clean operator message on job status — no internal [GeneratorRunner] tag,
     // no "Error:" prefix (the operator-facing rail preserves the raw .message).
-    assert.equal(status!.error, `No crawled model for '${appName}'. Run a crawl before generating tests.`)
+    assert.equal(status!.error, 'No current App Model is available. Run a crawl before continuing.')
     // THE POINT OF THE BLOCK — the message is in the Mission Timeline lines[].
     assert.ok(
-      status!.lines.some(l => l.includes('⛔') && l.includes(`No crawled model for '${appName}'`)),
+      status!.lines.some(l => l.includes('⛔') && l.includes('No current App Model is available')),
       `operator message missing from Timeline lines[] — lines: ${JSON.stringify(status!.lines)}`,
     )
   } finally {

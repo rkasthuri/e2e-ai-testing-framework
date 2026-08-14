@@ -158,3 +158,15 @@ Remedy), ADR-011 (Verify Before Assert), ADR-006 (Truth-Telling and Earned
 Evidence), TD-UI-041 (the audit), TD-UI-042/043/044, TD-UI-040, TD-037 (hybrid
 edge attribution), TD-063 (triage evidence-gate), TD-110 (unhydrated-page
 detection).
+
+## Clarification Note — 2026-08-11 (TD-ARCH-003-B0)
+
+[`ADR-027`](ADR-027-canonical-observation-authority-and-evidence-semantics.md)
+defines the durable form of the crawl/onboarding facts governed here.
+A completed governed method persists an immutable Observation; an intended
+attempt that did not establish a fact persists an immutable ObservationGap.
+Large or sensitive payloads persist through hashed ArtifactReferences with
+retention tombstones. `not observed` is therefore kept as a gap and must never
+be collapsed into an `absent` Observation. Compatibility records with ambiguous
+or reconstructed provenance remain explicitly lower-integrity sources rather
+than being promoted to native Observation authority.

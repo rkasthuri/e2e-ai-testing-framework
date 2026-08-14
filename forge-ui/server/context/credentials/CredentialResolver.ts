@@ -13,18 +13,18 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { credentialStore, CredentialStore } from './CredentialStore'
-import { CredentialError, type CredentialMaterial, type CredentialReference } from './CredentialTypes'
+import { CredentialError, type CredentialReference } from './CredentialTypes'
 import { workspaceResolver } from '../WorkspaceResolver'
 
 /**
  * ADR-013 — resolves an app's credentials for a crawl. Abstract so future
  * resolvers (OS keychain TD-UI-009, cloud secrets Phase 2) swap in without
- * touching callers. `resolve()` returns the material, `null` for a guest app
- * (authType 'none' with no creds), or throws `CredentialError` when auth is
- * required but the material is unresolved (pre-flight hard-fail).
+ * touching callers. `resolve()` checks availability and returns only the
+ * governed reference, `null` for a guest app, or throws `CredentialError` when
+ * auth is required but unavailable. The engine scope alone materializes values.
  */
 export abstract class CredentialResolver {
-  abstract resolve(appName: string): CredentialMaterial | null
+  abstract resolve(appName: string): CredentialReference | null
 }
 
 /** Reads authType from an app's engine-owned .forge/config.json (read-only). */
@@ -48,14 +48,14 @@ export class EnvCredentialResolver extends CredentialResolver {
     super()
   }
 
-  resolve(appName: string): CredentialMaterial | null {
+  resolve(appName: string): CredentialReference | null {
     const authType  = this.readAuthType(appName)
     // Recorded sidecar reference, else default-derived <APP>_USERNAME/<APP>_PASSWORD.
     const reference = this.store.read(appName) ?? CredentialStore.defaultReference(appName)
     const username  = process.env[reference.usernameEnv]
     const password  = process.env[reference.passwordEnv]
 
-    if (username && password) return { username, password }
+    if (username && password) return reference
 
     // Unresolved: hard-fail when auth is required; otherwise guest (no material).
     this.assertPresent(appName, authType, reference)

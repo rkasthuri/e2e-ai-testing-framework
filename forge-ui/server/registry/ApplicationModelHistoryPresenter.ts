@@ -10,8 +10,6 @@
  * of this software is strictly prohibited.
  */
 
-import { observationStore, type ObservationStore } from './ObservationStore'
-
 type ProjectionState = 'current' | 'unavailable' | 'invalid' | 'mismatched' | 'not_evaluated'
 type ValidationState = 'valid' | 'invalid' | 'malformed'
 type IntegrityState = 'verified' | 'failed' | 'not_evaluated'
@@ -36,6 +34,9 @@ interface SafeEngineModel {
   crawledAt: string | null
   evidenceState: 'crawled' | 'crawled-empty' | 'unsupported-platform' | 'unknown'
   sourceObservationId: string | null
+  sourceObservationRunId: string | null
+  supportObservationIds: string[]
+  supportGapIds: string[]
   validation: ValidationState
   integrity: IntegrityState
   modelFingerprint: string
@@ -162,40 +163,33 @@ function parseEngineHistory(value: unknown, projectId: string): SafeEngineHistor
   return value as unknown as SafeEngineHistory
 }
 
-function sourceObservation(
-  projectId: string,
-  observationId: string | null,
-  observations: Pick<ObservationStore, 'resolve'>,
-) {
-  if (!observationId) return null
-  const resolved = observations.resolve(observationId, projectId)
-  if (resolved.kind !== 'terminal') {
-    return {
-      id: observationId,
-      available: false,
-      outcome: null,
-      startedAt: null,
-      completedAt: null,
-      subjectEvidence: new Map<string, string>(),
-    }
-  }
+interface CanonicalProjectionInput {
+  runs: Array<{ runId: string; lifecycle: string; startedAt: string; terminalAt: string | null }>
+  observations: Array<{ observationId: string; runId: string; subject: string }>
+}
+
+function sourceObservation(model: SafeEngineModel, projection: CanonicalProjectionInput) {
+  const observationId = model.supportObservationIds[0] ?? null
+  if (!observationId || !model.sourceObservationRunId) return null
+  const run = projection.runs.find(item => item.runId === model.sourceObservationRunId)
+  const supported = projection.observations.filter(item =>
+    model.supportObservationIds.includes(item.observationId) && item.runId === model.sourceObservationRunId)
   return {
     id: observationId,
-    available: true,
-    outcome: resolved.terminal.terminalState,
-    startedAt: resolved.terminal.startedAt,
-    completedAt: resolved.terminal.completedAt,
-    subjectEvidence: new Map(resolved.terminal.observedSubjects.map(subject => [subject.id, subject.evidenceId])),
+    available: !!run && supported.some(item => item.observationId === observationId),
+    outcome: run?.lifecycle ?? null,
+    startedAt: run?.startedAt ?? null,
+    completedAt: run?.terminalAt ?? null,
+    subjectEvidence: new Map(supported.map(item => [item.subject, item.observationId])),
   }
 }
 
 function presentModel(
   model: SafeEngineModel,
-  projectId: string,
   projectionState: ProjectionState,
-  observations: Pick<ObservationStore, 'resolve'>,
+  projection: CanonicalProjectionInput,
 ) {
-  const source = sourceObservation(projectId, model.sourceObservationId, observations)
+  const source = sourceObservation(model, projection)
   const subjects = model.subjects.map(subject => ({
     id: subject.id,
     kind: subject.kind,
@@ -238,7 +232,7 @@ function presentModel(
           startedAt: source.startedAt,
           completedAt: source.completedAt,
           href: source.available
-            ? `/application/observations?project=${encodeURIComponent(projectId)}&observation=${encodeURIComponent(source.id)}`
+            ? `/application/observations?project=${encodeURIComponent(model.appName)}&observation=${encodeURIComponent(source.id)}`
             : null,
         }
       : null,
@@ -259,7 +253,7 @@ function presentModel(
           action: 'Review the source observation',
           because: 'The observation contains the bounded evidence used to interpret this model version.',
           destination: source.id,
-          href: `/application/observations?project=${encodeURIComponent(projectId)}&observation=${encodeURIComponent(source.id)}`,
+          href: `/application/observations?project=${encodeURIComponent(model.appName)}&observation=${encodeURIComponent(source.id)}`,
         }
       : null,
   }
@@ -269,15 +263,14 @@ function buildPresentation(
   history: SafeEngineHistory,
   projectId: string,
   projectName: string,
-  latestObservationId: string | null,
-  observations: Pick<ObservationStore, 'resolve'>,
+  projection: CanonicalProjectionInput,
 ) {
   return {
     project: { id: projectId, name: projectName },
     currentModel: history.activeModel
-      ? presentModel(history.activeModel, projectId, history.projectionState, observations)
+      ? presentModel(history.activeModel, history.projectionState, projection)
       : null,
-    models: history.models.map(model => presentModel(model, projectId, history.projectionState, observations)),
+    models: history.models.map(model => presentModel(model, history.projectionState, projection)),
     page: {
       limit: 25,
       nextCursor: history.nextCursor,
@@ -286,7 +279,8 @@ function buildPresentation(
       total: history.total,
       activeCount: history.activeCount,
     },
-    latestObservationId,
+    latestObservationId: projection.observations.find(item =>
+      item.runId === projection.runs[0]?.runId)?.observationId ?? null,
     requestedModel: history.requestedModel,
   }
 }
@@ -296,7 +290,9 @@ export function presentApplicationModelHistory(
   project: { id: string; name: string },
   options: {
     limit: number
-    observations?: Pick<ObservationStore, 'resolve' | 'latest'>
+    projection?: CanonicalProjectionInput
+    /** Deprecated fixture-only input; never consulted by the adopted Product path. */
+    observations?: unknown
   },
 ): ApplicationModelPresentationResult {
   const history = parseEngineHistory(rawHistory, project.id)
@@ -308,14 +304,11 @@ export function presentApplicationModelHistory(
   if (history.activeCount === 1 && history.activeModel?.lifecycle !== 'active') {
     return { kind: 'malformed' }
   }
-  const observations = options.observations ?? observationStore
-  const latest = observations.latest(project.id)
   const value = buildPresentation(
     history,
     project.id,
     project.name,
-    latest?.observationId ?? null,
-    observations,
+    options.projection ?? { runs: [], observations: [] },
   )
   value.page.limit = options.limit
   return { kind: 'ok', value }

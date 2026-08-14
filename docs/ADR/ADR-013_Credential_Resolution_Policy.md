@@ -111,3 +111,45 @@ is absent, ExecutionContext re-triggers a bootstrap (Path A) to establish it.
 ## References
 ADR-012 (Engine Job Architecture); root-cause audit (`13643aa`); Phase 0
 verification; TD-UI-009 (OS keychain); TD-UI-001 (Onboard tab).
+
+## Canonical v2 clarification - 2026-08-13
+
+[`ADR-028`](ADR-028-canonical-test-definition-v2-and-execution-authority.md)
+separates authentication expectation from credential availability and
+authentication execution result. A v2 Definition may persist only the
+expectation and its safe governed declaration digest. Credential references and
+material remain runtime preflight inputs, and execution outcomes remain
+Run/Result evidence. Declared configuration is not an Observation.
+
+## Implementation note — 2026-08-11 (TD-SEC-001)
+
+The original two-path environment-injection design above is preserved as
+decision-time history but is no longer current runtime behavior. Repository
+evidence showed that both paths made credential material process-global and did
+not restore the injected values. The write-only browser storage-state artifact
+also retained cookies/tokens without any consumer or governed retention owner.
+
+Current behavior is:
+
+- `EnvCredentialResolver` resolves availability and returns a governed
+  `CredentialReference` only. It no longer returns credential values.
+- `CredentialExecutionScope` is the single runtime materializer. It resolves a
+  reference or accepts directly submitted operation material, exposes a
+  read-only view only inside an awaited callback, and disposes the holder in
+  `finally` on success, failure, cancellation-shaped return, or thrown error.
+- Product execution and crawl/onboarding both use that scope. FORGE no longer
+  writes credential values to `process.env`; source environment variables remain
+  operator-owned inputs and are never modified by an operation.
+- Playwright browser contexts are ephemeral and are closed in `finally`.
+  Storage state, cookies, and tokens are not serialized by Product execution or
+  onboarding crawl. New role projections therefore record
+  `storageStatePath: null`; historical model rows remain unchanged.
+- Credential refusal, engine failure, persistence, logs, and Product APIs expose
+  allowlisted reason codes/messages only. Credential variable names, values,
+  browser exceptions, and URL query/fragment material are withheld.
+
+JavaScript cannot prove physical heap zeroization. The enforceable guarantee is
+that FORGE clears its live holder, makes retained views fail closed, drops
+operation references, clears submitted request/job fields, and creates no
+durable credential-bearing artifact. This limitation is explicit rather than a
+claim that the runtime can erase immutable strings from the VM heap.

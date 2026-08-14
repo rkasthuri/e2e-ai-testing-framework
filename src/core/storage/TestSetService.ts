@@ -12,6 +12,7 @@
 
 import * as crypto from 'crypto'
 import { runMigrations } from './migrate'
+import { assertProductDatabaseAuthority } from './db'
 import { TestDefinitionContractError, type TestDesignAuthorityInput } from '../test-design/TestDefinitionContract'
 import { DuplicateTestGenerationError, TestSetRepository } from './repositories/TestSetRepository'
 
@@ -29,6 +30,7 @@ export class TestSetService {
   }
 
   async generate(input: TestDesignAuthorityInput, generationId = crypto.randomUUID()) {
+    assertProductDatabaseAuthority()
     await runMigrations()
     // The service owns the durable lifecycle clock. Using a controller-prepared
     // timestamp here could make completion precede the started event while a

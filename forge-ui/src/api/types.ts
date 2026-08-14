@@ -665,67 +665,118 @@ export interface GenerationManifest {
 }
 
 // --- TD-UI-068A immutable evidence-backed test definitions ---
-export interface EvidenceBackedTestDefinition {
-  id: string
+export type TestGenerationOutcome = 'completed' | 'partially_completed' | 'blocked' | 'failed' | 'interrupted'
+
+export type IntrinsicCompatibilityPresentation =
+  | { state: 'compatible'; reason: null; explanation: string }
+  | { state: 'blocked'; reason: string | null; explanation: string }
+  | { state: 'not_evaluated'; reason: null; explanation: string }
+
+interface TestDefinitionPresentationBase {
+  definitionId: string
   title: string
   intent: string
   category: 'navigation'
-  canonicalSubjects: string[]
-  preconditions: string[]
-  steps: Array<{ kind: 'navigate_to_observed_route'; subjectId: string; routePath: string; evidenceId: string }>
-  oracle: { kind: 'subject_observable'; subjectId: string; evidenceId: string; explanation: string }
-  provenance: { sourceObservationId: string; modelRowId: number; modelVersion: string; supportingEvidenceIds: string[] }
+  subjects: readonly string[]
   generationMethod: 'deterministic' | 'heuristic' | 'ai_assisted' | 'manual'
   validation: { state: 'valid'; explanation: string }
-  runnerCompatibility: { state: 'blocked'; explanation: string }
-  confidenceLimitations: string[]
-  materialUnknowns: string[]
-  unobservedScope: string[]
+  intrinsicCompatibility: IntrinsicCompatibilityPresentation
+  confidenceLimitations: readonly string[]
+  materialUnknowns: readonly string[]
+  unobservedScope: readonly string[]
   preventedStrongerDefinition: string
 }
 
-export interface EvidenceBackedTestSet {
+export interface LegacyTestDefinitionPresentation extends TestDefinitionPresentationBase {
   schemaVersion: 1
+  authorityClass: 'legacy_v1'
+  provenance: { label: 'LEGACY PROVENANCE'; sourceObservationId: string; modelRowId: number; modelVersion: string; supportingEvidenceCount: number }
+  routeEvidence: { state: 'legacy_compatibility'; normalizedPath: null; explanation: string }
+  authenticationExpectation: { state: 'legacy_compatibility'; mechanism: null; explanation: string }
+  executionPolicy: 'legacy_provenance_unsupported'
+}
+
+export interface CanonicalV2TestDefinitionPresentation extends TestDefinitionPresentationBase {
+  schemaVersion: 2
+  authorityClass: 'canonical_v2'
+  provenance: {
+    label: 'SEALED CANONICAL SUPPORT'; modelRowId: number; modelVersion: string; supportSealHash: string
+    supportingObservationCount: number; supportingGapCount: number; subjectSupportCount: number
+    supportingObservationIds: readonly string[]; supportingGapIds: readonly string[]
+  }
+  routeEvidence:
+    | { state: 'available'; normalizedPath: string; normalizationPolicy: { id: string; version: string }; supportingObservationCount: number; supportingObservationIds: readonly string[] }
+    | { state: 'unknown' | 'conflicted'; normalizedPath: null; normalizationPolicy: null; supportingObservationCount: 0; supportingObservationIds: readonly [] }
+  authenticationExpectation: {
+    state: 'required' | 'not_required' | 'unknown' | 'conflicted'; mechanism: string | null
+    basis: ReadonlyArray<{ kind: 'declared_configuration'; policyId: string; policyVersion: string }>
+  }
+  action: null | { kind: 'navigate_to_observed_route'; subjectId: string; normalizedPath: string }
+  oracle: null | { kind: 'subject_observable'; subjectId: string; explanation: string }
+  executionPolicy: 'canonical_v2_preflight_required'
+}
+
+export type TestDefinitionPresentation = LegacyTestDefinitionPresentation | CanonicalV2TestDefinitionPresentation
+
+interface TestSetPresentationBase {
   testSetId: string
   revision: number
   projectId: string
   generationId: string
   generatedAt: string
-  generationMethod: 'deterministic' | 'heuristic' | 'ai_assisted' | 'manual'
-  outcome: 'completed' | 'partially_completed' | 'blocked' | 'failed' | 'interrupted'
-  sourceObservationId: string
-  modelRowId: number
-  modelVersion: string
-  supportingEvidenceIds: string[]
-  definitions: EvidenceBackedTestDefinition[]
-  limitations: string[]
-  materialUnknowns: string[]
-  unobservedScope: string[]
+  outcome: TestGenerationOutcome
+  definitions: readonly TestDefinitionPresentation[]
+  limitations: readonly string[]
+  materialUnknowns: readonly string[]
+  unobservedScope: readonly string[]
   preventedStrongerSet: string
   coverage: 'unknown'
   freshness: 'not_evaluated'
 }
 
+export interface LegacyTestSetPresentation extends TestSetPresentationBase {
+  schemaVersion: 1
+  authorityClass: 'legacy_v1'
+  definitions: readonly LegacyTestDefinitionPresentation[]
+  provenance: { label: 'LEGACY PROVENANCE'; sourceObservationId: string; modelRowId: number; modelVersion: string; supportingEvidenceCount: number }
+}
+
+export interface CanonicalV2TestSetPresentation extends TestSetPresentationBase {
+  schemaVersion: 2
+  authorityClass: 'canonical_v2'
+  definitions: readonly CanonicalV2TestDefinitionPresentation[]
+  provenance: {
+    label: 'SEALED CANONICAL SUPPORT'; modelRowId: number; modelVersion: string; observationRunId: string; supportSealHash: string
+    characterizationPolicy: { id: string; version: string }; supportingObservationCount: number; supportingGapCount: number; subjectSupportCount: number
+  }
+}
+
+export type TestSetPresentation = LegacyTestSetPresentation | CanonicalV2TestSetPresentation
+
+export type TestSetHistoryPresentation = {
+  rowId: number; testSetId: string; revision: number; generationId: string; generatedAt: string; outcome: TestGenerationOutcome
+  modelRowId: number; modelVersion: string; definitionCount: number; contentHash: string; startedAt: string; completedAt: string | null
+  temporalIntegrity: 'verified' | 'failed'; temporalCode: 'GENERATION_TIMESTAMP_INCONSISTENT' | null; temporalExplanation: string
+} & (
+  | { schemaVersion: 1; authorityClass: 'legacy_v1'; provenance: { label: 'LEGACY PROVENANCE'; sourceObservationId: string } }
+  | { schemaVersion: 2; authorityClass: 'canonical_v2'; provenance: { label: 'SEALED CANONICAL SUPPORT'; observationRunId: string; supportSealHash: string } }
+)
+
 export interface TestInventoryResponse {
   project: { id: string; name: string }
   designReadiness: ApplicationReadinessDecision
   canGenerate: boolean
-    current: { rowId: number; contentHash: string; testSet: EvidenceBackedTestSet; startedAt: string; completedAt: string | null; temporalIntegrity: 'verified' | 'failed'; temporalCode: 'GENERATION_TIMESTAMP_INCONSISTENT' | null; temporalExplanation: string } | null
-  history: Array<{
-    rowId: number; testSetId: string; revision: number; generationId: string; generatedAt: string
-    outcome: EvidenceBackedTestSet['outcome']; sourceObservationId: string; modelRowId: number
-      modelVersion: string; definitionCount: number; contentHash: string
-      startedAt: string; completedAt: string | null; temporalIntegrity: 'verified' | 'failed'; temporalCode: 'GENERATION_TIMESTAMP_INCONSISTENT' | null; temporalExplanation: string
-  }>
+  current: { rowId: number; contentHash: string; testSet: TestSetPresentation; startedAt: string; completedAt: string | null; temporalIntegrity: 'verified' | 'failed'; temporalCode: 'GENERATION_TIMESTAMP_INCONSISTENT' | null; temporalExplanation: string } | null
+  history: TestSetHistoryPresentation[]
   total: number
   nextCursor: string | null
-  requestedDefinition: { definition: EvidenceBackedTestDefinition; revision: number; rowId: number } | null
+  requestedDefinition: { definition: TestDefinitionPresentation; revision: number; rowId: number } | null
   boundaries: { execution: 'not_performed'; coverage: 'unknown'; freshness: 'not_evaluated'; explanation: string }
 }
 
 export interface TestGenerationResponse {
   generationId: string
-  state: EvidenceBackedTestSet['outcome']
+  state: TestGenerationOutcome
   complete: true
   testSetRowId: number
   revision: number
@@ -735,7 +786,7 @@ export interface TestGenerationResponse {
 export interface TestGenerationStatusResponse {
   generationId: string
   projectId: string
-  state: 'running' | EvidenceBackedTestSet['outcome']
+  state: 'running' | TestGenerationOutcome
   complete: boolean
   startedAt: string
   completedAt: string | null
@@ -753,4 +804,38 @@ export interface TestFileContent {
   content:      string
   lastModified: string   // ISO — file mtime
   generatedAt:  string   // ISO — from the manifest
+}
+
+// --- TD-UI-069A-C read-only, non-persistent execution preflight ---
+export type ExecutionPreflightState =
+  | 'empty_selection' | 'invalid_request' | 'stale_definition' | 'incompatible_definition'
+  | 'legacy_provenance_unsupported' | 'support_seal_mismatch' | 'route_unknown' | 'route_conflicted'
+  | 'authentication_unknown' | 'authentication_conflicted' | 'credentials_unavailable' | 'runner_unavailable'
+  | 'conflicting_evidence' | 'preflight_source_invalid' | 'execution_already_active'
+  | 'execution_persistence_unavailable' | 'ready'
+
+export interface ExecutionPreflightDefinitionResult {
+  definitionId: string
+  schemaVersion: 2
+  state: 'eligible'
+  semanticPlanHash: string
+  modelRowId: number
+  modelVersion: string
+  supportSealHash: string
+  routeEvidence: { normalizedPath: string; normalizationPolicy: { id: string; version: string } }
+  authenticationExpectation: { state: 'required' | 'not_required'; mechanism: string | null }
+  intrinsicCompatibility: 'compatible'
+}
+
+export interface ExecutionPreflightResponse {
+  project: { id: string; name: string }
+  testSetRevision: { revision: number; testSetId?: string; schemaVersion?: 2; contentHash?: string } | null
+  definitions: ExecutionPreflightDefinitionResult[]
+  aggregate: { state: ExecutionPreflightState; explanation: string }
+  liveEligibility: {
+    state: 'eligible' | 'blocked'
+    runner: 'available' | 'unavailable' | 'unknown'
+    credentials: 'available' | 'unavailable' | 'not_required' | 'unknown'
+  }
+  boundaries: { generationAuthority: 'established' | 'not_established'; executionEligibility: 'eligible' | 'blocked'; persisted: false }
 }

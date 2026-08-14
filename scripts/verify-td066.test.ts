@@ -143,10 +143,11 @@ test('P3.7 heal sentinel: strategy-chain -> -1 (not 1.0); vision -> real confide
   process.env.CURRENT_RUN_ID   = 'td066-heal-run';
 
   // Dynamic import AFTER env is set (HealStore reads HEAL_STORE_PATH at module-load).
-  const { runMigrations, closeDb } = await import('../src/core/storage');
+  const { runMigrations, closeDb, initDisposableDatabase } = await import('../src/core/storage');
   const { HealStoreManager }       = await import('../src/core/healing/HealStore');
   const BetterSqlite3              = (await import('better-sqlite3')).default;
 
+  initDisposableDatabase(tmpDb);
   await runMigrations();
   const mgr = new HealStoreManager();
   const now = new Date().toISOString();

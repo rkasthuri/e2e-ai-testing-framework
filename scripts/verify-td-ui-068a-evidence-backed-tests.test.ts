@@ -29,6 +29,7 @@ import {
   type TestDesignAuthorityInput,
 } from '../src/core/test-design/TestDefinitionContract'
 import { EvidenceBackedTestInventory } from '../forge-ui/src/pages/TestCasesPage'
+import { TestCasePresentationService } from '../src/core/test-design/TestCasePresentationService'
 
 const observationId = 'd8006951-5d5c-4715-8b57-7deeacb9aea9'
 const subjects = ['inventory-html', 'inventory-item-html', 'cart-html', 'checkout-step-one-html']
@@ -38,7 +39,11 @@ const evidenceIds = subjects.map((_, index) => `${observationId}-page-${index + 
 function fixture(): TestDesignAuthorityInput {
   return {
     projectId: 'saucedemo',
-    sourceObservation: { id: observationId, outcome: 'completed', authenticationOutcome: 'succeeded', subjectIds: [...subjects] },
+    sourceObservation: {
+      id: observationId, outcome: 'completed', authenticationOutcome: 'succeeded',
+      authenticationExpectation: 'form-login', credentialReference: { usernameEnv: 'SAUCEDEMO_USERNAME', passwordEnv: 'SAUCEDEMO_PASSWORD' },
+      subjectIds: [...subjects],
+    },
     model: {
       rowId: 7, version: '1.0.6', sourceObservationId: observationId, validation: 'valid', integrity: 'not_evaluated',
       subjects: subjects.map((id, index) => ({ id, routePath: routes[index], evidenceId: evidenceIds[index] })),
@@ -63,7 +68,12 @@ test('deterministic generation creates stable identities and exact four-way prov
     assert.equal(definition.provenance.modelRowId, 7)
     assert.equal(definition.provenance.modelVersion, '1.0.6')
     assert.equal(definition.provenance.supportingEvidenceIds.length, 1)
-    assert.equal(definition.runnerCompatibility.state, 'blocked')
+    // TD-UI-069C-C-R: the fixture supplies complete, real-shaped auth
+    // evidence (form-login + a recorded credential reference), so the
+    // shared compatibility evaluator now truthfully reports 'compatible' —
+    // no longer the structurally-forced 'blocked' of pre-069C-C-R.
+    assert.equal(definition.runnerCompatibility.state, 'compatible')
+    assert.ok(!('reason' in definition.runnerCompatibility))
   }
   assert.equal(first.value.outcome, 'partially_completed')
   assert.equal(first.value.coverage, 'unknown')
@@ -87,12 +97,20 @@ test('unsupported selector, action, and oracle changes are rejected before persi
   assert.throws(() => materializeCanonicalTestSet(oracle), TestDefinitionContractError)
 })
 
-test('canonical payload excludes credentials, raw content, execution, pass, and completeness claims', () => {
+test('canonical payload excludes credential VALUES, raw content, execution, pass, and completeness claims', () => {
   const payload = generateEvidenceBackedTestSet(fixture(), 'safe-payload', 1).json
-  for (const forbidden of ['SAUCEDEMO_USERNAME', 'SAUCEDEMO_PASSWORD', 'password=', 'cookie', 'rawHtml', 'model_json', 'passed', 'fully covered', 'complete application']) {
+  // TD-UI-069C-C: env-var-NAME references (SAUCEDEMO_USERNAME/PASSWORD) are now
+  // deliberately carried as authenticationSetup.credentialReference — that is
+  // the whole point of a non-secret reference. What must still never appear is
+  // an actual credential VALUE — SauceDemo's real, well-known demo login pair.
+  for (const forbidden of ['standard_user', 'secret_sauce', 'password=', 'cookie', 'rawHtml', 'model_json', 'passed', 'fully covered', 'complete application']) {
     assert.doesNotMatch(payload, new RegExp(forbidden, 'i'))
   }
   assert.match(payload, /Definitions were not executed/)
+  // The reference itself is expected to be present — proves the field is wired,
+  // not merely absent-and-untested.
+  assert.match(payload, /SAUCEDEMO_USERNAME/)
+  assert.match(payload, /SAUCEDEMO_PASSWORD/)
 })
 
 test('SQLite revision commit is atomic, immutable, and restart-readable', async () => {
@@ -228,11 +246,16 @@ test('inventory carries safe temporal integrity for current and historical revis
 
 test('inventory uses responsive rows, one inline detail, native controls, and project-preserving links', () => {
   const set = generateEvidenceBackedTestSet(fixture(), 'render-generation', 1).value
-  const selected = set.definitions[0].id
+  const temporal = { startedAt: set.generatedAt, completedAt: set.generatedAt, temporalIntegrity: 'verified' as const, temporalCode: null, temporalExplanation: 'Verified.' }
+  const presented = new TestCasePresentationService().present({
+    current: { rowId: 1, contentHash: 'a'.repeat(64), testSet: set, ...temporal },
+    history: [], total: 1, nextCursor: null, requestedDefinition: null,
+  }).current!.testSet
+  const selected = presented.definitions[0].definitionId
   const html = renderToStaticMarkup(React.createElement(
     MemoryRouter,
     null,
-    React.createElement(EvidenceBackedTestInventory, { testSet: set, project: 'saucedemo', selected, onToggle: () => {} }),
+    React.createElement(EvidenceBackedTestInventory, { testSet: presented, project: 'saucedemo', selected, onToggle: () => {} }),
   ))
   assert.match(html, /<table/)
   assert.equal((html.match(/aria-labelledby="test-detail-/g) ?? []).length, 1, 'only one responsive representation and detail may exist in the DOM')
@@ -240,16 +263,15 @@ test('inventory uses responsive rows, one inline detail, native controls, and pr
   assert.match(html, /aria-controls="test-detail-/)
   assert.match(html, /application\/observations\?project=saucedemo/)
   assert.match(html, /application\/model\?project=saucedemo/)
-  assert.match(html, /application\/evidence\?project=saucedemo/)
+  assert.match(html, /LEGACY PROVENANCE/)
   assert.doesNotMatch(html, /Proceed to Run|Force re-crawl|passed|coverage percentage/i)
   const malformed = renderToStaticMarkup(React.createElement(EvidenceBackedTestInventory, { testSet: undefined, project: 'saucedemo', selected: null, onToggle: () => {} }))
   assert.match(malformed, /Test definitions unavailable/)
   assert.doesNotMatch(malformed, /Cannot read properties|Runner blocked/)
   const pageSource = fs.readFileSync(path.resolve('forge-ui/src/pages/TestCasesPage.tsx'), 'utf8')
   assert.match(pageSource, /ISO: \{value\}/)
-  assert.match(pageSource, /Malformed test-set response/)
-  assert.match(pageSource, /Started: <Time value=\{item\.startedAt\}/)
-  assert.match(pageSource, /Completed: \{item\.completedAt \? <Time value=\{item\.completedAt\}/)
+  assert.match(pageSource, /Canonical Test Cases/)
+  assert.match(pageSource, /SEALED CANONICAL SUPPORT/)
 })
 
 test('implementation preserves the canonical FORGE header and transport boundary', () => {

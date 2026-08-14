@@ -20,6 +20,7 @@ import {
   AppModelProjector,
   AppModelService,
 } from './AppModelService'
+import type { AppModelObservationSupportInput } from '../observation/ObservationTypes'
 export {
   InvalidAppModelCandidateError as InvalidActiveRecoveryCandidateError,
 } from './repositories/AppModelRepository'
@@ -40,6 +41,7 @@ export class AppModelRecoveryOrchestrator {
     request: InvalidActiveRecoveryRequest,
     crawlFresh: InvalidActiveRecoveryCrawler,
     project: AppModelProjector,
+    observationSupport?: () => AppModelObservationSupportInput,
   ): Promise<AppModelCommitProjectionResult> {
     // A completed operation is resolved before inspection or another crawl.
     // Repository provenance checks prevent an unrelated operation from replaying.
@@ -57,6 +59,11 @@ export class AppModelRecoveryOrchestrator {
     // Canonical materialization, validation, hashing, and persistence are one
     // repository-owned boundary. The orchestrator must not validate a different
     // representation first.
-    return this.appModels.commitRecoveryAndProject(candidate, request, project)
+    return this.appModels.commitRecoveryAndProject(
+      candidate,
+      request,
+      project,
+      observationSupport?.(),
+    )
   }
 }

@@ -16,6 +16,7 @@ import type {
   InvalidActiveInspection,
   InvalidActiveRecoveryRequest,
 } from './AppModelRecoveryContract'
+import type { AppModelObservationSupportInput } from '../observation/ObservationTypes'
 import {
   AppModelCommitResult,
   AppModelHistoryReadOptions,
@@ -259,14 +260,47 @@ export class AppModelService {
     }
   }
 
-  async commitRecoveryAndProject(
+  async commitWithObservationSupportAndProject(
     candidate: AppModelCandidate,
-    request: InvalidActiveRecoveryRequest,
+    operationId: string,
+    support: AppModelObservationSupportInput,
+    project: AppModelProjector,
+  ): Promise<AppModelCommitProjectionResult> {
+    return this.commitAndProjectInternal(candidate, operationId, support, project)
+  }
+
+  private async commitAndProjectInternal(
+    candidate: AppModelCandidate,
+    operationId: string,
+    support: AppModelObservationSupportInput | undefined,
     project: AppModelProjector,
   ): Promise<AppModelCommitProjectionResult> {
     let commit: AppModelCommitResult
     try {
-      commit = await this.repository.commitInvalidActiveRecovery(candidate, request)
+      commit = await this.repository.commitCandidate(candidate, operationId, support)
+    } catch (cause) {
+      return { status: 'commit_failed', error: cause instanceof AppModelPersistenceError ? cause : new AppModelPersistenceError('Canonical App Model and Observation support commit failed.', { cause }) }
+    }
+    const committed = commit.committed
+    try {
+      const active = await this.repository.findActive(committed.appName)
+      if (committed.status !== 'active' || Number(active?.id) !== committed.rowId) throw new AppModelProjectionAuthorityError('Committed row is not the exact active App Model authority.')
+      await project(committed.snapshot)
+      return { status: 'commit_and_projection_succeeded', commit }
+    } catch (cause) {
+      return { status: 'commit_succeeded_projection_failed', commit, error: cause instanceof AppModelProjectionError ? cause : new AppModelProjectionError('Canonical App Model committed atomically with Observation support, but compatibility projection failed.', committed, { cause }) }
+    }
+  }
+
+  async commitRecoveryAndProject(
+    candidate: AppModelCandidate,
+    request: InvalidActiveRecoveryRequest,
+    project: AppModelProjector,
+    support?: AppModelObservationSupportInput,
+  ): Promise<AppModelCommitProjectionResult> {
+    let commit: AppModelCommitResult
+    try {
+      commit = await this.repository.commitInvalidActiveRecovery(candidate, request, support)
     } catch (cause) {
       const error = cause instanceof AppModelPersistenceError
         ? cause

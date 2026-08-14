@@ -10,143 +10,195 @@
  * of this software is strictly prohibited.
  */
 
-import * as path from 'path';
-import * as fs from 'fs';
-import { Kysely, SqliteDialect, PostgresDialect } from 'kysely';
-import { Database } from './types';
+import * as path from 'path'
+import * as fs from 'fs'
+import { Kysely, SqliteDialect, PostgresDialect } from 'kysely'
+import { Database } from './types'
+import {
+  DatabaseAuthorityMode,
+  DatabaseAuthorityError,
+  type ActiveDatabaseProvenance,
+  type DatabaseAuthority,
+  databaseAuthorityKey,
+  databaseProvenance,
+  disposableCertificationDatabaseAuthority,
+  legacyRuntimeDatabaseAuthority,
+  normalizeDatabasePath,
+  productWorkspaceDatabaseAuthority,
+} from './DatabaseAuthority'
 
-let _db: Kysely<Database> | null = null;
-/** The SQLite path _db was materialized with (null before first getDb() and under Postgres). */
-let _dbPath: string | null = null;
-/** Path requested via initDb() — consumed by getDb() at materialization (TD-114). */
-let _initPath: string | null = null;
+let _db: Kysely<Database> | null = null
+let _dbPath: string | null = null
+let _authority: DatabaseAuthority | null = null
+let _provenance: ActiveDatabaseProvenance | null = null
 
-function normalizeSqlitePath(dbPath: string): string {
-  if (dbPath === ':memory:' || dbPath.startsWith('file:')) return dbPath;
-  return path.resolve(dbPath);
+const REPOSITORY_ROOT = path.resolve(__dirname, '../../..')
+
+/**
+ * Compatibility-only path resolver. It does not establish database authority.
+ * Governed Product and legacy entry points use their named initializers.
+ */
+export function resolveSqlitePath(explicitPath?: string, startDir: string = process.cwd()): string {
+  const configured = explicitPath || process.env.DB_PATH
+  if (configured) return normalizeDatabasePath(configured)
+
+  let dir = path.resolve(startDir)
+  while (true) {
+    const candidate = path.join(dir, '.forge', 'forge.db')
+    if (fs.existsSync(candidate)) return candidate
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return path.join(path.resolve(startDir), '.forge', 'forge.db')
 }
 
-/** Resolve normal SQLite execution to an explicit path or .forge/forge.db. */
-export function resolveSqlitePath(explicitPath?: string, startDir: string = process.cwd()): string {
-  const configured = explicitPath || process.env.DB_PATH;
-  if (configured) return normalizeSqlitePath(configured);
-
-  let dir = path.resolve(startDir);
-  while (true) {
-    const candidate = path.join(dir, '.forge', 'forge.db');
-    if (fs.existsSync(candidate)) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return path.join(path.resolve(startDir), '.forge', 'forge.db');
+/**
+ * Legacy CLI/CI defaults to the repository authority, never to the caller's
+ * nearest Product workspace. DB_PATH remains an explicit legacy override.
+ */
+export function resolveLegacyRuntimeSqlitePath(explicitPath?: string): string {
+  const configured = explicitPath || process.env.DB_PATH
+  return normalizeDatabasePath(configured ?? path.join(REPOSITORY_ROOT, '.forge', 'forge.db'))
 }
 
 export function getOpenSqlitePath(): string | null {
-  return _dbPath;
+  return _dbPath
+}
+
+export function getDatabaseProvenance(): ActiveDatabaseProvenance {
+  if (_provenance) return { ..._provenance }
+  if (!_authority) {
+    throw new DatabaseAuthorityError(
+      'DATABASE_AUTHORITY_REQUIRED',
+      'Database authority has not been established for this operation.',
+    )
+  }
+  const dialect = _authority.mode === DatabaseAuthorityMode.LEGACY_RUNTIME
+    && _authority.databaseUrl
+    ? 'postgres'
+    : 'sqlite'
+  return databaseProvenance(_authority, dialect)
+}
+
+export function assertProductDatabaseAuthority(): ActiveDatabaseProvenance {
+  const provenance = getDatabaseProvenance()
+  if (!provenance.productSchemaEligible) {
+    throw new DatabaseAuthorityError(
+      'PRODUCT_DATABASE_AUTHORITY_REQUIRED',
+      'Product persistence requires an explicitly governed Product workspace or disposable certification database.',
+    )
+  }
+  return provenance
+}
+
+export function initDatabaseAuthority(authority: DatabaseAuthority): void {
+  if (_authority) {
+    if (databaseAuthorityKey(_authority) === databaseAuthorityKey(authority)) return
+    throw new DatabaseAuthorityError(
+      'DATABASE_AUTHORITY_CONFLICT',
+      `Database authority ${_authority.mode} is already selected. Close it before selecting ${authority.mode}.`,
+    )
+  }
+  _authority = Object.freeze({ ...authority }) as DatabaseAuthority
+}
+
+export function initProductWorkspaceDatabase(workspaceRoot: string, dbPath?: string): void {
+  initDatabaseAuthority(productWorkspaceDatabaseAuthority(workspaceRoot, dbPath))
+}
+
+export function initLegacyRuntimeDatabase(input: {
+  dbPath?: string
+  databaseUrl?: string | null
+  legacyImportRoot?: string
+} = {}): void {
+  initDatabaseAuthority(legacyRuntimeDatabaseAuthority({
+    sqlitePath: resolveLegacyRuntimeSqlitePath(input.dbPath),
+    databaseUrl: input.databaseUrl === undefined ? process.env.DB_URL ?? null : input.databaseUrl,
+    legacyImportRoot: input.legacyImportRoot ?? process.cwd(),
+  }))
+}
+
+export function initDisposableDatabase(dbPath: string): void {
+  initDatabaseAuthority(disposableCertificationDatabaseAuthority(dbPath))
 }
 
 /**
- * TD-114 — scope the singleton to a specific SQLite path BEFORE it materializes.
+ * Compatibility seam for existing certification tests. A path-only call means
+ * DISPOSABLE_CERTIFICATION. Product and legacy callers must use their named
+ * initializers so a location can never imply authority.
  *
- * Per-app DB isolation without a DI refactor: all 16 repositories keep calling
- * getDb(); this seam only decides WHERE that singleton lives. CrawlRunner (via
- * DatabaseFactory.openProjectDatabase) calls this with workspace.dbPath()
- * before anything touches getDb().
- *
- * Rules:
- *   - singleton already open at the SAME path  → no-op (idempotent)
- *   - singleton already open at a DIFFERENT path → THROW (no silent
- *     cross-project bleed; call closeDb() first)
- *   - not yet materialized → record the path (last call wins pre-open)
- *   - DB_URL (Postgres) set → explicit operator choice takes precedence;
- *     WARN that project-scoped SQLite is bypassed — visible, never silent
- *
- * Flows that never call initDb() use DB_PATH when explicitly configured,
- * otherwise the shared .forge/forge.db resolver above.
+ * @deprecated Use a named authority initializer.
  */
 export function initDb(dbPath: string): void {
-  const resolved = normalizeSqlitePath(dbPath);
-  if (process.env.DB_URL) {
-    console.warn(`[DatabaseFactory] DB_URL is set (PostgreSQL) — project-scoped SQLite path '${resolved}' is bypassed.`);
-    return;
-  }
-  if (_db) {
-    if (_dbPath && normalizeSqlitePath(_dbPath) === resolved) return;   // idempotent re-open
-    throw new Error(
-      `[DatabaseFactory] DB already open at ${_dbPath}. ` +
-      `Cannot re-initialize for ${resolved}. Call closeDb() first.`,
-    );
-  }
-  _initPath = resolved;
+  initDisposableDatabase(dbPath)
 }
 
 /**
- * Returns a singleton Kysely<Database> instance.
+ * Return the process-local Kysely handle for the selected authority.
  *
- * Dialect selection order:
- *   1. DB_URL set          → PostgreSQL via pg.Pool
- *   2. better-sqlite3 available (native build compiled) → SQLite via SqliteDialect
- *   3. Fallback            → SQLite via kysely-wasm + node-sqlite3-wasm (pure JS,
- *                            useful in CI or sandboxes where node-gyp cannot compile)
- *
- * SQLite defaults to the nearest workspace .forge/forge.db, or
- * process.cwd()/.forge/forge.db for a fresh workspace.
+ * An unscoped compatibility caller is contained as LEGACY_RUNTIME at the
+ * repository authority. Product-specific repositories reject that mode.
  */
 export function getDb(): Kysely<Database> {
-  if (_db) return _db;
+  if (_db) return _db
 
-  const dbUrl  = process.env.DB_URL;
-  // TD-114: an initDb()-scoped path wins over env/default resolution.
-  const dbPath = _initPath ?? resolveSqlitePath();
+  if (!_authority) initLegacyRuntimeDatabase()
+  const authority = _authority!
+  const dbUrl = authority.mode === DatabaseAuthorityMode.LEGACY_RUNTIME
+    ? authority.databaseUrl
+    : null
+  const dbPath = authority.sqlitePath
 
   if (dbUrl) {
-    // ── PostgreSQL ────────────────────────────────────────────────────────────
-    const { Pool } = require('pg');
+    const { Pool } = require('pg')
     _db = new Kysely<Database>({
       dialect: new PostgresDialect({
         pool: new Pool({ connectionString: dbUrl }),
       }),
-    });
-    console.log('[storage] Using PostgreSQL:', dbUrl.replace(/:\/\/[^@]+@/, '://***@'));
+    })
+    _provenance = databaseProvenance(authority, 'postgres')
+    console.log(`[storage] Using PostgreSQL [${authority.mode}]:`, dbUrl.replace(/:\/\/[^@]+@/, '://***@'))
   } else {
     if (dbPath !== ':memory:' && !dbPath.startsWith('file:')) {
-      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true })
     }
-    // ── SQLite (native first, wasm fallback) ──────────────────────────────────
     try {
-      const BetterSqlite3 = require('better-sqlite3');
-      const sqlite = new BetterSqlite3(dbPath);
-      // TD-126 (S5): WAL lets the streaming reporter (main process) and other
-      // writers (test workers, batch) share the file without SQLITE_BUSY.
-      try { sqlite.pragma('journal_mode = WAL'); } catch { /* in-memory / unsupported → skip */ }
+      const BetterSqlite3 = require('better-sqlite3')
+      const sqlite = new BetterSqlite3(dbPath)
+      try { sqlite.pragma('journal_mode = WAL') } catch { /* in-memory / unsupported */ }
       _db = new Kysely<Database>({
         dialect: new SqliteDialect({ database: sqlite }),
-      });
-      _dbPath = dbPath;
-      console.log('[storage] Using SQLite (better-sqlite3):', dbPath);
+      })
+      _dbPath = dbPath
+      _provenance = databaseProvenance(authority, 'sqlite')
+      console.log(`[storage] Using SQLite (better-sqlite3) [${authority.mode}]:`, dbPath)
     } catch {
-      // better-sqlite3 native module not compiled — use pure-JS wasm build
-      const { NodeWasmDialect } = require('kysely-wasm');
-      const { Database: WasmDatabase } = require('node-sqlite3-wasm');
-      const wasmDb = new WasmDatabase(dbPath);
-      try { wasmDb.exec('PRAGMA journal_mode=WAL'); } catch { /* best-effort */ }
+      const { NodeWasmDialect } = require('kysely-wasm')
+      const { Database: WasmDatabase } = require('node-sqlite3-wasm')
+      const wasmDb = new WasmDatabase(dbPath)
+      try { wasmDb.exec('PRAGMA journal_mode=WAL') } catch { /* best-effort */ }
       _db = new Kysely<Database>({
         dialect: new NodeWasmDialect({ database: wasmDb }),
-      } as any);
-      _dbPath = dbPath;
-      console.log('[storage] Using SQLite (node-sqlite3-wasm fallback):', dbPath);
+      } as any)
+      _dbPath = dbPath
+      _provenance = databaseProvenance(authority, 'sqlite')
+      console.log(`[storage] Using SQLite (node-sqlite3-wasm fallback) [${authority.mode}]:`, dbPath)
     }
   }
 
-  return _db!;
+  return _db!
+}
+
+export function getProductDb(): Kysely<Database> {
+  assertProductDatabaseAuthority()
+  return getDb()
 }
 
 export async function closeDb(): Promise<void> {
-  if (_db) {
-    await _db.destroy();
-    _db = null;
-    _dbPath = null;
-    _initPath = null;   // TD-114: closeDb() clears the scoping — initDb() may re-scope after
-  }
+  if (_db) await _db.destroy()
+  _db = null
+  _dbPath = null
+  _authority = null
+  _provenance = null
 }

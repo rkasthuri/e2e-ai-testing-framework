@@ -106,3 +106,13 @@ provenance-bearing artifacts.
 ## Related
 TD-066 (earned confidence, never a fabricated score), ADR-006 (Truth-Telling and
 Earned Evidence), TD-067 (input freshness / self-health), TC-04 (2026-07-13).
+
+## Clarification Note — 2026-08-11 (TD-ARCH-003-B0)
+
+For App Model provenance, "evidence" now has the exact canonical meaning in
+[`ADR-027`](ADR-027-canonical-observation-authority-and-evidence-semantics.md):
+immutable support relationships to committed Observation IDs and, for
+coverage limits, exact ObservationGap IDs. An operation ID, UI reconstruction,
+projection-derived ID, log message, or copied fact payload cannot substitute for
+that support. The App Model row and all support relationships for its revision
+are committed atomically after their source Observations and gaps are durable.

@@ -53,3 +53,14 @@ PostgreSQL behavior is unchanged by this decision.
 ## Related
 
 ADR-001 App Model as the Single Source of Truth; ADR-002 SQLite + PostgreSQL Database Strategy; ADR-006 Truth-Telling and Earned Evidence; TD-183.
+
+## Implementation Note — 2026-08-11 (TD-ARCH-001)
+
+Atomic coordination now receives explicit database-authority provenance.
+Dialect-sensitive migration behavior reads an operation-scoped migration
+context rather than ambient `DB_URL`. Migration 004 remains historically
+unchanged: its body is loaded only for governed legacy authority, while Product
+and disposable authorities atomically record the ordered migration name with a
+no-op body. A changed legacy import root is refused before database open or
+migration. Atomicity, postcondition checks, rollback, restart, and history-order
+guarantees remain unchanged.

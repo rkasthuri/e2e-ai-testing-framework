@@ -11,7 +11,7 @@
  */
 
 import * as crypto from 'crypto'
-import { getDb } from '../db'
+import { getDatabaseProvenance, getDb } from '../db'
 import { AppModel as StoredAppModel, NewAppModel } from '../types'
 import type {
   AppModel as AppModelSnapshot,
@@ -19,6 +19,7 @@ import type {
 } from '../../onboarding/types'
 import { validateAppModelObject } from '../../onboarding/ModelValidator'
 import { canonicalJson } from '../JsonAppModelMigrationPlanner'
+import { appModelSupportHash } from '../AppModelSupportIdentity'
 import {
   AppModelCanonicalCandidateError,
   type CanonicalCandidateIssue,
@@ -31,6 +32,115 @@ import type {
   InvalidActiveInspection,
   InvalidActiveRecoveryRequest,
 } from '../AppModelRecoveryContract'
+import type { AppModelObservationSupportInput } from '../../observation/ObservationTypes'
+import { canonicalEndpointSubjectId } from '../../observation/ObservationSubjectIdentity'
+
+async function persistObservationSupport(
+  trx: any,
+  modelRowId: number,
+  appName: string,
+  support: AppModelObservationSupportInput,
+): Promise<void> {
+  if (support.projectId !== appName) {
+    throw new AppModelPersistenceError('App Model support belongs to a different Product workspace.')
+  }
+  const run = await trx.selectFrom('observation_runs').select(['project_id', 'lifecycle'])
+    .where('observation_run_id', '=', support.observationRunId).executeTakeFirst()
+  if (!run || run.project_id !== appName || run.lifecycle === 'running') {
+    throw new AppModelPersistenceError('App Model support requires a terminal ObservationRun in the same Product workspace.')
+  }
+  const observationIds = [...new Set(support.observations.map(item => item.observationId))]
+  const gapIds = [...new Set(support.gaps.map(item => item.gapId))]
+  if (observationIds.length === 0 && gapIds.length === 0) {
+    throw new AppModelPersistenceError('App Model characterization requires Observation or Gap support.')
+  }
+  const observed = observationIds.length === 0 ? [] : await trx.selectFrom('observations')
+    .select(['observation_id', 'observation_run_id', 'project_id', 'subject_id'])
+    .where('observation_id', 'in', observationIds).execute()
+  const observedById = new Map(observed.map((row: any) => [row.observation_id, row]))
+  if (observationIds.some(id => {
+    const row: any = observedById.get(id)
+    return !row || row.project_id !== appName || row.observation_run_id !== support.observationRunId
+  })) throw new AppModelPersistenceError('App Model support references a missing or cross-run Observation.')
+  const gaps = gapIds.length === 0 ? [] : await trx.selectFrom('observation_gaps')
+    .select(['gap_id', 'observation_run_id', 'project_id']).where('gap_id', 'in', gapIds).execute()
+  const gapById = new Map(gaps.map((row: any) => [row.gap_id, row]))
+  if (gapIds.some(id => {
+    const row: any = gapById.get(id)
+    return !row || row.project_id !== appName || row.observation_run_id !== support.observationRunId
+  })) throw new AppModelPersistenceError('App Model support references a missing or cross-run ObservationGap.')
+  for (const subject of support.subjects) {
+    const row: any = observedById.get(subject.observationId)
+    if (!row || row.subject_id !== subject.canonicalSubjectId) {
+      throw new AppModelPersistenceError('App Model subject support does not match its Observation subject.')
+    }
+  }
+  const shared = {
+    model_row_id: modelRowId,
+    project_id: appName,
+    characterization_policy_id: support.characterizationPolicyId,
+    characterization_policy_version: support.characterizationPolicyVersion,
+    linked_at: support.linkedAt,
+  }
+  if (support.observations.length > 0) await trx.insertInto('app_model_observation_support').values(
+    support.observations.map(item => ({ ...shared, observation_id: item.observationId, claim_key: item.claimKey, support_role: item.supportRole })),
+  ).execute()
+  if (support.subjects.length > 0) await trx.insertInto('app_model_subject_support').values(
+    support.subjects.map(item => ({ ...shared, canonical_subject_id: item.canonicalSubjectId, observation_id: item.observationId, claim_key: item.claimKey, support_role: item.supportRole })),
+  ).execute()
+  if (support.gaps.length > 0) await trx.insertInto('app_model_gap_support').values(
+    support.gaps.map(item => ({ ...shared, gap_id: item.gapId, claim_key: item.claimKey, support_role: item.supportRole })),
+  ).execute()
+  await trx.insertInto('app_model_support_seals').values({
+    model_row_id: modelRowId,
+    project_id: appName,
+    observation_run_id: support.observationRunId,
+    characterization_policy_id: support.characterizationPolicyId,
+    characterization_policy_version: support.characterizationPolicyVersion,
+    support_hash: appModelSupportHash(support),
+    sealed_at: support.linkedAt,
+  }).execute()
+}
+
+async function assertObservationSupportReplay(trx: any, modelRowId: number, support: AppModelObservationSupportInput): Promise<void> {
+  const rows = await trx.selectFrom('app_model_observation_support').select(['observation_id', 'claim_key', 'support_role'])
+    .where('model_row_id', '=', modelRowId).execute()
+  const gaps = await trx.selectFrom('app_model_gap_support').select(['gap_id', 'claim_key', 'support_role'])
+    .where('model_row_id', '=', modelRowId).execute()
+  const subjects = await trx.selectFrom('app_model_subject_support')
+    .select(['canonical_subject_id', 'observation_id', 'claim_key', 'support_role'])
+    .where('model_row_id', '=', modelRowId).execute()
+  const seal = await trx.selectFrom('app_model_support_seals').selectAll()
+    .where('model_row_id', '=', modelRowId).executeTakeFirst()
+  const expected = support.observations.map(row => `${row.observationId}|${row.claimKey}|${row.supportRole}`).sort()
+  const actual = rows.map((row: any) => `${row.observation_id}|${row.claim_key}|${row.support_role}`).sort()
+  const expectedGaps = support.gaps.map(row => `${row.gapId}|${row.claimKey}|${row.supportRole}`).sort()
+  const actualGaps = gaps.map((row: any) => `${row.gap_id}|${row.claim_key}|${row.support_role}`).sort()
+  const expectedSubjects = support.subjects.map(row => `${row.canonicalSubjectId}|${row.observationId}|${row.claimKey}|${row.supportRole}`).sort()
+  const actualSubjects = subjects.map((row: any) => `${row.canonical_subject_id}|${row.observation_id}|${row.claim_key}|${row.support_role}`).sort()
+  if (!seal
+    || seal.project_id !== support.projectId
+    || seal.observation_run_id !== support.observationRunId
+    || seal.characterization_policy_id !== support.characterizationPolicyId
+    || seal.characterization_policy_version !== support.characterizationPolicyVersion
+    || seal.support_hash !== appModelSupportHash(support)
+    || JSON.stringify(expected) !== JSON.stringify(actual)
+    || JSON.stringify(expectedSubjects) !== JSON.stringify(actualSubjects)
+    || JSON.stringify(expectedGaps) !== JSON.stringify(actualGaps)) {
+    throw new AppModelPersistenceError('Replayed App Model operation has different canonical Observation support.')
+  }
+}
+
+function assertCandidateSubjectSupport(candidate: AppModelCandidate, support?: AppModelObservationSupportInput): void {
+  if (!support) return
+  const expected = new Set([
+    ...(candidate.pages ?? []).map(page => page.id),
+  ])
+  const actual = new Set(support.subjects.map(item => item.canonicalSubjectId))
+  if (expected.size !== actual.size || [...expected].some(id => !actual.has(id))) {
+    throw new AppModelPersistenceError('App Model subject support must exactly cover every characterized page.')
+  }
+}
 
 export type AppModelCommitOutcome = 'committed_new' | 'replayed_existing'
 
@@ -76,6 +186,9 @@ export interface AppModelReadHistoryItem {
   crawledAt: string | null
   evidenceState: 'crawled' | 'crawled-empty' | 'unsupported-platform' | 'unknown'
   sourceObservationId: string | null
+  sourceObservationRunId: string | null
+  supportObservationIds: string[]
+  supportGapIds: string[]
   validation: AppModelReadValidationState
   integrity: AppModelReadIntegrityState
   modelFingerprint: string
@@ -507,11 +620,13 @@ function safeClassificationLabel(value: unknown): string | null {
 function readHistoryItem(
   row: StoredAppModel,
   recoverySources: Map<number, StoredAppModel>,
+  canonicalSupport: Map<number, { runId: string; observationIds: string[]; gapIds: string[] }>,
 ): AppModelReadHistoryItem {
   const lifecycle = row.status === 'active' || row.status === 'superseded'
     ? row.status
     : 'unknown'
   const modelFingerprint = rawModelJsonFingerprint(row.model_json)
+  const support = canonicalSupport.get(Number(row.id))
   let parsed: unknown
   try {
     parsed = JSON.parse(row.model_json)
@@ -524,7 +639,11 @@ function readHistoryItem(
       generatedAt: null,
       crawledAt: exactIsoOrNull(row.crawled_at),
       evidenceState: 'unknown',
-      sourceObservationId: safeModelIdentity(row.operation_id),
+      // operation_id is request correlation, never Observation provenance.
+      sourceObservationId: null,
+      sourceObservationRunId: support?.runId ?? null,
+      supportObservationIds: support?.observationIds ?? [],
+      supportGapIds: support?.gapIds ?? [],
       validation: 'malformed',
       integrity: 'failed',
       modelFingerprint,
@@ -561,7 +680,7 @@ function readHistoryItem(
     const id = isPage
       ? safeModelIdentity(subject.id)
       : routePath
-        ? `${subject.method}:${routePath}`
+        ? canonicalEndpointSubjectId(subject)
         : null
     if (!id) return []
     const module = isPage ? subject.module : undefined
@@ -593,7 +712,11 @@ function readHistoryItem(
     generatedAt: exactIsoOrNull(snapshot.generatedAt),
     crawledAt: exactIsoOrNull(row.crawled_at),
     evidenceState,
-    sourceObservationId: safeModelIdentity(row.operation_id),
+    // Legacy rows without canonical support remain explicitly unsupported.
+    sourceObservationId: null,
+    sourceObservationRunId: support?.runId ?? null,
+    supportObservationIds: support?.observationIds ?? [],
+    supportGapIds: support?.gapIds ?? [],
     validation: validation.valid ? 'valid' : 'invalid',
     integrity,
     modelFingerprint,
@@ -690,8 +813,10 @@ export class AppModelRepository {
   async commitCandidate(
     candidate: AppModelCandidate,
     operationId: string,
+    support?: AppModelObservationSupportInput,
   ): Promise<AppModelCommitResult> {
     const canonicalCandidate = materializeCandidate(candidate, 'commitCandidate')
+    assertCandidateSubjectSupport(canonicalCandidate.candidate, support)
     const appName = canonicalCandidate.candidate.app.name
     if (operationId.trim() === '') {
       throw new AppModelPersistenceError(
@@ -728,6 +853,7 @@ export class AppModelRepository {
           )
         }
         if (replay) {
+          if (support) await assertObservationSupportReplay(trx, Number(replay.id), support)
           return { outcome: 'replayed_existing' as const, rowId: Number(replay.id) }
         }
 
@@ -753,6 +879,7 @@ export class AppModelRepository {
           .values(row)
           .returning('id')
           .executeTakeFirstOrThrow()
+        if (support) await persistObservationSupport(trx, Number(inserted.id), appName, support)
         return { outcome: 'committed_new' as const, rowId: Number(inserted.id) }
       })
     } catch (cause) {
@@ -818,12 +945,14 @@ export class AppModelRepository {
   async commitInvalidActiveRecovery(
     candidate: AppModelCandidate,
     request: InvalidActiveRecoveryRequest,
+    support?: AppModelObservationSupportInput,
   ): Promise<AppModelCommitResult> {
     validateRecoveryRequest(request, 'commitInvalidActiveRecovery')
     const canonicalCandidate = materializeCandidate(
       candidate,
       'commitInvalidActiveRecovery',
     )
+    assertCandidateSubjectSupport(canonicalCandidate.candidate, support)
     if (canonicalCandidate.candidate.app.name !== request.app_name) {
       throw new AppModelPersistenceError(
         `[AppModelRepository.commitInvalidActiveRecovery] Fresh candidate app ` +
@@ -867,6 +996,7 @@ export class AppModelRepository {
           .where('operation_id', '=', request.operation_id)
           .executeTakeFirst()
         if (replay) {
+          if (support) await assertObservationSupportReplay(trx, Number(replay.id), support)
           return {
             outcome: 'replayed_existing' as const,
             rowId: assertReplay(replay),
@@ -980,6 +1110,7 @@ export class AppModelRepository {
           .values(row)
           .returning('id')
           .executeTakeFirstOrThrow()
+        if (support) await persistObservationSupport(trx, Number(inserted.id), request.app_name, support)
         transactionStage = 'transaction-commit'
         return { outcome: 'committed_new' as const, rowId: Number(inserted.id) }
       })
@@ -1315,7 +1446,32 @@ export class AppModelRepository {
       ? await db.selectFrom('app_models').selectAll().where('id', 'in', sourceIds).execute()
       : []
     const recoverySources = new Map(recoverySourceRows.map(row => [Number(row.id), row]))
-    const models = page.map(row => readHistoryItem(row, recoverySources))
+    const modelIds = [...new Set([...page, ...activeRows].map(row => Number(row.id)))]
+    const canonicalSupportEligible = getDatabaseProvenance().productSchemaEligible
+    const observationSupportRows = !canonicalSupportEligible || modelIds.length === 0 ? [] : await db
+      .selectFrom('app_model_observation_support as support')
+      .innerJoin('observations as observation', 'observation.observation_id', 'support.observation_id')
+      .select(['support.model_row_id', 'support.observation_id', 'observation.observation_run_id'])
+      .where('support.model_row_id', 'in', modelIds).execute()
+    const gapSupportRows = !canonicalSupportEligible || modelIds.length === 0 ? [] : await db
+      .selectFrom('app_model_gap_support as support')
+      .innerJoin('observation_gaps as gap', 'gap.gap_id', 'support.gap_id')
+      .select(['support.model_row_id', 'support.gap_id', 'gap.observation_run_id'])
+      .where('support.model_row_id', 'in', modelIds).execute()
+    const canonicalSupport = new Map<number, { runId: string; observationIds: string[]; gapIds: string[] }>()
+    for (const row of observationSupportRows) {
+      const id = Number(row.model_row_id)
+      const item = canonicalSupport.get(id) ?? { runId: row.observation_run_id, observationIds: [], gapIds: [] }
+      if (!item.observationIds.includes(row.observation_id)) item.observationIds.push(row.observation_id)
+      canonicalSupport.set(id, item)
+    }
+    for (const row of gapSupportRows) {
+      const id = Number(row.model_row_id)
+      const item = canonicalSupport.get(id) ?? { runId: row.observation_run_id, observationIds: [], gapIds: [] }
+      if (!item.gapIds.includes(row.gap_id)) item.gapIds.push(row.gap_id)
+      canonicalSupport.set(id, item)
+    }
+    const models = page.map(row => readHistoryItem(row, recoverySources, canonicalSupport))
     const hasMore = pagePlusOne.length > limit
     const requestedExists = requestedRowId === null
       ? false
@@ -1329,7 +1485,7 @@ export class AppModelRepository {
       kind: 'ok',
       models,
       activeModel: activeRows.length === 1
-        ? readHistoryItem(activeRows[0], recoverySources)
+        ? readHistoryItem(activeRows[0], recoverySources, canonicalSupport)
         : null,
       total: Number(counts.total),
       activeCount: Number(counts.active_count),

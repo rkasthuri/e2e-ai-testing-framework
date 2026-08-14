@@ -158,12 +158,9 @@ test('G8 END-TO-END: EmptyModelError message reaches the Timeline lines[]', asyn
     // schemaValidEmpty is crawled-empty with no diagnostic → the honest "ran but
     // found nothing; don't know why". The old "onboarded but never crawled" was
     // FALSE (that state has no producer) and must never reappear.
-    assert.equal(
-      status!.error,
-      `The crawl of '${appName}' ran but discovered no pages, flows, or endpoints — there is nothing to generate or verify from. FORGE could not determine why the crawl came back empty.`,
-    )
+    assert.equal(status!.error, 'The current App Model contains no supported subjects for this operation.')
     assert.ok(
-      status!.lines.some(l => l.includes('⛔') && l.includes('ran but discovered no pages')),
+      status!.lines.some(l => l.includes('⛔') && l.includes('contains no supported subjects')),
       `EmptyModelError missing from Timeline lines[] — lines: ${JSON.stringify(status!.lines)}`,
     )
     assert.ok(

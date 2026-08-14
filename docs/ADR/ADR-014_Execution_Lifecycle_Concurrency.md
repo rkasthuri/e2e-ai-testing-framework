@@ -64,6 +64,23 @@ unchanged, so the UI and routes are untouched by that swap.
   single-writer.
 - No engine change; forge-ui-only.
 
+## Implementation Note - 2026-08-10
+
+ADR-025 and Migration 021 add a distinct Product Execution root and manifest.
+This does not rewrite the historical `ExecutionContext` decision: its in-process
+engine serialization remains separate from the durable per-project Product
+execution lock. Current Product policy permits one Run attempt per Execution;
+schema capacity for later attempts does not enable concurrency or retries.
+
+## Implementation Note - 2026-08-10 (TD-UI-069B-C-F)
+
+Cooperative cancellation does not weaken either lock. `ExecutionService` first
+appends durable operator intent, then signals only the matching in-process
+Execution token. The executor polls at bounded safe transitions and is never
+hard-killed. A healthy foreign owner retains its lock while cancellation is
+pending; on-contact recovery terminalizes a missing or stale owner from the
+durable request and releases the lock atomically.
+
 ## References
 TD-UI-020 (the blocker); TD-114 (per-app DB singleton); ADR-012 (worker_threads
 Phase 2); ADR-013 (credential provider — the other ExecutionContext pre-flight).

@@ -28,13 +28,23 @@ export class RunRepository {
     return result
   }
 
-  async findById(runId: string): Promise<Run | null> {
-    const db = getDb()
+  async findById(runId: string, trx?: Transaction<Database>): Promise<Run | null> {
+    const db = trx ?? getDb()
     const result = await db.selectFrom('runs')
       .selectAll()
       .where('run_id', '=', runId)
       .executeTakeFirst()
     return result ?? null
+  }
+
+  async findProductByExecution(executionId: string, trx?: Transaction<Database>): Promise<Run[]> {
+    const db = trx ?? getDb()
+    return db.selectFrom('runs')
+      .selectAll()
+      .where('execution_id', '=', executionId)
+      .where('origin', '=', 'product')
+      .orderBy('attempt_ordinal')
+      .execute()
   }
 
   async findByApp(appName: string, limit = 50): Promise<Run[]> {
@@ -126,6 +136,79 @@ export class RunRepository {
       .set(stats)
       .where('run_id', '=', runId)
       .execute()
+  }
+
+  /** Product aggregate fields are the only mutable part of an admitted Run. */
+  async terminalizeProduct(
+    runId: string,
+    terminal: {
+      status: 'passed' | 'failed' | 'could_not_verify'
+      passed: number
+      failed: number
+      skipped: number
+      duration_ms: number
+      completed_at: string
+    },
+    trx: Transaction<Database>,
+  ): Promise<void> {
+    const result = await trx.updateTable('runs')
+      .set({ ...terminal, lifecycle: 'completed' })
+      .where('run_id', '=', runId)
+      .where('origin', '=', 'product')
+      .where('lifecycle', '=', 'running')
+      .executeTakeFirst()
+    if (Number(result.numUpdatedRows) !== 1) {
+      throw new Error('Product Run is missing, not running, or already terminal.')
+    }
+  }
+
+  /** Cancellation is terminal lifecycle, while outcome remains evidence-derived. */
+  async cancelProduct(
+    runId: string,
+    terminal: {
+      status: 'passed' | 'failed' | 'could_not_verify'
+      passed: number
+      failed: number
+      skipped: number
+      duration_ms: number
+      completed_at: string
+    },
+    trx: Transaction<Database>,
+  ): Promise<void> {
+    const result = await trx.updateTable('runs')
+      .set({ ...terminal, lifecycle: 'cancelled' })
+      .where('run_id', '=', runId)
+      .where('origin', '=', 'product')
+      .where('lifecycle', '=', 'running')
+      .executeTakeFirst()
+    if (Number(result.numUpdatedRows) !== 1) {
+      throw new Error('Product Run is missing, not running, or already terminal.')
+    }
+  }
+
+  /** Recovery mutates only aggregate/lifecycle fields; admission identity stays immutable. */
+  async reconcileProduct(
+    runId: string,
+    terminal: {
+      lifecycle: 'completed' | 'cancelled' | 'interrupted'
+      status: 'passed' | 'failed' | 'could_not_verify' | 'unknown'
+      passed: number
+      failed: number
+      skipped: number
+      duration_ms: number
+      completed_at: string | null
+    },
+    trx: Transaction<Database>,
+  ): Promise<void> {
+    const result = await trx.updateTable('runs')
+      .set(terminal)
+      .where('run_id', '=', runId)
+      .where('origin', '=', 'product')
+      .where('lifecycle', '=', 'running')
+      .executeTakeFirst()
+    if (Number(result.numUpdatedRows) !== 1) {
+      throw new Error('Product Run is missing, not running, or already terminal.')
+    }
   }
 
   /**

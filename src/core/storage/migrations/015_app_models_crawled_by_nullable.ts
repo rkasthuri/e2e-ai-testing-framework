@@ -11,6 +11,7 @@
  */
 
 import { Kysely, sql } from 'kysely'
+import { currentMigrationDialect } from '../MigrationContext'
 
 /**
  * 015 — Crawl-LIEs (ADR-015): crawled_by provenance honesty.
@@ -38,7 +39,7 @@ import { Kysely, sql } from 'kysely'
  * alters in place. Mirrors migration 013's crawled_at pattern.
  */
 export async function up(db: Kysely<any>): Promise<void> {
-  const isPostgres = !!process.env.DB_URL
+  const isPostgres = currentMigrationDialect() === 'postgres'
 
   if (isPostgres) {
     await sql`ALTER TABLE app_models ALTER COLUMN crawled_by DROP NOT NULL`.execute(db)
@@ -87,7 +88,7 @@ export async function up(db: Kysely<any>): Promise<void> {
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
-  const isPostgres = !!process.env.DB_URL
+  const isPostgres = currentMigrationDialect() === 'postgres'
 
   // Restoring NOT NULL requires a non-null value: backfill NULLs to 'human' (the
   // OLD default). This is a REVERSAL fabrication — acceptable only because down()

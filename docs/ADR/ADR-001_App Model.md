@@ -61,3 +61,14 @@ Negative:
 ## Related Documents
 
 ARCHITECTURE_NORTH_STAR.md
+
+## Clarification Note — 2026-08-11 (TD-ARCH-003-B0)
+
+The App Model remains FORGE's canonical application understanding and the sole
+model consumed by downstream systems. It is derived authority, not raw
+Observation authority. [`ADR-027`](ADR-027-canonical-observation-authority-and-evidence-semantics.md)
+places immutable Observations upstream in core
+and requires each App Model revision to own exact one-way support relationships
+to its Observation and gap inputs. This clarification does not authorize a
+parallel application model and does not change the original rejection of a
+platform-wide event-sourced App Model architecture.

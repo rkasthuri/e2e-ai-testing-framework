@@ -52,28 +52,29 @@ const CONFIG: OnboardingConfig = {
 
 // ── T1-T4: path-scoping defaults + overrides ──────────────────────────────────
 
-test('T1 Crawler defaults to no prior SQLite snapshot and cwd auth state', () => {
+test('T1 Crawler defaults to no prior SQLite snapshot and no storage-state owner', () => {
   const c = new Crawler(CONFIG) as any
   assert.equal(c.previousModel, null)
   assert.equal(c.modelsDir, undefined)
-  assert.equal(c.authStateDir, path.resolve('.auth'))
+  assert.equal(c.authStateDir, undefined)
 })
 
 test('T2 Crawler and ApiSpecCrawler accept an injected prior SQLite snapshot', () => {
   const previous = { app: { modelVersion: '1.2.3' } } as any
-  const c = new Crawler(CONFIG, { previousModel: previous, authStateDir: 'C:/x/.forge/auth' }) as any
+  const c = new Crawler(CONFIG, { previousModel: previous }) as any
   assert.equal(c.previousModel, previous)
-  assert.equal(c.authStateDir, 'C:/x/.forge/auth')
+  assert.equal(c.authStateDir, undefined)
   const a = new ApiSpecCrawler(CONFIG, { previousModel: previous }) as any
   assert.equal(a.previousModel, previous)
   assert.equal(a.modelsDir, undefined)
 })
-test('T3 AuthManager without opts → authStateDir defaults to cwd/.auth', () => {
-  assert.equal((new AuthManager(CONFIG) as any).authStateDir, path.resolve('.auth'))
+test('T3 AuthManager has no storage-state persistence owner', () => {
+  assert.equal((new AuthManager(CONFIG) as any).authStateDir, undefined)
 })
 
-test('T4 AuthManager with opts → session state path uses the provided dir', () => {
-  assert.equal((new AuthManager(CONFIG, { authStateDir: 'C:/w/.forge/auth' }) as any).authStateDir, 'C:/w/.forge/auth')
+test('T4 AuthManager source contains no storage-state writer', () => {
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'src/core/onboarding/AuthManager.ts'), 'utf-8')
+  assert.doesNotMatch(src, /storageState\s*\(/)
 })
 
 // ── T5-T6: CrawlRunner wiring (source-level — run() needs a live crawl) ───────
@@ -84,9 +85,9 @@ test('T5 CrawlRunner injects the prior SQLite snapshot and has no modelsDir auth
   assert.match(src, /previousModel,/)
   assert.doesNotMatch(src, /modelsDir:/)
 })
-test('T6 CrawlRunner passes workspace.forgeDir/auth as authStateDir (inside .forge/)', () => {
+test('T6 CrawlRunner does not create or route browser storage-state artifacts', () => {
   const src = fs.readFileSync(path.join(REPO_ROOT, 'src/core/runner/CrawlRunner.ts'), 'utf-8')
-  assert.match(src, /authStateDir:\s*path\.join\(workspace\.forgeDir,\s*'auth'\)/)
+  assert.doesNotMatch(src, /authStateDir|\.forge['"],\s*['"]auth/)
 })
 
 // ── T7-T9: Workspace additions ────────────────────────────────────────────────

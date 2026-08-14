@@ -16,8 +16,8 @@ import { Database, TestResult, NewTestResult } from '../types'
 
 export class TestResultRepository {
 
-  async insert(result: NewTestResult): Promise<TestResult> {
-    const db = getDb()
+  async insert(result: NewTestResult, trx?: Transaction<Database>): Promise<TestResult> {
+    const db = trx ?? getDb()
     return db.insertInto('test_results')
       .values(result)
       .returningAll()
@@ -33,8 +33,8 @@ export class TestResultRepository {
       .execute()
   }
 
-  async findByRun(runId: string): Promise<TestResult[]> {
-    const db = getDb()
+  async findByRun(runId: string, trx?: Transaction<Database>): Promise<TestResult[]> {
+    const db = trx ?? getDb()
     return db.selectFrom('test_results')
       .selectAll()
       .where('run_id', '=', runId)

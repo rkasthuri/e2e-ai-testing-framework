@@ -11,7 +11,6 @@
  */
 
 import { chromium, Browser }   from '@playwright/test'
-import * as path               from 'path'
 import * as crypto             from 'crypto'
 import {
   OnboardingConfig, RoleConfig, RoleCrawlResult,
@@ -20,6 +19,7 @@ import {
   AuthenticationStageDiagnostic,
 } from './types'
 import { FlowDetector }        from './FlowDetector'
+import type { PageDiscoverySink } from './BFSStrategy'
 import { ApiSpecCrawler }      from './ApiSpecCrawler'
 import { AuthManager, summarizeAuthenticationStages } from './AuthManager'
 import { StrategyDetector }    from './StrategyDetector'
@@ -32,6 +32,7 @@ import { normalizeUrl, isDenied, isSameOrigin } from './PageVisitor'
 import {
   DEFAULT_AI_BUDGET, namingBudget, flowBudget, makeBudgetTracker,
 } from '../config/budgetDefaults'
+import type { CredentialMaterial } from '../security/CredentialExecutionScope'
 
 /**
  * TD-131: register SIGINT/SIGTERM handlers that close the browser, then exit —
@@ -54,6 +55,7 @@ export function registerBrowserCleanup(browser: Browser): () => void {
 }
 
 export class Crawler {
+  private readonly onPageDiscovered?: (discovery: PageDiscovery, roleId: string) => Promise<void>
 
   // TD-132: Pool A is split into a naming tracker (element classification,
   // per-page, dominant) and a reserved flow tracker (FlowDetector). Naming can
@@ -65,20 +67,21 @@ export class Crawler {
   // instrumented, so the honest value is null ("not measured"), never 0. The real
   // count + a 'crawled-partial' coverage state is TD-UI-054 (A2). Emitting 0 here
   // would assert "measured, none skipped" — a claim FORGE cannot make today.
-  /** TD-121: where auth storage state persists; threaded to AuthManager + recorded in the model. Default = cwd `.auth`. */
-  private authStateDir: string
   /** TD-131: headless by default ("FORGE is invisible"); --headed opts in for anti-bot sites / visual debugging. */
   private headed: boolean
+  /** Operation-scoped material view; it becomes unreadable when the owner disposes the scope. */
+  private credentialMaterial: CredentialMaterial | undefined
   /** TD-181: previous runtime truth is injected from SQLite, never loaded from JSON. */
   private previousModel: AppModel | null
 
   constructor(
     private config: OnboardingConfig,
-    opts: { authStateDir?: string; headed?: boolean; previousModel?: AppModel | null } = {},
+    opts: { credentialMaterial?: CredentialMaterial; headed?: boolean; previousModel?: AppModel | null; onPageDiscovered?: (discovery: PageDiscovery, roleId: string) => Promise<void> } = {},
   ) {
-    this.authStateDir = opts.authStateDir ?? path.resolve('.auth')
     this.headed       = opts.headed       ?? false
     this.previousModel = opts.previousModel ?? null
+    this.credentialMaterial = opts.credentialMaterial
+    this.onPageDiscovered = opts.onPageDiscovered
     // TD-132: total Pool A budget → naming + reserved flow. runId/appName are
     // bound at crawl() start (FIX TD-run_id + TD-028), same as before.
     const totalAi = config.budgets?.aiCalls ?? DEFAULT_AI_BUDGET
@@ -159,7 +162,9 @@ export class Crawler {
         console.log(`[FORGE Crawler] Role: ${role.id} — authenticating...`)
 
         // 1. Authenticate — get context + real post-auth startUrl
-        const authResult = await new AuthManager(this.config, { authStateDir: this.authStateDir }).authenticate(role, browser)
+        const authResult = await new AuthManager(this.config, {
+          credentialMaterial: this.credentialMaterial,
+        }).authenticate(role, browser)
         const { context, startUrl, authenticated } = authResult
         roleAuthenticationStages[role.id] = authResult.authenticationStages
 
@@ -230,15 +235,18 @@ export class Crawler {
         const explorationMap = createExplorationMap()
         let pages: PageDiscovery[] = []
         let spaStrategy: SPAStrategy | undefined
+        const observationSink: PageDiscoverySink | undefined = this.onPageDiscovered
+          ? discovery => this.onPageDiscovered!(discovery, role.id)
+          : undefined
 
         if (crawlMode === 'bfs') {
-          pages = await new BFSStrategy(crawlConfig, this.namingTracker)
+          pages = await new BFSStrategy(crawlConfig, this.namingTracker, observationSink)
             .crawl(context, startUrl, explorationMap, crawlConfig.maxPages)
         } else if (crawlMode === 'spa') {
-          spaStrategy = new SPAStrategy(crawlConfig, this.namingTracker)
+          spaStrategy = new SPAStrategy(crawlConfig, this.namingTracker, observationSink)
           pages = await spaStrategy.crawl(context, startUrl, explorationMap, crawlConfig.maxPages)
         } else {
-          pages = await new HybridStrategy(crawlConfig, this.namingTracker)
+          pages = await new HybridStrategy(crawlConfig, this.namingTracker, observationSink)
             .crawl(context, startUrl, explorationMap, crawlConfig.maxPages)
         }
 
@@ -478,12 +486,9 @@ export class Crawler {
         authFlow:          r.authFlow,
         credentialsEnvKey: r.credentialsEnvKey || null,
         // TD-121 (finding B): record the REAL storage-state location, not a
-        // hardcoded '.auth/...' string. Normalized relative-to-cwd so fixture
-        // models stay byte-identical ('.auth/<role>.json') and workspace models
-        // stay portable ('.forge/auth/<role>.json') — never an absolute path.
-        storageStatePath:  r.authFlow !== 'none'
-          ? path.relative(process.cwd(), path.join(this.authStateDir, `${r.id}.json`)).replace(/\\/g, '/')
-          : null,
+        // TD-SEC-001: the live context is sufficient for this crawl. Session
+        // cookies/tokens are never serialized, so no durable path exists.
+        storageStatePath:  null,
         reachablePageIds:  reachable,
         restrictedPageIds: restricted,
         // TD-064 FC-004b: observed auth outcome (set from the crawl-loop flag, NOT derived

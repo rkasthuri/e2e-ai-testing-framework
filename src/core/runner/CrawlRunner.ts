@@ -23,7 +23,6 @@
  *   - No process.exit() anywhere on this path — errors propagate to the caller
  *     (the CLI's catch handler exits; a server would return a 500).
  */
-import * as path from 'path'
 import { Bootstrap, BootstrapOptions, generateRunId } from '../onboarding/Bootstrap'
 import { Crawler } from '../onboarding/Crawler'
 import { openProjectDatabase, getMigrationCount } from '../storage/DatabaseFactory'
@@ -52,12 +51,21 @@ import { WorkspaceMemoryRepository } from '../workspace/WorkspaceMemoryRepositor
 import { AppConfig } from '../workspace/AppConfig'
 import { toOnboardingConfig } from '../workspace/ConfigAdapter'
 import { DEFAULT_AI_BUDGET, DEFAULT_CLASSIFICATION_BUDGET, effectiveAiBudget } from '../config/budgetDefaults'
+import {
+  credentialExecutionScope,
+  type CredentialMaterial,
+  type CredentialReference,
+} from '../security/CredentialExecutionScope'
+import { ObservationService } from '../observation/ObservationService'
+import { CrawlObservationProducer } from '../observation/CrawlObservationProducer'
+import type { AppModelObservationSupportInput, ObservationRecord } from '../observation/ObservationTypes'
 
 export interface CrawlRunnerOptions {
   url: string;
   appName?: string;        // derived from the URL hostname if not provided
   username?: string;
   password?: string;
+  credentialReference?: CredentialReference;
   workspace?: Workspace;   // defaults to createWorkspace(process.cwd())
   mode?: AgentMode;        // 'supervised' (default) | 'autonomous'
   dryRun?: boolean;
@@ -81,6 +89,7 @@ export interface CrawlResult {
   testsGenerated: number;   // always 0 today — generation is a separate stage (see run())
   dryRun: boolean;
   operationId: string;
+  observationRunId?: string;
   appModelCommit?: {
     outcome: AppModelCommitOutcome;
     rowId: number;
@@ -227,6 +236,40 @@ export class CrawlRunner {
   }
 
   async run(options: CrawlRunnerOptions): Promise<CrawlResult> {
+    const direct = options.username && options.password
+      ? { username: options.username, password: options.password }
+      : null
+    delete options.username
+    delete options.password
+    if (direct) {
+      try {
+        return await credentialExecutionScope.runProvided(
+          direct,
+          material => this.runScoped({ ...options, runtimeCredentialMaterial: material }),
+        )
+      } finally {
+        direct.username = ''
+        direct.password = ''
+      }
+    }
+    if (options.credentialReference) {
+      const reference = options.credentialReference
+      delete options.credentialReference
+      const scoped = await credentialExecutionScope.run(
+        reference,
+        material => this.runScoped({ ...options, runtimeCredentialMaterial: material }),
+      )
+      if (scoped.kind === 'unavailable') {
+        throw new Error('Governed credential material became unavailable before crawl dispatch.')
+      }
+      return scoped.value
+    }
+    return this.runScoped(options)
+  }
+
+  private async runScoped(
+    options: CrawlRunnerOptions & { runtimeCredentialMaterial?: CredentialMaterial },
+  ): Promise<CrawlResult> {
     // The orchestrator owns one durable operation identity for this crawl.
     // Callers retrying the same operation must pass the same value.
     const operationId = options.operationId ?? generateRunId()
@@ -266,6 +309,10 @@ export class CrawlRunner {
       config = bootstrapped
     }
 
+    const observations = !options.agent
+      ? new ObservationService(config.appName, workspace.root)
+      : null
+
     // A complete-operation retry must resolve its durable SQLite identity
     // before creating the crawler or rebuilding timestamp-bearing candidates.
     // A hit performs compatibility projection only and returns the exact row.
@@ -278,6 +325,7 @@ export class CrawlRunner {
       if (replay) {
         const commit = requireProjectedCommit(replay)
         const committed = commit.committed.snapshot
+        const canonicalRun = await observations?.findRunByOperation('forge.crawler', operationId)
         const pagesDiscovered = committed.pages?.length ?? committed.endpoints?.length ?? 0
         console.log(
           `[CrawlRunner] Operation '${operationId}' ${commit.outcome}; skipped crawl ` +
@@ -291,6 +339,7 @@ export class CrawlRunner {
           testsGenerated: 0,
           dryRun: false,
           operationId,
+          ...(canonicalRun ? { observationRunId: canonicalRun.observationRunId } : {}),
           appModelCommit: {
             outcome: commit.outcome,
             rowId: commit.committed.rowId,
@@ -313,14 +362,8 @@ export class CrawlRunner {
 
     // Zero-friction credentials: secrets given on the command line are injected
     // into THIS process's env under the config's envKey (the exact place
-    // AuthManager.resolveCredentials reads, 'user:pass' format) — in-process
-    // only, NEVER persisted. Without this, `forge crawl --username --password`
-    // would bootstrap fine and then crawl unauthenticated.
-    if (options.username && options.password && config.credentials?.envKey) {
-      process.env[config.credentials.envKey] = `${options.username}:${options.password}`
-      console.log(`[CrawlRunner] Credentials injected in-process under env key '${config.credentials.envKey}' (never persisted).`)
-    }
-
+    // TD-SEC-001: operation material is threaded as a fail-closed scoped view.
+    // No compatibility value is written to process.env.
     // 4. Convert to the rich config the existing pipeline consumes.
     const onboardingConfig = toOnboardingConfig(config)
 
@@ -365,17 +408,116 @@ export class CrawlRunner {
       }
     }
 
+    const observationRunResult = await observations!.startRun({
+      operationId,
+      producer: 'forge.crawler',
+      producerVersion: '1',
+      acquisitionKind: 'web_crawl',
+      policyId: 'forge.crawl-observation-acquisition',
+      policyVersion: '1',
+      acquisitionPlan: {
+        appName: config.appName,
+        baseUrl: new URL(options.url).origin,
+        crawlMode: onboardingConfig.crawlMode ?? 'auto',
+        maxPages,
+      },
+    })
+    const observationRun = observationRunResult.value
+    if (observationRunResult.outcome === 'replayed_existing') {
+      throw new Error(
+        `[CrawlRunner] ObservationRun '${observationRun.observationRunId}' already exists ` +
+        `without a committed App Model replay. Refusing to reacquire or reconstruct truth.`,
+      )
+    }
+    let observationSupport: AppModelObservationSupportInput | null = null
+    const observationProducer = new CrawlObservationProducer()
+    const incrementalPageObservations: ObservationRecord[] = []
+    const observedPageSubjects = new Set<string>()
+
     // TD-121: workspace-derived artifact placement — the model is visible
     // output (workspace root), session tokens are secrets (.forge/auth/).
     // Both runtime-resolved from the workspace; Crawler still never sees
     // the Workspace itself (path-scoping, Option A).
     const produceCandidate = async (previousModel: Awaited<ReturnType<AppModelService['findActive']>>) => {
       const crawler = this.createCrawler(onboardingConfig, {
-        authStateDir: path.join(workspace.forgeDir, 'auth'),
+        credentialMaterial: options.runtimeCredentialMaterial,
         headed:       options.headed ?? false,   // TD-131: headless unless --headed
         previousModel,
+        onPageDiscovered: async (discovery, roleId) => {
+          // Crawler characterization deliberately coalesces dynamic URL
+          // instances (for example ?id=4 and ?id=0) into one canonical page
+          // subject. Admit the first bounded fact only; a later instance must
+          // not mutate or conflict with that already-committed subject truth.
+          if (observedPageSubjects.has(discovery.pageId)) return
+          const observation = await observationProducer.persistPageDiscovery(
+            discovery,
+            observationRun,
+            observations!,
+            undefined,
+            roleId,
+          )
+          incrementalPageObservations.push(observation)
+          observedPageSubjects.add(discovery.pageId)
+        },
       })
-      const model = await crawler.crawl()
+      let model: AppModelCandidate
+      try {
+        model = await crawler.crawl()
+      } catch (cause) {
+        const occurredAt = new Date().toISOString()
+        await observations!.recordGap({
+          observationRunId: observationRun.observationRunId,
+          projectId: config.appName,
+          producer: 'forge.crawler',
+          producerVersion: '1',
+          intendedMethod: 'browser_dom_inspection',
+          intendedMethodVersion: 'forge.browser-dom-inspection/v1',
+          intendedSubjectId: `application-${operationId}`,
+          intendedPredicate: 'application.coverage',
+          boundary: {
+            schemaVersion: 'forge-observation-boundary/v1',
+            kind: 'document',
+            scope: { acquisitionKind: 'web_crawl' },
+            startedAt: observationRun.startedAt,
+            endedAt: occurredAt,
+            completion: 'partial',
+            policyId: 'forge.crawl-observation-characterization',
+            policyVersion: '1',
+          },
+          reason: 'acquisition_failed',
+          occurredAt,
+          idempotencyKey: `crawl-failure:${operationId}`,
+          safeMessage: 'Browser acquisition failed before a canonical fact could be established.',
+        })
+        await observations!.terminalizeRun({
+          observationRunId: observationRun.observationRunId,
+          terminalAt: occurredAt,
+          lifecycle: 'failed',
+          completeness: incrementalPageObservations.length > 0 ? 'partial' : 'unobserved',
+          safeReasonCode: 'acquisition_failed',
+          safeMessage: 'Browser acquisition failed; no App Model characterization was attempted.',
+        })
+        throw cause
+      }
+
+      // Canonical observed truth is durable before any model enrichment or
+      // characterization can strengthen it.
+      const produced = await observationProducer.persist(
+        model,
+        observationRun,
+        observations!,
+        incrementalPageObservations,
+      )
+      observationSupport = produced.support
+      await observations!.terminalizeRun({
+        observationRunId: observationRun.observationRunId,
+        lifecycle: 'completed',
+        completeness: produced.completeness,
+        safeReasonCode: produced.completeness === 'complete' ? null : 'coverage_incomplete',
+        safeMessage: produced.completeness === 'complete'
+          ? null
+          : 'Canonical facts were preserved, but the acquisition boundary was not complete.',
+      })
 
       // 6. TD-112: enrichment — classify before the candidate crosses the
       // persistence boundary. Recovery uses this exact same fresh producer.
@@ -433,6 +575,10 @@ export class CrawlRunner {
           return recoveryCandidate
         },
         snapshot => workspace.saveModelProjection(config.appName, snapshot),
+        () => {
+          if (!observationSupport) throw new Error('Canonical Observation support was not committed before recovery characterization.')
+          return observationSupport
+        },
       )
       if (recoveryResult.status !== 'commit_and_projection_succeeded') {
         if (!recoveryCandidate) throw recoveryResult.error
@@ -450,9 +596,11 @@ export class CrawlRunner {
     } else {
       const previousModel = await this.appModels.findActive(config.appName)
       const model = await produceCandidate(previousModel)
-      commit = requireProjectedCommit(await this.appModels.commitAndProject(
+      if (!observationSupport) throw new Error('Canonical Observation support was not committed before characterization.')
+      commit = requireProjectedCommit(await this.appModels.commitWithObservationSupportAndProject(
         model,
         operationId,
+        observationSupport,
         snapshot => workspace.saveModelProjection(config.appName, snapshot),
       ))
     }
@@ -497,6 +645,7 @@ export class CrawlRunner {
       testsGenerated: 0,   // generation (GeneratorRunner) is a separate pipeline stage, not run here
       dryRun: false,
       operationId,
+      observationRunId: observationRun.observationRunId,
       appModelCommit: {
         outcome: commit.outcome,
         rowId: commit.committed.rowId,
@@ -521,13 +670,16 @@ export class CrawlRunner {
    * Run Bootstrap and persist its artifacts through the workspace.
    * Returns the fresh AppConfig, or null when --dry-run previewed only.
    */
-  private async bootstrap(workspace: Workspace, options: CrawlRunnerOptions): Promise<AppConfig | null> {
+  private async bootstrap(
+    workspace: Workspace,
+    options: CrawlRunnerOptions & { runtimeCredentialMaterial?: CredentialMaterial },
+  ): Promise<AppConfig | null> {
     const bootstrapOptions: BootstrapOptions = {
       url:          options.url,
       // Single command-line credential pair → one role, id 'user' (envKey
       // USER_CREDENTIALS). Multi-role stays a .ts-fixture / schema-v2 concern.
-      credentials:  options.username && options.password
-        ? [{ role: 'user', username: options.username, password: options.password }]
+      credentials:  options.runtimeCredentialMaterial
+        ? [{ role: 'user', username: options.runtimeCredentialMaterial.username, password: options.runtimeCredentialMaterial.password }]
         : [],
       nameOverride: options.appName,
       dryRun:       options.dryRun,

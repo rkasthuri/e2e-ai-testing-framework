@@ -24,7 +24,6 @@ import { credentialStore, CredentialStore } from '../context/credentials/Credent
 import {
   DEFAULT_OBSERVATION_HISTORY_LIMIT,
   MAX_OBSERVATION_HISTORY_LIMIT,
-  observationStore,
   type AuthenticationOutcome,
   type AuthenticationAttemptRecord,
   type AuthenticationStageRecord,
@@ -32,8 +31,7 @@ import {
   type ObservationTerminalRecord,
   type ObservationTerminalState,
 } from '../registry/ObservationStore'
-import { projectObservationHistoryItem } from '../registry/ObservationHistoryPresenter'
-import { checkReachability } from './validate'
+import { legacyObservationCompatibilityProjection } from '../registry/LegacyObservationCompatibilityProjection'
 
 /**
  * TD-UI-002 Crawl tab (ADR-012, Phase 1 — polling).
@@ -269,9 +267,6 @@ export function parseObservationHistoryQuery(query: Record<string, unknown>): Ob
   }
 }
 
-const observationStarts = new Map<string, ObservationStartRecord>()
-const observationFinalizations = new Map<string, Promise<void>>()
-const observationFinalizationErrors = new Map<string, string>()
 // Covers the asynchronous reachability/pre-persistence window before JobRunner
 // can publish its active-job index. Without this reservation, concurrent starts
 // can both pass getActiveJob() and create separate observations for one project.
@@ -667,197 +662,6 @@ export function recoveryFailureRecommendation(): { action: string; because: stri
   }
 }
 
-async function finalizeObservation(observationId: string): Promise<void> {
-  const start = observationStarts.get(observationId)
-  const view = jobRunner.getStatus(observationId)
-  if (!start || !view) throw new Error('Observation finalization context is unavailable.')
-  const recoveryFailure = readEngineRecoveryFailure(view.failure)
-
-  let model: any = null
-  let malformed = false
-  let modelError: string | null = null
-  if (view.status === 'completed') {
-    try {
-      model = await executionContext.readAppModel(view.appName)
-      malformed = !model?.app || (!Array.isArray(model?.pages) && !Array.isArray(model?.endpoints))
-      if (malformed) modelError = 'The crawl engine produced a malformed App Model result.'
-    } catch (err) {
-      modelError = `The persisted App Model could not be read: ${err instanceof Error ? err.message : String(err)}`
-    }
-  }
-
-  const pages = recoveryFailure
-    ? recoveryFailure.observedSubjects.map(subject => ({
-        id: subject.id,
-        url: subject.value,
-        urlPattern: subject.value,
-        module: 'Unknown',
-        moduleConfidence: null,
-        moduleReason: null,
-        elements: 0,
-        roles: [],
-      }))
-    : malformed || modelError ? [] : mapModelSubjects(model)
-  const diagnostics = recoveryFailure
-    ? recoveryFailure.crawlDiagnostics
-    : malformed || modelError ? [] : mapModelDiagnostics(model)
-  const auth = recoveryFailure
-    ? recoveryAuthenticationOutcome(recoveryFailure, start)
-    : authenticationOutcome(model, start, diagnostics)
-  const authAttempts = recoveryFailure ? [] : authenticationAttempts(model)
-  const modelCompatibilityFailure = !recoveryFailure && (isModelCompatibilityError(view.error)
-    || isModelCompatibilityError(modelError)
-  )
-  const modelRecovery = readEngineRecoveryResult(view.result)
-  const modelRecoveryFailure = recoveryFailure
-    ? {
-        sourceRowId: recoveryFailure.sourceRowId,
-        sourceVersion: recoveryFailure.sourceVersion,
-        sourceFingerprint: recoveryFailure.sourceFingerprint,
-        detectedAt: recoveryFailure.detectedAt,
-        phases: recoveryFailure.phases,
-        persistenceDiagnostic: recoveryFailure.persistenceDiagnostic,
-      }
-    : undefined
-  const classified = modelError
-    ? modelCompatibilityFailure
-      ? {
-          state: 'blocked' as const,
-          reason: 'The resulting Application Model did not pass current-schema validation. No replacement model or observation evidence was activated.',
-        }
-      : { state: 'failed' as const, reason: modelError }
-    : classifyTerminalState(
-        pages,
-        diagnostics,
-        view.status === 'failed',
-        view.error,
-        recoveryFailure,
-      )
-  const completedAt = view.completedAt ?? new Date().toISOString()
-  const capturedAt = recoveryFailure?.capturedAt
-    ?? model?.app?.crawlMetadata?.crawledAt
-    ?? completedAt
-  const evidence = pages.map((page, index) => ({
-    id: `${observationId}-page-${index + 1}`,
-    subject: page.urlPattern || page.url,
-    summary: `Page or route observed at ${page.urlPattern || page.url}.`,
-    capturedAt,
-    provenance: { kind: 'crawl-run' as const, reference: observationId },
-    integrity: 'unknown' as const,
-  }))
-  const observedSubjects = recoveryFailure
-    ? recoveryFailure.observedSubjects.map((subject, index) => ({
-        ...subject,
-        evidenceId: evidence[index].id,
-      }))
-    : pages.map((page, index) => ({
-        id: page.id || `${observationId}-subject-${index + 1}`,
-        kind: 'page' as const,
-        value: page.urlPattern || page.url,
-        evidenceId: evidence[index].id,
-      }))
-  const unknowns = [
-    {
-      id: `${observationId}-coverage-unknown`,
-      subject: 'Unobserved application scope',
-      reason: 'The crawl frontier and complete application coverage were not measured.',
-    },
-    ...diagnostics
-      .filter(item => item.reason === 'login-surface-observation')
-      .map((item, index) => ({
-        id: `${observationId}-login-surface-unknown-${index + 1}`,
-        subject: item.target,
-        reason: item.detail,
-      })),
-    ...(auth.outcome === 'failed' ? [{
-      id: `${observationId}-authentication-acceptance-unknown`,
-      subject: 'Authentication acceptance',
-      reason: authAttempts.some(attempt => attempt.stages.some(stage => stage.loginSurfaceRetained === true))
-        ? 'Credential references resolved and submission was attempted, but the login surface remained. The available evidence does not establish whether credentials, target policy, or an external condition caused retention.'
-        : 'Authentication failed, but the available stage evidence does not uniquely establish the external cause.',
-    }] : []),
-  ]
-  const blockers = diagnostics
-    .filter(item => item.reason !== 'login-surface-observation')
-    .map((item, index) => ({
-      id: `${observationId}-blocker-${index + 1}`,
-      kind: item.reason,
-      subject: item.target,
-      reason: item.detail,
-    }))
-  if (start.credentialAvailability === 'missing' && !blockers.some(item => item.kind === 'credentials-missing')) {
-    blockers.push({
-      id: `${observationId}-credentials-missing`,
-      kind: 'credentials-missing',
-      subject: start.projectName,
-      reason: 'Authentication was expected, but the stored credential references could not be resolved.',
-    })
-  }
-  if (modelCompatibilityFailure && !blockers.some(item => item.kind === 'model-compatibility')) {
-    blockers.push({
-      id: `${observationId}-model-compatibility`,
-      kind: 'model-compatibility',
-      subject: start.projectName,
-      reason: 'The existing Application Model was preserved because it is incompatible with the current schema. Authentication was not evaluated and no evidence was activated.',
-    })
-  }
-  if (recoveryFailure && !blockers.some(item => item.kind === 'guarded-model-persistence')) {
-    blockers.push({
-      id: `${observationId}-guarded-model-persistence`,
-      kind: 'guarded-model-persistence',
-      subject: start.projectName,
-      reason: formatRecoveryPersistenceDiagnostic(recoveryFailure),
-    })
-  }
-  const errors = [
-    ...(view.error ? [view.error] : []),
-    ...(modelError ? [modelError] : []),
-    ...(recoveryFailure ? [formatRecoveryPersistenceDiagnostic(recoveryFailure)] : []),
-  ]
-  const recommendation = recoveryFailure
-    ? recoveryFailureRecommendation()
-    : modelCompatibilityFailure
-    ? { action: 'Retry with Force re-crawl', because: 'Force re-crawl invokes guarded recovery: it preserves the invalid model, starts from no prior model, validates the replacement, and activates it only after a guarded commit.' }
-    : auth.outcome === 'failed'
-    ? authenticationFailureRecommendation(authAttempts)
-    : classified.state === 'completed'
-    ? { action: 'Review the bounded observation evidence', because: 'The run completed, but application coverage remains explicitly unknown.' }
-    : classified.state === 'partially_completed'
-      ? { action: 'Resolve the listed limitations and run another observation', because: 'The current run produced partial evidence with diagnostics.' }
-      : classified.state === 'blocked'
-        ? { action: 'Resolve the access or credential blocker and retry', because: classified.reason }
-        : { action: 'Inspect the engine or persistence error before retrying', because: classified.reason }
-
-  observationStore.complete({
-    ...start,
-    completedAt,
-    terminalState: classified.state,
-    stateReason: classified.reason,
-    authentication: {
-      expectation: start.authenticationExpectation,
-      credentialAvailability: start.credentialAvailability,
-      outcome: auth.outcome,
-      reason: auth.reason,
-      ...(authAttempts.length > 0 ? { attempts: authAttempts } : {}),
-    },
-    observedSubjects,
-    unobservedScope: [
-      'Application areas not reached from the declared target and context remain unobserved.',
-      'Complete crawl frontier coverage was not measured.',
-      ...diagnostics
-        .filter(item => item.reason !== 'login-surface-observation')
-        .map(item => `${item.target} remained limited: ${item.detail}`),
-    ],
-    unknowns,
-    blockers,
-    evidence,
-    errors,
-    recommendation,
-    modelRecovery,
-    modelRecoveryFailure,
-  })
-}
-
 // POST /api/v1/crawl — start a crawl; 202 immediately (ADR-012 async job).
 router.get('/projects/:appName/context', (req, res) => {
   const { appName } = req.params
@@ -869,19 +673,19 @@ router.get('/projects/:appName/context', (req, res) => {
   res.json(ok(context))
 })
 
-router.get('/projects/:appName/latest', (req, res) => {
+router.get('/projects/:appName/latest', async (req, res) => {
   const { appName } = req.params
   if (!isValidAppName(appName))
     return res.status(400).json(fail('Invalid project name.', 'INVALID_APP_NAME'))
   if (!projectContext(appName))
     return res.status(404).json(fail(`Project '${appName}' was not found.`, 'NOT_FOUND'))
-  const observation = observationStore.latest(appName)
+  const observation = await executionContext.readLatestObservationView(appName)
   if (!observation)
     return res.status(404).json(fail('No completed observation is available for this project.', 'OBSERVATION_NOT_FOUND'))
   res.json(ok({ observation }))
 })
 
-router.get('/projects/:appName/observations', (req, res) => {
+router.get('/projects/:appName/observations', async (req, res) => {
   const { appName } = req.params
   if (!isValidAppName(appName)) {
     return res.status(400).json(fail('Invalid project name.', 'INVALID_APP_NAME'))
@@ -893,43 +697,42 @@ router.get('/projects/:appName/observations', (req, res) => {
   const query = parseObservationHistoryQuery(req.query as Record<string, unknown>)
   if (!query.ok) return res.status(400).json(fail(query.message, query.code))
 
-  const history = observationStore.history(appName, query)
-  if (history.kind === 'invalid_cursor') {
+  if (query.cursor) {
     return res.status(400).json(fail(
       'cursor is not valid for this project, ordering, and date-filter set.',
       'INVALID_OBSERVATION_HISTORY_CURSOR',
     ))
   }
-  if (history.kind === 'invalid_filter') {
-    return res.status(400).json(fail(
-      'The observation date filter is invalid.',
-      'INVALID_OBSERVATION_HISTORY_RANGE',
-    ))
-  }
-  if (history.kind === 'ownership_mismatch' || history.kind === 'malformed') {
-    return res.status(500).json(fail(
-      'Persisted observation history failed validation and cannot be presented safely.',
-      'OBSERVATION_HISTORY_INVALID',
-    ))
-  }
+  const history = await executionContext.readObservationHistoryView(appName, {
+    limit: query.limit,
+    requestedObservationId: query.requestedObservationId,
+    startedFrom: query.startedFrom,
+    startedThrough: query.startedThrough,
+  }) as any
+  return res.json(ok(history))
+})
 
-  res.json(ok({
-    project: { id: context.projectId, name: context.projectName },
-    observations: history.observations.map(projectObservationHistoryItem),
-    page: {
-      limit: query.limit,
-      nextCursor: history.nextCursor,
-      previousCursor: history.previousCursor,
-      hasPrevious: history.hasPrevious,
-      filteredTotal: history.filteredTotal,
-      projectTotal: history.projectTotal,
-    },
-    filter: {
-      startedFrom: query.startedFrom,
-      startedThrough: query.startedThrough,
-    },
-    requestedObservation: history.requestedObservation,
-  }))
+router.get('/projects/:appName/compatibility/latest', (req, res) => {
+  const { appName } = req.params
+  if (!isValidAppName(appName)) return res.status(400).json(fail('Invalid project name.', 'INVALID_APP_NAME'))
+  if (!projectContext(appName)) return res.status(404).json(fail(`Project '${appName}' was not found.`, 'NOT_FOUND'))
+  const observation = legacyObservationCompatibilityProjection.readLatest(appName)
+  if (!observation) return res.status(404).json(fail('No legacy compatibility Observation is available.', 'OBSERVATION_NOT_FOUND'))
+  return res.json(ok({ authority: 'legacy_compatibility', observation }))
+})
+
+router.get('/projects/:appName/compatibility/observations', (req, res) => {
+  const { appName } = req.params
+  if (!isValidAppName(appName)) return res.status(400).json(fail('Invalid project name.', 'INVALID_APP_NAME'))
+  const context = projectContext(appName)
+  if (!context) return res.status(404).json(fail(`Project '${appName}' was not found.`, 'NOT_FOUND'))
+  const query = parseObservationHistoryQuery(req.query as Record<string, unknown>)
+  if (!query.ok) return res.status(400).json(fail(query.message, query.code))
+  const compatibility = legacyObservationCompatibilityProjection.readHistory(appName, context.projectName, query)
+  if (compatibility.kind !== 'ok') {
+    return res.status(500).json(fail('Legacy Observation compatibility evidence could not be validated safely.', 'OBSERVATION_HISTORY_INVALID'))
+  }
+  return res.json(ok(compatibility.value))
 })
 
 router.post('/', async (req, res) => {
@@ -954,63 +757,24 @@ router.post('/', async (req, res) => {
 
   observationStartReservations.add(appName)
   try {
-    if (!await checkReachability(context.targetUrl)) {
-      return res.status(422).json(fail(
-        `Target '${context.targetUrl}' is unreachable. Verify the URL and network access before retrying.`,
-        'TARGET_UNREACHABLE',
-      ))
-    }
-
-    const observationId = randomUUID()
+    // This is transport/job identity only. CrawlRunner creates the canonical
+    // ObservationRun inside core after workspace authority is established.
+    const jobId = randomUUID()
     const startedAt = new Date().toISOString()
-    const startRecord: ObservationStartRecord = {
-      schemaVersion: 1,
-      observationId,
-      projectId: appName,
-      projectName: appName,
-      observationContext: {
-        id: observationId,
-        label: 'Crawl observation',
-        target: context.targetUrl,
-        declaredScope: context.declaredScope,
-        strategy: context.crawlStrategy,
-      },
-      sourceKind: 'crawl-engine',
-      startedAt,
-      credentialAvailability: context.credentialAvailability,
-      authenticationExpectation: context.authenticationExpectation,
-    }
-    try {
-      observationStore.begin(startRecord)
-    } catch (err) {
-      return res.status(500).json(fail(
-        err instanceof Error ? err.message : 'Observation start persistence failed.',
-        'OBSERVATION_PERSISTENCE_FAILED',
-      ))
-    }
-    observationStarts.set(observationId, startRecord)
     // Fire WITHOUT await — 202 returns immediately; the client polls /:jobId/status.
     // Credentials are NOT read here (ADR-013): ExecutionContext's credential
     // provider resolves + injects them from the sidecar reference + env pair.
-    const finalization = jobRunner.submit({
-      jobId: observationId,
+    void jobRunner.submit({
+      jobId,
       type: 'crawl',
       appName,
       startedAt,
       options: { url: context.targetUrl, appName, force: !!force, aiBudget },
-    }).then(async () => {
-      await finalizeObservation(observationId)
-    }).catch(err => {
-      observationFinalizationErrors.set(
-        observationId,
-        err instanceof Error ? err.message : String(err),
-      )
     })
-    observationFinalizations.set(observationId, finalization)
 
     res.status(202).json(ok({
-      jobId: observationId,
-      observationId,
+      jobId,
+      observationId: null,
       state: 'queued',
       startedAt,
     }))
@@ -1034,51 +798,67 @@ router.get('/:jobId/status', async (req, res) => {
     }
     throw error
   }
+  if (!view && expectedProjectId) {
+    const canonical = await executionContext.recoverCrawlObservation(
+      expectedProjectId,
+      req.params.jobId,
+    ) as any
+    if (canonical?.runs?.[0]) {
+      const run = canonical.runs[0]
+      let model: unknown | null = null
+      try { model = await executionContext.readAppModel(expectedProjectId) } catch { /* no model is an honest restart state */ }
+      const pages = mapModelPages(model)
+      return res.json(ok({
+        jobId: req.params.jobId,
+        observationId: run.runId,
+        status: run.lifecycle,
+        complete: run.lifecycle !== 'running',
+        lines: [],
+        strategy: null,
+        strategyRaw: null,
+        pagesFound: canonical.observations.length,
+        pages,
+        crawlDiagnostics: mapModelDiagnostics(model),
+        error: run.reason.message,
+        startedAt: run.startedAt,
+        completedAt: run.terminalAt,
+        observation: null,
+        canonicalObservation: canonical,
+      }))
+    }
+  }
   if (!view) return res.status(404).json(fail('Job not found', 'NOT_FOUND'))
 
-  const finalization = observationFinalizations.get(view.jobId)
-  if ((view.status === 'completed' || view.status === 'failed') && finalization) {
-    await finalization
-  }
-  const finalizationError = observationFinalizationErrors.get(view.jobId)
-  if (finalizationError) {
-    return res.status(500).json(fail(finalizationError, 'OBSERVATION_PERSISTENCE_FAILED'))
-  }
-  const observation = view.type === 'crawl'
-    ? observationStore.get(view.appName, view.jobId)
+  const canonical = view.type === 'crawl' && view.complete
+    ? await executionContext.recoverCrawlObservation(view.appName, view.jobId) as any
     : null
+  const observation = null
+  const canonicalObservationRunId = view.result
+    && typeof view.result === 'object'
+    && typeof (view.result as { observationRunId?: unknown }).observationRunId === 'string'
+      ? (view.result as { observationRunId: string }).observationRunId
+      : null
 
   const { raw, label } = parseStrategy(view.lines)
   let model: unknown | null = null
-  if (view.status === 'completed' && !observation) {
+  if (view.status === 'completed') {
     try {
       model = await executionContext.readAppModel(view.appName)
-    } catch (err) {
+    } catch {
       return res.status(500).json(
-        fail(`SQLite App Model read failed: ${String(err)}`, 'APP_MODEL_READ_FAILED'),
+        fail('The SQLite App Model could not be read safely.', 'APP_MODEL_READ_FAILED'),
       )
     }
   }
-  const pages = observation
-    ? observation.observedSubjects.map(subject => ({
-        id: subject.id,
-        url: subject.value,
-        urlPattern: subject.value,
-        module: 'Unknown',
-        moduleConfidence: null,
-        moduleReason: null,
-        elements: 0,
-        roles: [],
-      }))
-    : mapModelPages(model)
+  const pages = mapModelPages(model)
   const crawlDiagnostics = mapModelDiagnostics(model)
-  const pagesFound = observation ? observation.observedSubjects.length : countDiscovered(view.lines)
+  const pagesFound = canonical?.observations?.length ?? countDiscovered(view.lines)
 
   res.json(ok({
     jobId:       view.jobId,
-    observationId: view.jobId,
-    status:      observation?.terminalState ?? view.status,
-    complete:    view.type === 'crawl' ? observation !== null || view.complete : view.complete,
+    observationId: canonical?.runs?.[0]?.runId ?? canonicalObservationRunId,
+    status:      canonical?.runs?.[0]?.lifecycle ?? view.status,
+    complete:    view.complete,
     lines:       view.lines,       // Mission Timeline
     strategy:    label,            // user-friendly (ADR-012); null until Mode line appears
     strategyRaw: raw,              // engine term, for the hover tooltip
@@ -1088,7 +868,8 @@ router.get('/:jobId/status', async (req, res) => {
     error:       view.error ?? null,
     startedAt:   view.startedAt,
     completedAt: view.completedAt ?? null,
-    observation,
+    observation: null,
+    canonicalObservation: canonical,
   }))
 })
 

@@ -32,14 +32,27 @@ import type {
   ObservationRecordReadModel,
 } from '../forge-ui/src/components/application-workspace/observationsTypes'
 
+const fixtureResolvers = new WeakMap<ObservationStore, WorkspaceResolver>()
+
+function persistLegacyFixture(store: ObservationStore, start: ObservationStartRecord, terminal: ObservationTerminalRecord): void {
+  const resolver = fixtureResolvers.get(store)
+  assert.ok(resolver)
+  const dir = path.join(resolver.resolve(start.projectId).forgeDir, 'observations', start.observationId)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'started.json'), JSON.stringify(start, null, 2), 'utf8')
+  fs.writeFileSync(path.join(dir, 'terminal.json'), JSON.stringify(terminal, null, 2), 'utf8')
+}
+
 function disposableStore(projects = ['alpha', 'beta']) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-td-ui-064b-uxr2-'))
   const resolver = new WorkspaceResolver(root)
+  const store = new ObservationStore(resolver, {
+    list: () => projects.map(appName => ({ appName })) as any,
+  })
+  fixtureResolvers.set(store, resolver)
   return {
     resolver,
-    store: new ObservationStore(resolver, {
-      list: () => projects.map(appName => ({ appName })) as any,
-    }),
+    store,
   }
 }
 
@@ -93,8 +106,7 @@ function persist(store: ObservationStore, id: string, startedAt: string, project
     errors: [],
     recommendation: null,
   }
-  store.begin(start)
-  store.complete(terminal)
+  persistLegacyFixture(store, start, terminal)
 }
 
 function observation(index: number): ObservationRecordReadModel {

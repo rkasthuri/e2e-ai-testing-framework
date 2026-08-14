@@ -10,13 +10,13 @@
  * of this software is strictly prohibited.
  */
 
-export type RunStatus   = 'passed' | 'failed' | 'partial' | 'unknown';
+export type RunStatus   = 'passed' | 'failed' | 'could_not_verify' | 'partial' | 'unknown';
 /**
  * TD-126: run LIFECYCLE — orthogonal to RunStatus (test outcome). Never mix
  * them: a run can be lifecycle:'completed' with status:'failed' (it finished,
  * and its tests failed). 'interrupted' runs keep completed_at null forever.
  */
-export type RunLifecycle = 'created' | 'running' | 'completed' | 'failed' | 'interrupted';
+export type RunLifecycle = 'created' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
 export type TriggeredBy = 'ci' | 'manual' | 'platform' | 'agent';
 export type Environment = 'local' | 'ci' | 'staging' | 'production';
 

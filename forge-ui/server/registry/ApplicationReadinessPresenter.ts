@@ -70,6 +70,25 @@ export interface ReadinessEvidenceInput {
   }>
 }
 
+export type ReadinessTestDefinitionAuthorityInput =
+  | {
+      kind: 'ok'
+      authorityClass: 'canonical_v2'
+      modelRowId: number
+      modelVersion: string
+      observationRunId: string
+      supportSealHash: string
+      characterizationPolicy: { id: string; version: string }
+      supportingObservationIds: string[]
+      supportingGapIds: string[]
+      subjectIds: string[]
+    }
+  | {
+      kind: 'refused'
+      authorityClass: 'canonical_v2' | 'legacy_v1'
+      code: string
+    }
+
 export interface ApplicationReadinessInput {
   project: { id: string; name: string }
   observation: ReadinessObservationInput | null
@@ -77,6 +96,14 @@ export interface ApplicationReadinessInput {
   modelTotal: number
   activeModelCount: number
   evidence: ReadinessEvidenceInput
+  testDefinitionAuthority: ReadinessTestDefinitionAuthorityInput
+  testDefinitionSemanticAdmission?: {
+    kind: 'ok' | 'refused'
+    routeState: 'ready' | 'unknown' | 'conflicted' | 'refused'
+    authenticationExpectation: 'required' | 'not_required' | 'unknown' | 'conflicted'
+    generationAvailable: boolean
+    code: string | null
+  }
 }
 
 export type ApplicationReadinessPresentation =
@@ -245,48 +272,61 @@ function designDecision(input: ApplicationReadinessInput): DecisionDraft {
     safeNextAction: { label: 'Review Application Model', explanation: 'Inspect the authoritative model state and its blockers.', href: projectHref(input.project.id, '/application/model') },
   }
   const modelRef = modelReference(input.project.id, model)
-  const modelBlocked = model.validation !== 'valid' || model.integrity === 'failed'
-    || ['invalid', 'mismatched'].includes(model.projection)
-  const evidenceBlocked = currentEvidence.some(item => item.integrity === 'failed' || item.conflict === 'conflicting')
-  if (modelBlocked || evidenceBlocked) return {
-    id: 'design_evidence_backed_tests', label: 'Design evidence-backed tests', state: 'blocked',
-    explanation: modelBlocked
-      ? 'The active model has an established validation, integrity, or projection conflict that prevents stronger evidence-backed design.'
-      : 'At least one current-support evidence record has failed integrity or has an established conflict.',
-    supportingEvidence: [modelRef, ...currentEvidence.slice(0, MAX_REFERENCES_PER_DECISION - 1).map(item => evidenceReference(input.project.id, item))],
-    blockers: [modelBlocked ? 'The active model is not safely usable for evidence-backed design.' : 'Current-support evidence integrity failed or conflicting evidence remains unresolved.'],
-    unknowns: [],
-    limitations: ['No historical model or evidence record is promoted to replace a blocked current authority.'],
-    preventedStrongerState: 'Model and current-support evidence validation and integrity must be established.',
-    safeNextAction: { label: 'Review Application Model', explanation: 'Inspect the bounded model failure state without mutating it.', href: modelRef.href },
+  const authority = input.testDefinitionAuthority
+  if (authority.kind === 'refused') {
+    const integrityFailure = ['invalid_model', 'support_seal_mismatch', 'missing_observation', 'missing_gap',
+      'duplicate_support', 'subject_support_conflict', 'characterization_policy_mismatch']
+      .includes(authority.code)
+    return {
+      id: 'design_evidence_backed_tests', label: 'Design evidence-backed tests',
+      state: integrityFailure ? 'blocked' : 'unknown',
+      explanation: integrityFailure
+        ? 'Core refused Test Definition authority because persisted model support failed canonical integrity admission.'
+        : 'Core could not establish a sealed canonical v2 Test Definition authority package.',
+      supportingEvidence: [modelRef],
+      blockers: integrityFailure ? ['Canonical Test Definition support authority failed closed.'] : [],
+      unknowns: integrityFailure ? [] : ['Sealed model, Observation, Gap, or exact subject support remains unavailable.'],
+      limitations: ['Legacy singular provenance and operation identity cannot substitute for sealed canonical support.'],
+      preventedStrongerState: `Core authority admission refused with ${authority.code}.`,
+      safeNextAction: { label: 'Review Application Model', explanation: 'Inspect the active model and canonical support integrity.', href: modelRef.href },
+    }
   }
-  const directSubjects = model.subjects.filter(subject => subject.basis === 'direct_observation' && subject.evidenceId !== null)
-  const exactSupport = directSubjects.filter(subject => currentEvidence.some(item =>
-    item.id === subject.evidenceId
-      && item.canonicalSubjectId === subject.id
-      && item.sourceModelRows.includes(model.rowId)
-      && model.sourceObservationId !== null
-      && item.sourceObservationId === model.sourceObservationId))
-  const completeCurrentRead = input.evidence.filteredTotal === currentEvidence.length
-  if (currentEvidence.length === 0 || directSubjects.length === 0
-    || exactSupport.length !== directSubjects.length || !completeCurrentRead) return {
-    id: 'design_evidence_backed_tests', label: 'Design evidence-backed tests', state: 'unknown',
-    explanation: 'The active model cannot be joined safely to a bounded set of exact current-support evidence.',
-    supportingEvidence: [modelRef, ...currentEvidence.slice(0, MAX_REFERENCES_PER_DECISION - 1).map(item => evidenceReference(input.project.id, item))],
-    blockers: [],
-    unknowns: [!completeCurrentRead
-      ? 'The bounded readiness read did not inspect every current-support evidence record.'
-      : 'Exact project-owned observation, subject, model-row, and evidence linkage for active model subjects is missing.'],
-    limitations: ['Historical evidence does not satisfy current-support requirements.'],
-    preventedStrongerState: 'Every relied-upon model subject must have an exact, inspected current-support evidence reference.',
-    safeNextAction: { label: 'Review current evidence', explanation: 'Inspect the unified ledger and exact model linkages.', href: projectHref(input.project.id, '/application/evidence', { support: 'current' }) },
+  const semantics = input.testDefinitionSemanticAdmission
+  if (semantics?.kind === 'refused') {
+    return {
+      id: 'design_evidence_backed_tests', label: 'Design evidence-backed tests',
+      state: semantics.routeState === 'conflicted' || semantics.routeState === 'refused' ? 'blocked' : 'unknown',
+      explanation: 'Sealed support authority is valid, but governed route semantics refused v2 generation admission.',
+      supportingEvidence: [modelReference(input.project.id, model)],
+      blockers: semantics.routeState === 'conflicted' || semantics.routeState === 'refused' ? ['Canonical route evidence failed closed.'] : [],
+      unknowns: semantics.routeState === 'unknown' ? ['Canonical route evidence is unavailable.'] : [],
+      limitations: ['Authentication and execution readiness cannot substitute for missing route evidence.'],
+      preventedStrongerState: semantics.code ?? 'Route admission was refused.',
+      safeNextAction: { label: 'Review observations', explanation: 'Inspect canonical subject route evidence.', href: projectHref(input.project.id, '/application/observations') },
+    }
+  }
+  const expectedSubjectIds = model.subjects.map(subject => subject.id).sort()
+  if (authority.modelRowId !== model.rowId || authority.modelVersion !== model.version
+    || model.validation !== 'valid' || model.integrity !== 'verified'
+    || authority.subjectIds.length !== expectedSubjectIds.length
+    || authority.subjectIds.some((id, index) => id !== expectedSubjectIds[index])) {
+    return {
+      id: 'design_evidence_backed_tests', label: 'Design evidence-backed tests', state: 'blocked',
+      explanation: 'Readiness model identity disagrees with the core-owned Test Definition authority projection.',
+      supportingEvidence: [modelRef], blockers: ['Canonical authority projections disagree.'], unknowns: [],
+      limitations: ['Readiness never normalizes disagreement between authority projections.'],
+      preventedStrongerState: 'The active model and sealed Test Definition authority must agree exactly.',
+      safeNextAction: { label: 'Review Application Model', explanation: 'Inspect the active model and its support seal.', href: modelRef.href },
+    }
   }
   const notEvaluatedIntegrity = currentEvidence.some(item => item.integrity === 'not_evaluated')
   const aiDerived = model.subjects.some(subject => subject.derivedMethod === 'ai')
   const unknownBasis = model.subjects.some(subject => subject.basis === 'unknown')
   return {
     id: 'design_evidence_backed_tests', label: 'Design evidence-backed tests', state: 'supported_with_constraints',
-    explanation: 'A valid active model has exact direct-observation links to current-support evidence, so bounded test design is supportable for those subjects.',
+    explanation: semantics?.kind === 'ok'
+      ? `Core verified sealed authority and canonical routes; authentication expectation is ${semantics.authenticationExpectation}, and v2 generation is available${semantics.authenticationExpectation === 'unknown' || semantics.authenticationExpectation === 'conflicted' ? ' as blocked definitions' : ''}.`
+      : 'Core verified the active model support seal, exact Observation/Gap membership, subject support, and characterization policy for bounded test design.',
     supportingEvidence: [modelRef, ...currentEvidence.slice(0, MAX_REFERENCES_PER_DECISION - 1).map(item => evidenceReference(input.project.id, item))],
     blockers: [],
     unknowns: ['Coverage, unobserved application scope, freshness, and evidence conflict are unknown.'],
@@ -379,6 +419,21 @@ function validateInput(input: ApplicationReadinessInput): 'ok' | 'malformed' | '
         || (subject.evidenceId !== null && !SAFE_ID.test(subject.evidenceId))
         || ![null, 'rule', 'ai', 'manual', 'unknown'].includes(subject.derivedMethod))) return 'malformed'
   }
+  const authority = input.testDefinitionAuthority
+  if (!authority || !['ok', 'refused'].includes(authority.kind)
+    || !['canonical_v2', 'legacy_v1'].includes(authority.authorityClass)) return 'malformed'
+  if (authority.kind === 'refused') {
+    if (!SAFE_ID.test(authority.code)) return 'malformed'
+  } else if (authority.authorityClass !== 'canonical_v2'
+    || !Number.isSafeInteger(authority.modelRowId) || authority.modelRowId < 1
+    || !SAFE_VERSION.test(authority.modelVersion)
+    || !SAFE_ID.test(authority.observationRunId)
+    || !/^[a-f0-9]{64}$/.test(authority.supportSealHash)
+    || !SAFE_ID.test(authority.characterizationPolicy.id)
+    || !SAFE_ID.test(authority.characterizationPolicy.version)
+    || [authority.supportingObservationIds, authority.supportingGapIds, authority.subjectIds]
+      .some(ids => ids.some(id => !SAFE_ID.test(id)) || new Set(ids).size !== ids.length
+        || ids.some((id, index) => index > 0 && ids[index - 1] >= id))) return 'malformed'
   return 'ok'
 }
 
@@ -438,6 +493,27 @@ function buildReadModel(input: ApplicationReadinessInput) {
         inspectedCurrentSupport: input.evidence.currentRecords.length,
         href: projectHref(input.project.id, '/application/evidence'),
       },
+      testDefinitionAuthority: input.testDefinitionAuthority.kind === 'ok' ? {
+        state: 'verified' as const,
+        modelRowId: input.testDefinitionAuthority.modelRowId,
+        observationRunId: input.testDefinitionAuthority.observationRunId,
+        supportSealHash: input.testDefinitionAuthority.supportSealHash,
+        characterizationPolicy: input.testDefinitionAuthority.characterizationPolicy,
+        supportingObservationIds: input.testDefinitionAuthority.supportingObservationIds,
+        supportingGapIds: input.testDefinitionAuthority.supportingGapIds,
+        subjectIds: input.testDefinitionAuthority.subjectIds,
+      } : {
+        state: 'refused' as const,
+        authorityClass: input.testDefinitionAuthority.authorityClass,
+        code: input.testDefinitionAuthority.code,
+      },
+      testDefinitionSemantics: input.testDefinitionSemanticAdmission ?? {
+        kind: 'refused' as const,
+        routeState: 'unknown' as const,
+        authenticationExpectation: 'unknown' as const,
+        generationAvailable: false,
+        code: 'not_evaluated',
+      },
       boundaries: {
         freshness: 'not_evaluated' as const,
         coverage: 'unknown' as const,
@@ -453,7 +529,7 @@ function buildReadModel(input: ApplicationReadinessInput) {
     },
     decisions,
     provenance: {
-      sources: ['immutable_observation_history', 'authoritative_app_model_history', 'unified_evidence_ledger'] as const,
+      sources: ['immutable_observation_history', 'authoritative_app_model_history', 'canonical_test_definition_authority'] as const,
       explanation: 'Readiness is derived on demand from existing read-only authorities and is not persisted as application truth.',
     },
     limitations: [

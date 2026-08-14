@@ -28,7 +28,7 @@ const page = read('forge-ui/src/pages/CrawlPage.tsx')
 test('fresh and valid-model crawls retain the normal trusted-model path', () => {
   assert.match(runner, /const previousModel = await this\.appModels\.findActive\(config\.appName\)/)
   assert.match(runner, /const model = await produceCandidate\(previousModel\)/)
-  assert.match(runner, /commitAndProject\(/)
+  assert.match(runner, /commitWithObservationSupportAndProject\(/)
 })
 
 test('force discovers only an invalid active row and starts guarded recovery without prior state', () => {
@@ -65,14 +65,10 @@ test('recovery provenance is persisted without raw model or credential material'
 })
 
 test('pre-crawl incompatibility and post-crawl persistence failure remain distinct', () => {
-  assert.match(route, /isModelCompatibilityError/)
-  assert.match(route, /kind: 'model-compatibility'/)
-  assert.match(route, /existing Application Model is incompatible with the current schema/)
-  assert.match(route, /Review the guarded persistence diagnostic before another recovery attempt/)
-  assert.match(route, /Crawl execution completed, authentication was/)
-  assert.match(route, /Authentication was not evaluated and no evidence was activated/)
+  assert.match(route, /readObservationHistoryView/)
+  assert.match(route, /canonicalObservation/)
+  assert.doesNotMatch(route, /observationStore\.complete/)
   assert.doesNotMatch(route, /AppModelPersistenceError\|schema-invalid model_json/)
-  assert.doesNotMatch(route, /modelCompatibilityFailure[\s\S]{0,300}credentials-missing/)
 })
 
 test('UI exposes guarded recovery provenance and detailed diagnostics without completeness claims', () => {

@@ -11,14 +11,13 @@
  */
 
 import { Browser, BrowserContext } from '@playwright/test'
-import * as fs   from 'fs'
-import * as path from 'path'
 import {
   OnboardingConfig,
   RoleConfig,
   type AuthenticationStage,
   type AuthenticationStageDiagnostic,
 } from './types'
+import type { CredentialMaterial } from '../security/CredentialExecutionScope'
 
 export interface AuthResult {
   context:       BrowserContext
@@ -26,6 +25,14 @@ export interface AuthResult {
   authenticated: boolean
   authenticationStages: AuthenticationStageDiagnostic[]
 }
+
+/** Shared bounded form-login selector vocabulary. Runtime consumers may reuse
+ * these selectors, but must not infer additional controls or mechanisms. */
+export const FORM_LOGIN_SELECTORS = Object.freeze({
+  username: 'input[name="username"], input[type=text], input[placeholder*=user i], input[id*=user]',
+  password: 'input[name="password"], input[type=password], input[placeholder*=pass i]',
+  submit: 'button[type=submit], input[type=submit], button:has-text("Login"), button:has-text("Sign in")',
+})
 
 const AUTHENTICATION_STAGES: AuthenticationStage[] = [
   'credential-reference-resolution',
@@ -85,14 +92,13 @@ export function summarizeAuthenticationStages(stages: AuthenticationStageDiagnos
 }
 
 export class AuthManager {
-  /** TD-121: where storage state (session cookies/tokens) persists. Default = cwd `.auth` (fixtures byte-identical). */
-  private authStateDir: string
+  private readonly credentialMaterial: CredentialMaterial | undefined
 
   constructor(
     private config: OnboardingConfig,
-    opts: { authStateDir?: string } = {},
+    opts: { credentialMaterial?: CredentialMaterial } = {},
   ) {
-    this.authStateDir = opts.authStateDir ?? path.resolve('.auth')
+    this.credentialMaterial = opts.credentialMaterial
   }
 
   async authenticate(role: RoleConfig, browser: Browser): Promise<AuthResult> {
@@ -150,12 +156,9 @@ export class AuthManager {
     const userSelectorConfigured = typeof roleSelectors.username === 'string'
     const passwordSelectorConfigured = typeof roleSelectors.password === 'string'
     const submitSelectorConfigured = typeof roleSelectors.submit === 'string'
-    const userSel   = roleSelectors.username ??
-      'input[name="username"], input[type=text], input[placeholder*=user i], input[id*=user]'
-    const passSel   = roleSelectors.password ??
-      'input[name="password"], input[type=password], input[placeholder*=pass i]'
-    const submitSel = roleSelectors.submit ??
-      'button[type=submit], input[type=submit], button:has-text("Login"), button:has-text("Sign in")'
+    const userSel   = roleSelectors.username ?? FORM_LOGIN_SELECTORS.username
+    const passSel   = roleSelectors.password ?? FORM_LOGIN_SELECTORS.password
+    const submitSel = roleSelectors.submit ?? FORM_LOGIN_SELECTORS.submit
 
     const page = await context.newPage()
     let currentStage: AuthenticationStage = 'login-surface-detection'
@@ -281,11 +284,6 @@ export class AuthManager {
         return { context, startUrl: this.config.app.baseUrl, authenticated: false, authenticationStages }
       }
 
-      // Auth succeeded — save storage state
-      const statePath = path.join(this.authStateDir, `${role.id}.json`)   // TD-121: was cwd-relative path.resolve
-      fs.mkdirSync(path.dirname(statePath), { recursive: true })
-      await context.storageState({ path: statePath })
-
       const startUrl = urlAfter  // Use actual post-auth URL as crawl start
 
       console.log(`[AuthManager] Authenticated as ${role.id}; post-submit location changed.`)
@@ -308,6 +306,13 @@ export class AuthManager {
   private resolveCredentials(
     role: RoleConfig
   ): CredentialResolution {
+    if (this.credentialMaterial) {
+      return {
+        kind: 'resolved',
+        username: this.credentialMaterial.username,
+        password: this.credentialMaterial.password,
+      }
+    }
     if (!role.credentialsEnvKey) return { kind: 'unavailable', safeErrorType: 'CredentialReferenceMissing' }
     const raw = process.env[role.credentialsEnvKey]
     if (!raw) return { kind: 'unavailable', safeErrorType: 'CredentialMaterialUnavailable' }

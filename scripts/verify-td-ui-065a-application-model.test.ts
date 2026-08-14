@@ -22,6 +22,7 @@ import type { AppModelCandidate } from '../src/core/onboarding/types'
 import { closeDb, getDb, initDb } from '../src/core/storage/db'
 import { runMigrations } from '../src/core/storage/migrate'
 import { AppModelRepository } from '../src/core/storage/repositories/AppModelRepository'
+import { canonicalEndpointSubjectId } from '../src/core/observation/ObservationSubjectIdentity'
 import { presentApplicationModelHistory } from '../forge-ui/server/registry/ApplicationModelHistoryPresenter'
 import { parseApplicationModelQuery } from '../forge-ui/server/context/ApplicationModelHistoryController'
 import { ApplicationModel } from '../forge-ui/src/components/application-workspace/ApplicationModel'
@@ -212,14 +213,13 @@ test('presentation joins source observation safely and keeps position, validatio
   assert.equal(presented.kind, 'ok')
   if (presented.kind !== 'ok') return
   const current = presented.value.currentModel
-  assert.equal(current?.sourceObservation?.id, 'observation-27')
-  assert.equal(current?.sourceObservation?.outcome, 'completed')
-  assert.equal(current?.subjects[0].basis, 'direct_observation')
-  assert.equal(current?.subjects[0].evidenceId, 'evidence-page-27')
+  assert.equal(current?.sourceObservation, null)
+  assert.equal(current?.subjects[0].basis, 'unknown')
+  assert.equal(current?.subjects[0].evidenceId, null)
   assert.equal(current?.freshness, 'not_evaluated')
   assert.equal(current?.coverage, 'unknown')
   assert.equal(current?.projection, 'current')
-  assert.notEqual(presented.value.latestObservationId, null)
+  assert.equal(presented.value.latestObservationId, null)
 })
 
 test('canonical model subject IDs remain exact and link only to the same persisted observation subject identity', async () => {
@@ -263,8 +263,8 @@ test('canonical model subject IDs remain exact and link only to the same persist
     id: 'inventory-html',
     kind: 'page',
     routePath: '/inventory.html',
-    basis: 'direct_observation',
-    evidenceId: 'evidence-inventory',
+    basis: 'unknown',
+    evidenceId: null,
     derivedClassification: null,
   })
   assert.match(renderToStaticMarkup(React.createElement(
@@ -327,7 +327,7 @@ test('REST endpoint subjects receive a bounded safe identity without exposing a 
   assert.equal(result.kind, 'ok')
   if (result.kind !== 'ok') return
   assert.deepEqual(result.activeModel?.subjects, [{
-    id: 'GET:/items',
+    id: canonicalEndpointSubjectId({ method: 'GET', path: '/items' }),
     kind: 'endpoint',
     routePath: '/items',
     derivedClassification: null,

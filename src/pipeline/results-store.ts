@@ -29,7 +29,7 @@
 
 import * as fs   from 'fs';
 import * as path from 'path';
-import { runMigrations, getDb } from '../core/storage'
+import { runMigrations, getDb, initLegacyRuntimeDatabase } from '../core/storage'
 import { RunRepository }        from '../core/storage/repositories/RunRepository'
 import { TestResultRepository } from '../core/storage/repositories/TestResultRepository'
 import { TrendRepository }      from '../core/storage/repositories/TrendRepository'
@@ -179,6 +179,10 @@ const PATHS = {
 // ── Entry point ───────────────────────────────────────────────
 
 async function main() {
+  // This pipeline is the legacy CLI/CI result writer. Establish that authority
+  // explicitly so cwd or a Product workspace can never reclassify its writes.
+  initLegacyRuntimeDatabase()
+  await runMigrations()
   console.log('\n📦 Results Store — persisting run...\n');
 
   if (!fs.existsSync(PATHS.testResults)) {

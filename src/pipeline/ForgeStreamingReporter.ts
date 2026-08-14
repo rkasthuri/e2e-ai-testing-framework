@@ -26,16 +26,22 @@
  *   onEnd     → UPDATE run (lifecycle: 'completed'|'failed'|'interrupted')
  *               + stats + outcome status; then run AnalysisPipeline
  *
- * DB path priority (Nova Q1):
+ * LEGACY_RUNTIME DB path priority (TD-ARCH-001 containment):
  *   1. reporter option { dbPath }
  *   2. DB_PATH env var
- *   3. workspace .forge/forge.db (nearest existing, or cwd for a fresh workspace)
+ *   3. repository-root .forge/forge.db
+ * The reporter never discovers Product workspace authority from cwd.
  */
 import type {
   Reporter, TestCase, TestResult, FullConfig, Suite, FullResult,
 } from '@playwright/test/reporter'
 
-import { initDb, getDb, closeDb, resolveSqlitePath } from '../core/storage/db'
+import {
+  initLegacyRuntimeDatabase,
+  getDb,
+  closeDb,
+  resolveLegacyRuntimeSqlitePath,
+} from '../core/storage/db'
 import { runMigrations } from '../core/storage/migrate'
 import { RunRepository } from '../core/storage/repositories/RunRepository'
 import { TestResultRepository } from '../core/storage/repositories/TestResultRepository'
@@ -103,7 +109,7 @@ export class ForgeStreamingReporter implements Reporter {
   private readonly listMode = process.argv.includes('--list')
 
   constructor(options: ReporterOptions = {}) {
-    this.dbPath = resolveSqlitePath(options.dbPath)
+    this.dbPath = resolveLegacyRuntimeSqlitePath(options.dbPath)
     this.appName = options.appName ?? process.env.APP_NAME ?? 'unknown'
   }
 
@@ -113,7 +119,7 @@ export class ForgeStreamingReporter implements Reporter {
       console.log('[ForgeStreamingReporter] --list mode — ingestion disabled (no DB writes).')
       return
     }
-    initDb(this.dbPath)
+    initLegacyRuntimeDatabase({ dbPath: this.dbPath })
     await runMigrations()
     console.log(`[ForgeStreamingReporter] Bound to DB: ${this.dbPath}`)
 

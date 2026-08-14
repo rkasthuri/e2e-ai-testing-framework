@@ -24,6 +24,7 @@ const hooks = read('forge-ui/src/hooks/useApi.ts')
 const types = read('forge-ui/src/api/types.ts')
 const runner = read('forge-ui/server/jobs/JobRunner.ts')
 const overviewAdapter = read('forge-ui/src/components/application-workspace/applicationOverviewAdapter.ts')
+const projection = read('src/core/observation/ObservationReadProjectionService.ts')
 
 test('selected project context is read-only, bounded, and credential-safe', () => {
   assert.match(route, /\/projects\/:appName\/context/)
@@ -38,9 +39,11 @@ test('selected project context is read-only, bounded, and credential-safe', () =
   assert.doesNotMatch(types, /ObservationRecord[\s\S]*username:|ObservationRecord[\s\S]*password:/)
 })
 
-test('start creates a stable queued observation and prevents duplicate execution', () => {
-  assert.match(route, /const observationId = randomUUID\(\)/)
-  assert.match(route, /observationStore\.begin\(startRecord\)/)
+test('start creates a stable queued transport job while core owns canonical Observation identity', () => {
+  assert.match(route, /const jobId = randomUUID\(\)/)
+  const post = route.slice(route.indexOf("router.post('/'"), route.indexOf("router.get('/:jobId/status'"))
+  assert.doesNotMatch(post, /observationStore\.(begin|complete)|finalizeObservation/)
+  assert.match(post, /observationId:\s*null/)
   assert.match(route, /state: 'queued'/)
   assert.match(route, /OBSERVATION_ALREADY_ACTIVE/)
   assert.match(route, /observationStartReservations\.has\(appName\)/)
@@ -51,22 +54,23 @@ test('start creates a stable queued observation and prevents duplicate execution
   assert.match(page, /disabled=\{active\}/)
 })
 
-test('target, project, and backend failures remain actionable', () => {
-  assert.match(route, /TARGET_UNREACHABLE/)
+test('target acquisition truth is decided behind core admission while project and backend failures remain actionable', () => {
+  const post = route.slice(route.indexOf("router.post('/'"), route.indexOf("router.get('/:jobId/status'"))
+  assert.doesNotMatch(post, /TARGET_UNREACHABLE|checkReachability/)
+  assert.match(post, /jobRunner\.submit/)
   assert.match(route, /Project '\$\{appName\}' was not found/)
-  assert.match(route, /OBSERVATION_PERSISTENCE_FAILED/)
+  assert.match(route, /canonicalObservation/)
   assert.match(page, /role="alert"/)
   assert.match(page, /Confirm the backend is running/)
 })
 
 test('terminal classification covers success, partial, blocked, failure, and unknown', () => {
   for (const state of ['completed', 'partially_completed', 'blocked', 'failed', 'unknown']) {
-    assert.match(route, new RegExp(`state: '${state}'`))
     assert.match(types, new RegExp(state))
   }
-  assert.match(route, /diagnostics\.length > 0/)
-  assert.match(route, /pages\.length === 0/)
-  assert.match(route, /malformed App Model result/)
+  assert.match(projection, /run\.lifecycle === 'completed'/)
+  assert.match(projection, /run\.completeness === 'complete'/)
+  assert.match(projection, /run\.lifecycle === 'blocked' \|\| run\.lifecycle === 'failed'/)
 })
 
 test('authentication states distinguish availability from producer outcome', () => {
@@ -79,11 +83,11 @@ test('authentication states distinguish availability from producer outcome', () 
   assert.match(route, /credentials were unavailable/)
 })
 
-test('immutable observation persistence never overwrites prior runs', () => {
+test('legacy ObservationStore is read-only compatibility', () => {
   assert.match(store, /started\.json/)
   assert.match(store, /terminal\.json/)
-  assert.match(store, /flag: 'wx'/)
-  assert.match(store, /ObservationPersistenceError/)
+  assert.match(store, /Read-only compatibility access/)
+  assert.doesNotMatch(store, /\bbegin\(|\bcomplete\(|writeFileSync|writeImmutable/)
   assert.match(store, /sort\(\(a, b\) => b\.completedAt\.localeCompare\(a\.completedAt\)\)/)
 })
 
@@ -100,8 +104,8 @@ test('result exposes bounded evidence, provenance, unknowns, and recommendation'
   assert.match(page, /Evidence produced/)
   assert.match(page, /Provenance:/)
   assert.match(page, /Because:/)
-  assert.match(route, /integrity: 'unknown'/)
-  assert.match(route, /Complete crawl frontier coverage was not measured/)
+  assert.match(projection, /integrity: 'valid'/)
+  assert.match(projection, /does not establish complete application coverage/)
 })
 
 test('credential material is neither persisted nor presented', () => {

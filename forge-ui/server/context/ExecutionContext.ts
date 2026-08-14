@@ -15,6 +15,8 @@ import * as path from 'path'
 import * as crypto from 'crypto'
 import { workspaceResolver } from './WorkspaceResolver'
 import { credentialResolver } from './credentials/CredentialResolver'
+import { credentialStore, CredentialStore } from './credentials/CredentialStore'
+import { CredentialErrorBase } from './credentials/CredentialTypes'
 import { planCrawlCredentials, type EngineConfigView } from './credentials/CredentialPlanner'
 import { SerialQueue } from './SerialQueue'
 
@@ -69,6 +71,36 @@ function operatorFacingCode(err: unknown): string | undefined {
   return undefined
 }
 
+const SAFE_OPERATOR_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  MODEL_NOT_FOUND: 'No current App Model is available. Run a crawl before continuing.',
+  MODEL_EMPTY: 'The current App Model contains no supported subjects for this operation.',
+})
+
+function governedRuntimeError(err: unknown): { code: string; message: string } {
+  if (err instanceof CredentialErrorBase) {
+    return { code: 'CREDENTIALS_REQUIRED', message: err.message }
+  }
+  const operatorCode = operatorFacingCode(err)
+  if (operatorCode && SAFE_OPERATOR_MESSAGES[operatorCode]) {
+    return { code: operatorCode, message: SAFE_OPERATOR_MESSAGES[operatorCode] }
+  }
+  return {
+    code: 'ENGINE_OPERATION_FAILED',
+    message: 'The engine operation failed without safe diagnostic detail.',
+  }
+}
+
+function safeObservedLocation(value: unknown): string {
+  if (typeof value !== 'string') return '[location-withheld]'
+  try {
+    const parsed = new URL(value)
+    return `${parsed.origin}${parsed.pathname}`
+  } catch {
+    if (value.startsWith('/')) return value.split(/[?#]/, 1)[0]
+    return '[location-withheld]'
+  }
+}
+
 /**
  * Mirror only the explicitly safe recovery fields across the dynamic engine
  * boundary. The raw candidate, invalid model payload, connection information,
@@ -97,7 +129,7 @@ function safeCrawlFailure(err: unknown): unknown | undefined {
       .map((item: Record<string, unknown>) => ({
         name: typeof item.name === 'string' ? item.name : 'Error',
         code: typeof item.code === 'string' ? item.code : null,
-        summary: typeof item.summary === 'string' ? item.summary : 'Cause detail was withheld.',
+        summary: 'Cause detail was withheld at the credential boundary.',
       }))
     : []
   const structuralCategories = new Set([
@@ -139,7 +171,7 @@ function safeCrawlFailure(err: unknown): unknown | undefined {
         .map((item: Record<string, unknown>) => ({
           id: typeof item.id === 'string' ? item.id : '',
           kind: item.kind === 'route' ? 'route' : 'page',
-          value: typeof item.value === 'string' ? item.value : '',
+          value: safeObservedLocation(item.value),
         }))
       : [],
     crawlDiagnostics: Array.isArray(value.crawlDiagnostics)
@@ -147,9 +179,9 @@ function safeCrawlFailure(err: unknown): unknown | undefined {
         .filter((item: unknown): item is Record<string, unknown> => !!item && typeof item === 'object')
         .map((item: Record<string, unknown>) => ({
           scope: typeof item.scope === 'string' ? item.scope : 'page',
-          target: typeof item.target === 'string' ? item.target : '',
+          target: safeObservedLocation(item.target),
           reason: typeof item.reason === 'string' ? item.reason : 'unknown',
-          detail: typeof item.detail === 'string' ? item.detail : 'No detail was recorded.',
+          detail: 'Diagnostic detail was withheld at the credential boundary.',
         }))
       : [],
     roleAuthOutcomes: Array.isArray(value.roleAuthOutcomes)
@@ -194,7 +226,27 @@ const ENGINE = {
   appModels:    '../../../src/core/storage/AppModelService',
   canonical:    '../../../src/core/storage/JsonAppModelMigrationPlanner',
   testSets:     '../../../src/core/storage/TestSetService',
+  testCasePresentation: '../../../src/core/test-design/TestCasePresentationService',
+  compatibility: '../../../src/core/execution/DefinitionCompatibilityEvaluator',
+  planExecutor: '../../../src/core/execution/PlaywrightPlanExecutor',
+  executionService: '../../../src/core/execution/ExecutionService',
+  executionResultProjection: '../../../src/core/execution/ExecutionResultProjectionService',
+  observations: '../../../src/core/observation/ObservationService',
+  observationProjection: '../../../src/core/observation/ObservationReadProjectionService',
+  testDefinitionAuthority: '../../../src/core/test-design/TestDefinitionAuthorityProjectionService',
+  canonicalTestDefinitionGeneration: '../../../src/core/test-design/CanonicalTestDefinitionGenerationService',
 }
+
+/** Structural mirror of DefinitionCompatibilityEvaluator's CompatibilityIntrinsicInput/Result — forge-ui never statically imports src/. */
+export interface DefinitionCompatibilityInput {
+  steps: Array<{ kind: string; subjectId: string }>
+  oracle: { kind: string; subjectId: string }
+  authenticationRequired: boolean | undefined
+  authenticationSetup?: { mechanism: string }
+}
+export type DefinitionCompatibilityResult =
+  | { state: 'compatible'; explanation: string }
+  | { state: 'blocked'; reason: string; explanation: string }
 
 /** ADR-014 — close the open project DB only when switching to a different one. */
 export function shouldCloseDb(lastDbPath: string | null, targetDbPath: string): boolean {
@@ -208,11 +260,141 @@ export class ExecutionContext {
   // this serial queue, and the project DB is closed-on-switch between apps.
   private readonly queue = new SerialQueue()
   private lastDbPath: string | null = null
+  private activeProductExecution: { appName: string; executionId: string; completion: Promise<void> } | null = null
 
   submit(job: Job): Promise<JobResult> {
     // Serialize the WHOLE run sequence (creds pre-flight → DB switch → engine)
     // so DB-touching runs never overlap (TD-UI-020).
     return this.queue.run(() => this.runGuarded(job))
+  }
+
+  /**
+   * TD-UI-069C-C-R — the ONE bridge to DefinitionCompatibilityEvaluator, the
+   * single shared owner of definition-compatibility truth (also called
+   * directly, in-process, by TestDefinitionContract's generator and
+   * ExecutionProjectionService — this method exists so forge-ui reaches the
+   * exact same pure function rather than re-deciding compatibility from a
+   * possibly-stale stored field). Pure and DB-free — not routed through the
+   * serial queue, unlike every other method here, because there is no shared
+   * state to serialize against.
+   */
+  async evaluateDefinitionCompatibility(inputs: DefinitionCompatibilityInput[]): Promise<DefinitionCompatibilityResult[]> {
+    const mod: any = await import(ENGINE.compatibility)
+    return inputs.map(input => mod.evaluateIntrinsicCompatibility(input))
+  }
+
+  /** Read-only adapter/install evidence; does not launch Playwright. */
+  async readExecutionRunnerReadiness(): Promise<{ available: boolean; safeCode: string; safeMessage: string }> {
+    try {
+      const mod: any = await import(ENGINE.planExecutor)
+      return mod.readPlaywrightRunnerReadiness()
+    } catch {
+      return {
+        available: false,
+        safeCode: 'runner_unavailable',
+        safeMessage: 'The governed Playwright adapter could not be loaded.',
+      }
+    }
+  }
+
+  /**
+   * ADR-024 bridge. The engine ExecutionService owns preflight recheck,
+   * durable acceptance, runner invocation, and terminal persistence. This
+   * method only scopes the workspace DB and preserves the one-way boundary.
+   */
+  startProductExecution(appName: string, input: Record<string, unknown>): Promise<any> {
+    return this.queue.run(async () => {
+      if (this.activeProductExecution && this.activeProductExecution.appName !== appName) {
+        return {
+          kind: 'rejected',
+          code: 'execution_already_active',
+          safeMessage: 'A Product UI execution is already active in this process; multi-project execution is not supported in this lifecycle slice.',
+        }
+      }
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.executionService)
+      const result = await mod.executionService.start({
+        ...input,
+        projectId: appName,
+        workspaceRoot: this.workspaces.resolve(appName).root,
+        credentialReference: credentialStore.read(appName) ?? CredentialStore.defaultReference(appName),
+      })
+      if (result.kind === 'accepted') {
+        const completion = result.completion as Promise<void>
+        this.activeProductExecution = { appName, executionId: result.executionId, completion }
+        void completion.finally(() => {
+          if (this.activeProductExecution?.executionId === result.executionId) this.activeProductExecution = null
+        })
+        return {
+          kind: result.kind,
+          executionId: result.executionId,
+          startedAt: result.startedAt,
+          executionPlanHash: result.executionPlanHash,
+        }
+      }
+      return result
+    })
+  }
+
+  /** B4: core-owned live v2 eligibility; no identity, lock, or persistence. */
+  readProductExecutionPreflight(appName: string, input: Record<string, unknown>): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.executionService)
+      return mod.executionService.preflight({
+        ...input,
+        projectId: appName,
+        workspaceRoot: this.workspaces.resolve(appName).root,
+        credentialReference: credentialStore.read(appName) ?? CredentialStore.defaultReference(appName),
+      })
+    })
+  }
+
+  readProductExecutionStatus(appName: string, executionId: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      if (this.activeProductExecution && this.activeProductExecution.appName !== appName) {
+        throw new Error('Product execution status for another workspace is unavailable while an execution owns the database boundary.')
+      }
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.executionService)
+      return mod.executionService.readStatus(appName, executionId)
+    })
+  }
+
+  /** Read-only Product Results view. It does not invoke lifecycle recovery. */
+  readProductExecutionResults(appName: string, executionId: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      if (this.activeProductExecution && this.activeProductExecution.appName !== appName) {
+        throw new Error('Product execution Results for another workspace are unavailable while an execution owns the database boundary.')
+      }
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.executionResultProjection)
+      return mod.executionResultProjectionService.read(appName, executionId)
+    })
+  }
+
+  /** Bounded workspace-authoritative Product execution summaries only. */
+  listProductExecutionResults(appName: string, limit: number): Promise<unknown> {
+    return this.queue.run(async () => {
+      if (this.activeProductExecution && this.activeProductExecution.appName !== appName) {
+        throw new Error('Product execution Results for another workspace are unavailable while an execution owns the database boundary.')
+      }
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.executionResultProjection)
+      return mod.executionResultProjectionService.list(appName, limit)
+    })
+  }
+
+  /** ADR-024 bridge: ExecutionService alone persists and signals cancellation. */
+  cancelProductExecution(appName: string, executionId: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      if (this.activeProductExecution && this.activeProductExecution.appName !== appName) {
+        throw new Error('Product execution cancellation for another workspace is unavailable while an execution owns the database boundary.')
+      }
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.executionService)
+      return mod.executionService.cancel(appName, executionId)
+    })
   }
 
   /** TD-181: UI App Model reads cross the engine boundary through SQLite. */
@@ -221,6 +403,83 @@ export class ExecutionContext {
       await this.switchDatabaseIfNeeded(appName)
       const mod: any = await import(ENGINE.appModels)
       return new mod.AppModelService().requireActive(appName)
+    })
+  }
+
+  /** Restart-only reconciliation/read for a crawl job absent from JobRunner memory. */
+  recoverCrawlObservation(appName: string, operationId: string): Promise<unknown | null> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.observationProjection)
+      return new mod.ObservationReadProjectionService().readOperation(appName, operationId)
+    })
+  }
+
+  /** B2: sole canonical read projection; no recovery or persistence occurs. */
+  readObservationProjection(
+    appName: string,
+    options: { runId?: string | null; limit?: number } = {},
+  ): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.observationProjection)
+      return new mod.ObservationReadProjectionService().readProject(appName, options)
+    })
+  }
+
+  /** B2: canonical history presentation derived inside the core projection. */
+  readObservationHistoryView(appName: string, options: Record<string, unknown>): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.observationProjection)
+      return new mod.ObservationReadProjectionService().readHistoryView(appName, options)
+    })
+  }
+
+  /** B2: latest adopted crawl projection in the stable UI contract. */
+  readLatestObservationView(appName: string): Promise<unknown | null> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.observationProjection)
+      return new mod.ObservationReadProjectionService().readLatestView(appName)
+    })
+  }
+
+  /** B2: read-only application evidence inventory over canonical Observation projection. */
+  readApplicationEvidenceInventory(appName: string, options: Record<string, unknown> = {}): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.observationProjection)
+      return new mod.ApplicationEvidenceInventoryProjection().read(appName, options)
+    })
+  }
+
+  /** TD-ARCH-004-B2: read-only, sealed v2 Test Definition authority admission. */
+  readTestDefinitionAuthority(appName: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.testDefinitionAuthority)
+      return new mod.TestDefinitionAuthorityProjectionService().read(appName)
+    })
+  }
+
+  /** B3: core composes sealed authority, route evidence, and auth expectation. */
+  readCanonicalTestDefinitionAdmission(appName: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.canonicalTestDefinitionGeneration)
+      return new mod.CanonicalTestDefinitionGenerationService()
+        .readAdmission(appName, this.workspaces.resolve(appName).root)
+    })
+  }
+
+  /** B3: caller supplies only project identity and generation intent. */
+  generateCanonicalTestSet(appName: string, generationId: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.canonicalTestDefinitionGeneration)
+      return new mod.CanonicalTestDefinitionGenerationService()
+        .generate(appName, this.workspaces.resolve(appName).root, generationId)
     })
   }
 
@@ -274,8 +533,8 @@ export class ExecutionContext {
   readTestInventory(appName: string, options: { limit: number; cursor: string | null; definitionId: string | null }): Promise<unknown> {
     return this.queue.run(async () => {
       await this.switchDatabaseIfNeeded(appName)
-      const mod: any = await import(ENGINE.testSets)
-      return mod.testSetService.readInventory(appName, options)
+      const mod: any = await import(ENGINE.testCasePresentation)
+      return mod.testCasePresentationService.read(appName, options)
     })
   }
 
@@ -300,21 +559,22 @@ export class ExecutionContext {
     // ADR-013 pre-flight (crawl only): resolve + inject credentials BEFORE the
     // engine runs. A CredentialError PROPAGATES to JobRunner (surfaced to the
     // Mission Timeline), rather than being swallowed into a failed JobResult.
-    if (job.type === 'crawl') this.prepareCredentials(job)
     try {
+      if (job.type === 'crawl') this.prepareCredentials(job)
       // ADR-014 — release the previous app's DB before the engine opens this one.
       await this.switchDatabaseIfNeeded(job.appName)
       const result = await this.runInProcess(job)
       return { jobId, status: 'completed', result }
     } catch (err) {
-      // Operator-facing engine preconditions carry a stable code + brand that
-      // survive this boundary (the typed class does not). Preserve the raw
-      // operator message + code so JobRunner surfaces it to the Mission Timeline;
-      // everything else keeps the existing String(err) behaviour.
-      const code = operatorFacingCode(err)
+      // Only allowlisted code/message pairs and structurally sanitized recovery
+      // fields cross the dynamic engine boundary. Raw exception text is dropped.
+      const safe = governedRuntimeError(err)
       const failure = safeCrawlFailure(err)
-      if (code) return { jobId, status: 'failed', error: (err as Error).message, errorCode: code, failure }
-      return { jobId, status: 'failed', error: String(err), failure }
+      return { jobId, status: 'failed', error: safe.message, errorCode: safe.code, failure }
+    } finally {
+      delete job.options.username
+      delete job.options.password
+      delete job.options.credentialReference
     }
   }
 
@@ -323,53 +583,40 @@ export class ExecutionContext {
    * different app's DB (TD-UI-020). closeDb() is engine-exported; no src/ edit.
    */
   private async switchDatabaseIfNeeded(appName: string): Promise<void> {
-    const targetDbPath = path.join(this.workspaces.resolve(appName).root, '.forge', 'forge.db')
+    const workspaceRoot = this.workspaces.resolve(appName).root
+    const targetDbPath = path.join(workspaceRoot, '.forge', 'forge.db')
+    if (this.activeProductExecution
+      && this.activeProductExecution.appName !== appName
+      && this.lastDbPath !== targetDbPath) {
+      throw new Error('A Product UI execution currently owns the workspace database boundary.')
+    }
     const dbMod: any = await import(ENGINE.db)
     if (shouldCloseDb(this.lastDbPath, targetDbPath)) {
       await dbMod.closeDb()
     }
     // Scope every DB-touching runtime operation. CrawlRunner remains the owner
     // that applies lazy migrations; reads/generate/verify do not apply them.
-    dbMod.initDb(targetDbPath)
+    dbMod.initProductWorkspaceDatabase(workspaceRoot, targetDbPath)
     this.lastDbPath = targetDbPath
   }
 
   /**
-   * ADR-013 two-path credential injection. Onboard supplies form creds directly
-   * (respected, skipped). Otherwise resolve from the env pointer pair (hard-fails
-   * via CredentialError when auth is required but unresolved), then inject:
-   *   Path A (bootstrap: force / fresh) → pass options.username/password so the
-   *     engine's Bootstrap writes credentials.envKey and CrawlRunner:129 injects.
-   *   Path B (existing config WITH envKey, no force) → set process.env[envKey]
-   *     here and DON'T pass options, so CrawlRunner:129 stays inert (single
-   *     materializer, no double-inject).
-   *   Split (existing config, no force, creds resolved, but NO envKey slot) →
-   *     refuse with CredentialSlotError. We do NOT silently auto-force a
-   *     re-detect nor run unauthenticated; the operator establishes the slot via
-   *     a Force re-crawl.
+   * ADR-013 / TD-SEC-001 preflight. Direct form material stays on the operation
+   * until CrawlRunner enters its canonical scope. Otherwise this resolves only
+   * the governed reference, verifies the bootstrap-slot invariant, and passes
+   * the reference to the engine. Neither path writes process.env.
    */
   private prepareCredentials(job: Job): void {
     // Onboard passes form credentials directly — respect them (bootstrap/force
     // path already) and skip env resolution + hard-fail.
     if (job.options.username && job.options.password) return
 
-    const material = credentialResolver.resolve(job.appName)   // throws CredentialError on hard-fail
-    if (!material) return   // guest app (authType 'none') — nothing to inject
+    const reference = credentialResolver.resolve(job.appName)   // throws CredentialError on hard-fail
+    if (!reference) return   // guest app (authType 'none') — nothing to inject
 
     const config = this.readEngineConfig(job.appName)          // read-only; null when fresh
-    const plan = planCrawlCredentials(config, material, { force: job.options.force === true })
-
-    if (plan.path === 'A') {
-      // Path A — the engine's Bootstrap writes credentials.envKey and
-      // CrawlRunner:129 injects. Supply the material as options.
-      job.options.username = material.username
-      job.options.password = material.password
-    } else {
-      // Path B — existing envKey: inject here; keep line-129 inert (no options).
-      process.env[plan.envKey] = `${material.username}:${material.password}`
-      delete job.options.username
-      delete job.options.password
-    }
+    planCrawlCredentials(config, reference, { force: job.options.force === true })
+    job.options.credentialReference = reference
   }
 
   /** Read the engine-owned .forge/config.json (read-only) — never writes it. */

@@ -208,3 +208,14 @@ machine-readable evidence/remedy), ADR-018 (aggregate to the weakest truth).
 TD-158 (this rule), TD-156 (strategy — decision kept, false confidence removed), TD-157
 (appType — honest `low` default is the reference), TD-159 (the positive detector-design
 heuristic: verify directly, or preserve uncertainty explicitly).
+
+## Clarification Note — 2026-08-11 (TD-ARCH-003-B0)
+
+[`ADR-027`](ADR-027-canonical-observation-authority-and-evidence-semantics.md)
+makes observation method, method version, inspected boundary,
+completion, artifacts, conflicts, and correction state durable inputs to any
+confidence derivation. `present`, `absent`, and `indeterminate` are Observation
+outcomes; `unknown` remains a projected truth/confidence state, not an outcome
+stored in place of method results. A gap, partial boundary, unresolved conflict,
+or lower-integrity legacy provenance constrains the derived grade and can never
+be erased by a newer timestamp or a stronger literal.
