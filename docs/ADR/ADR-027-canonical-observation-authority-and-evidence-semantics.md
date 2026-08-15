@@ -767,6 +767,25 @@ PID is alive; it may mark a running ObservationRun interrupted only after the
 operating system affirmatively reports that PID absent. This is a bounded
 single-host policy, not distributed coordination.
 
+## B6 ObservationGap artifact-set correction — 2026-08-14
+
+Architecture Review v3.0 found that the implemented B1 guard closed late
+artifact-link insertion only for Observations. Gap integrity hashes already
+included the ordered artifact IDs and hashes, Gap/link admission was already
+transactional, and link UPDATE/DELETE were already blocked, but a direct late
+Gap-link INSERT could still diverge durable membership from the committed hash.
+
+TD-ARCH-003-B6 corrects that implementation defect without changing this
+decision's scope. Migration 028 gives native ObservationGaps the same explicit
+two-phase persistence discipline: the repository inserts the Gap in an unsealed
+transactional state, inserts the complete canonically ordered artifact set, and
+performs the sole permitted `unsealed -> sealed` transition before commit.
+SQLite guards thereafter reject link INSERT, UPDATE, and DELETE. Existing Gap
+rows are preserved and sealed with their current membership; the read projection
+recomputes the committed Gap identity and emits a safe integrity warning rather
+than repairing any disagreement. The v3.0 finding remains historical evidence
+of the defect that existed when that review ran.
+
 ## B2 read-projection clarification â€” 2026-08-12
 
 TD-ARCH-003-B2 introduces one core-owned, SELECT-only canonical Observation

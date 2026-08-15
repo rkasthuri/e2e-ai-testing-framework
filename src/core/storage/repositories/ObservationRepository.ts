@@ -411,6 +411,8 @@ export class ObservationRepository {
           ordinal,
         }))).execute()
       }
+      await trx.updateTable('observation_gaps').set({ artifact_links_sealed: 1 })
+        .where('gap_id', '=', row.gap_id).executeTakeFirstOrThrow()
       return { outcome: 'committed_new', value: gapRecord(row as ObservationGapRow, artifactIds) }
     })
   }

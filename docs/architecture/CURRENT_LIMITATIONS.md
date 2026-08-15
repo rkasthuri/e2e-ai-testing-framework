@@ -142,7 +142,7 @@ Crawl
 ```
 
 For SQLite Product and disposable-certification authorities, the current
-migration ceiling is `027_canonical_v2_execution_authority`. Legacy PostgreSQL
+migration ceiling is `028_observation_gap_artifact_sealing`. Legacy PostgreSQL
 remains capped at `020_execution_lifecycle` and is not Product authority.
 
 ## Safe next work

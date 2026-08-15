@@ -18,7 +18,7 @@ import { DatabaseAuthorityMode } from '../storage/DatabaseAuthority'
 import { ObservationRepository } from '../storage/repositories/ObservationRepository'
 import { ObservationArtifactStore, type ObservationArtifactWriter, type PersistArtifactInput } from './ObservationArtifactStore'
 import { ObservationAuthorityError, ObservationContractError } from './ObservationErrors'
-import { canonicalObservationIntegrityHash } from './ObservationIntegrity'
+import { canonicalObservationGapIntegrityHash, canonicalObservationIntegrityHash } from './ObservationIntegrity'
 import {
   CRAWL_OBSERVATION_METHOD_VERSIONS,
   type ArtifactReferenceRecord,
@@ -496,14 +496,18 @@ export class ObservationService {
     assertSafeId(input.idempotencyKey, 'idempotencyKey')
     if (!exactIso(input.occurredAt)) throw new ObservationContractError('OBSERVATION_TIME_INVALID', 'ObservationGap occurredAt must be exact UTC ISO-8601.')
     const boundaryJson = assertBoundary(knownMethod, input.boundary)
-    const artifactIds = [...(input.artifactIds ?? [])]
+    const artifactIds = [...(input.artifactIds ?? [])].sort((left, right) => left.localeCompare(right))
+    for (const artifactId of artifactIds) assertUuid(artifactId, 'artifactId')
+    if (new Set(artifactIds).size !== artifactIds.length) {
+      throw new ObservationContractError('OBSERVATION_ARTIFACT_DUPLICATE', 'ObservationGap artifact references must be unique and canonically ordered.')
+    }
     const artifacts = await this.repository.getArtifacts(input.projectId, artifactIds)
     if (artifacts.length !== artifactIds.length
       || artifacts.some(artifact => artifact.observationRunId !== input.observationRunId)) {
       throw new ObservationContractError('OBSERVATION_ARTIFACT_NOT_FOUND', 'ObservationGap artifact is missing or belongs to another run.')
     }
     const semantic = {
-      schemaVersion: 'forge-observation-gap/v1',
+      schemaVersion: 'forge-observation-gap/v1' as const,
       observationRunId: input.observationRunId,
       projectId: input.projectId,
       producer: input.producer,
@@ -515,7 +519,6 @@ export class ObservationService {
       boundary: input.boundary,
       reason: input.reason,
       occurredAt: input.occurredAt,
-      artifactHashes: artifacts.map(artifact => ({ artifactId: artifact.artifactId, sha256: artifact.sha256 })),
     }
     return this.repository.insertGap({
       gap_id: randomUUID(),
@@ -531,8 +534,12 @@ export class ObservationService {
       reason: input.reason,
       occurred_at: input.occurredAt,
       idempotency_key: input.idempotencyKey,
-      integrity_hash: hashSemantic(semantic),
+      integrity_hash: canonicalObservationGapIntegrityHash(
+        semantic,
+        artifacts.map(artifact => ({ artifactId: artifact.artifactId, sha256: artifact.sha256 })),
+      ),
       safe_message: assertSafeMessage(input.safeMessage, 'ObservationGap safeMessage'),
+      artifact_links_sealed: 0,
     }, artifactIds)
   }
 

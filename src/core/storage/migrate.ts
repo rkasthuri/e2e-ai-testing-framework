@@ -94,6 +94,7 @@ const CANONICAL_OBSERVATION_MIGRATION = '024_canonical_observation_authority'
 const HISTORICAL_OBSERVATION_IMPORT_MIGRATION = '025_historical_observation_import'
 const CANONICAL_TEST_DEFINITION_V2_MIGRATION = '026_canonical_test_definition_v2'
 const CANONICAL_V2_EXECUTION_AUTHORITY_MIGRATION = '027_canonical_v2_execution_authority'
+const OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION = '028_observation_gap_artifact_sealing'
 const LEGACY_JSON_IMPORT_MIGRATION = '004_json_import'
 const MIGRATION_TABLE = 'kysely_migration'
 const MIGRATION_LOCK_TABLE = 'kysely_migration_lock'
@@ -437,6 +438,52 @@ async function inspectCanonicalObservationSchema(db: Kysely<any>): Promise<Table
   }
 }
 
+async function inspectObservationGapArtifactSealingSchema(db: Kysely<any>): Promise<TableContract> {
+  if (!await tableExists(db, 'observation_gaps')) {
+    return { present: false, valid: false, detail: 'ObservationGap authority schema is absent' }
+  }
+  const columns = await sql<{ name: string; notnull: number; dflt_value: string | null }>`PRAGMA table_info(observation_gaps)`.execute(db)
+  const sealed = columns.rows.find(column => column.name === 'artifact_links_sealed')
+  const triggers = await sql<{ name: string; definition: string | null }>`
+    SELECT name, sql AS definition FROM sqlite_master
+    WHERE type = 'trigger' AND name IN (
+      'observation_artifact_links_closed_insert',
+      'observation_artifact_links_immutable_update',
+      'observation_artifact_links_immutable_delete',
+      'observation_gaps_immutable_update',
+      'observation_gaps_immutable_delete'
+    )
+  `.execute(db)
+  const byName = new Map(triggers.rows.map(row => [row.name, row.definition ?? '']))
+  const insertGuard = byName.get('observation_artifact_links_closed_insert') ?? ''
+  const gapUpdateGuard = byName.get('observation_gaps_immutable_update') ?? ''
+  const required = [
+    'observation_artifact_links_immutable_update',
+    'observation_artifact_links_immutable_delete',
+    'observation_gaps_immutable_delete',
+  ]
+  const present = Boolean(sealed)
+  const valid = Number(sealed?.notnull) === 1
+    && sealed?.dflt_value === '0'
+    && required.every(name => byName.has(name))
+    && /NEW\.gap_id IS NOT NULL/i.test(insertGuard)
+    && /observation_artifacts\s+a/i.test(insertGuard)
+    && /a\.artifact_id\s*=\s*NEW\.artifact_id/i.test(insertGuard)
+    && /a\.project_id\s*=\s*NEW\.project_id/i.test(insertGuard)
+    && /g\.gap_id\s*=\s*NEW\.gap_id/i.test(insertGuard)
+    && /g\.project_id\s*=\s*NEW\.project_id/i.test(insertGuard)
+    && /a\.observation_run_id\s*=\s*g\.observation_run_id/i.test(insertGuard)
+    && /g\.artifact_links_sealed = 1/i.test(insertGuard)
+    && /OLD\.artifact_links_sealed = 0 AND NEW\.artifact_links_sealed = 1/i.test(gapUpdateGuard)
+  return {
+    present,
+    valid,
+    detail: valid
+      ? 'ObservationGap artifact membership seal and immutable-link guards match Migration 028'
+      : 'ObservationGap artifact membership seal or immutable-link guards are incomplete',
+  }
+}
+
 async function inspectHistoricalObservationImportSchema(db: Kysely<any>): Promise<TableContract> {
   const required = [
     ['table', 'observation_import_sources'],
@@ -563,6 +610,7 @@ async function assertManagedSchemaHistoryConsistency(db: Kysely<any>, appliedNam
   const historicalObservationImport = await inspectHistoricalObservationImportSchema(db)
   const canonicalTestDefinitionV2 = await inspectCanonicalTestDefinitionV2Schema(db)
   const canonicalV2ExecutionAuthority = await inspectCanonicalV2ExecutionAuthoritySchema(db)
+  const observationGapArtifactSealing = await inspectObservationGapArtifactSealingSchema(db)
   const discrepancies: string[] = []
   if (migration016Applied && !activeIndex.valid) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is applied, but ${activeIndex.detail}`)
   else if (!migration016Applied && activeIndex.present) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is pending, but ${activeIndex.detail}`)
@@ -614,6 +662,11 @@ async function assertManagedSchemaHistoryConsistency(db: Kysely<any>, appliedNam
     if (!canonicalV2ExecutionAuthority.valid) discrepancies.push(`history says ${CANONICAL_V2_EXECUTION_AUTHORITY_MIGRATION} is applied, but ${canonicalV2ExecutionAuthority.detail}`)
   } else if (canonicalV2ExecutionAuthority.present) {
     discrepancies.push(`history says ${CANONICAL_V2_EXECUTION_AUTHORITY_MIGRATION} is pending, but ${canonicalV2ExecutionAuthority.detail}`)
+  }
+  if (appliedNames.has(OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION)) {
+    if (!observationGapArtifactSealing.valid) discrepancies.push(`history says ${OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION} is applied, but ${observationGapArtifactSealing.detail}`)
+  } else if (observationGapArtifactSealing.present) {
+    discrepancies.push(`history says ${OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION} is pending, but ${observationGapArtifactSealing.detail}`)
   }
   if (discrepancies.length > 0) throw new MigrationStateMismatchError(discrepancies)
 }
@@ -667,6 +720,10 @@ async function assertMigrationPostconditions(db: Kysely<any>, migrationName: str
   if (migrationName === CANONICAL_V2_EXECUTION_AUTHORITY_MIGRATION) {
     const executions = await inspectCanonicalV2ExecutionAuthoritySchema(db)
     if (!executions.valid) throw new Error(executions.detail)
+  }
+  if (migrationName === OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION) {
+    const gapSealing = await inspectObservationGapArtifactSealingSchema(db)
+    if (!gapSealing.valid) throw new Error(gapSealing.detail)
   }
 }
 

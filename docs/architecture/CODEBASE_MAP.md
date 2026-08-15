@@ -68,6 +68,11 @@ revalidates Definition, support, route, and authentication identities; Results
 projection reads persisted Execution/Run/Result truth without recovery or
 writes.
 
+Native Observation and ObservationGap artifact membership is established with
+the owning fact inside one transaction and then sealed. Migration 028 closes
+late Gap-link insertion at SQLite persistence boundaries; the Observation read
+projection recomputes Gap artifact integrity and warns without repairing state.
+
 | Classification | Current paths | Authority rule |
 |---|---|---|
 | CANONICAL | Core Observation, App Model support, Test Definition v2, Execution v2, Run/Result, and read projections | May create or interpret active Product truth |

@@ -11,7 +11,8 @@
  */
 
 import { getDb } from '../storage/db'
-import type { ObservationBoundary } from './ObservationTypes'
+import { canonicalObservationGapIntegrityHash } from './ObservationIntegrity'
+import type { ObservationBoundary, ObservationGapReason } from './ObservationTypes'
 
 export type ObservationProjectionWarningCode =
   | 'missing_observation'
@@ -22,6 +23,7 @@ export type ObservationProjectionWarningCode =
   | 'unknown_support_role'
   | 'conflicting_support'
   | 'legacy_only_provenance'
+  | 'gap_artifact_integrity_mismatch'
 
 export interface ObservationProjectionWarning {
   code: ObservationProjectionWarningCode
@@ -132,6 +134,7 @@ function warning(
     unknown_support_role: 'Canonical support contains a role outside the adopted read contract.',
     conflicting_support: 'Canonical support contains incompatible roles for one claim identity.',
     legacy_only_provenance: 'This App Model has legacy operation provenance but no canonical Observation support.',
+    gap_artifact_integrity_mismatch: 'Canonical ObservationGap artifact membership disagrees with its committed integrity identity.',
   }
   return { code, modelRowId, referenceId, safeMessage: messages[code] }
 }
@@ -218,6 +221,30 @@ export class ObservationReadProjectionService {
     }
     for (const artifact of artifactRows) {
       if (!linkedArtifactIds.has(artifact.artifact_id)) warnings.push(warning('orphan_artifact', null, artifact.artifact_id))
+    }
+    const artifactById = new Map(artifactRows.map(row => [row.artifact_id, row]))
+    for (const row of gapRows) {
+      const gapLinks = links.filter(link => link.gap_id === row.gap_id).sort((left, right) => left.ordinal - right.ordinal)
+      const members = gapLinks.flatMap(link => {
+        const artifact = artifactById.get(link.artifact_id)
+        return artifact ? [{ artifactId: artifact.artifact_id, sha256: artifact.sha256 }] : []
+      })
+      if (row.artifact_links_sealed !== 1 || members.length !== gapLinks.length || canonicalObservationGapIntegrityHash({
+        schemaVersion: 'forge-observation-gap/v1',
+        observationRunId: row.observation_run_id,
+        projectId: row.project_id,
+        producer: row.producer,
+        producerVersion: row.producer_version,
+        intendedMethod: row.intended_method,
+        intendedMethodVersion: row.intended_method_version,
+        intendedSubjectId: row.intended_subject_id,
+        intendedPredicate: row.intended_predicate,
+        boundary: boundary(row.boundary_json),
+        reason: row.reason as ObservationGapReason,
+        occurredAt: row.occurred_at,
+      }, members) !== row.integrity_hash) {
+        warnings.push(warning('gap_artifact_integrity_mismatch', null, row.gap_id))
+      }
     }
     for (const row of modelSupport) {
       if (!observationIds.has(row.observation_id)) warnings.push(warning('missing_observation', Number(row.model_row_id), row.observation_id))

@@ -434,6 +434,7 @@ export interface ObservationGapsTable {
   idempotency_key: string;
   integrity_hash: string;
   safe_message: string | null;
+  artifact_links_sealed: number;
 }
 
 export interface ObservationArtifactsTable {

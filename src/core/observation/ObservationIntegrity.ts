@@ -11,7 +11,7 @@
  */
 
 import * as crypto from 'crypto'
-import type { ObservationRecord } from './ObservationTypes'
+import type { ObservationGapRecord, ObservationRecord } from './ObservationTypes'
 
 export interface ObservationArtifactIntegrityMember {
   artifactId: string
@@ -49,6 +49,30 @@ export function canonicalObservationIntegrityHash(
     provenanceClass: observation.provenanceClass,
     safeReasonCode: observation.safeReasonCode,
     artifactHashes: artifactHashes.map(member => ({ artifactId: member.artifactId, sha256: member.sha256 })),
+  }
+  return crypto.createHash('sha256').update(JSON.stringify(canonicalize(semantic))).digest('hex')
+}
+
+export function canonicalObservationGapIntegrityHash(
+  gap: Omit<ObservationGapRecord, 'gapId' | 'idempotencyKey' | 'integrityHash' | 'artifactIds' | 'safeMessage'>,
+  artifactHashes: readonly ObservationArtifactIntegrityMember[],
+): string {
+  const canonicalArtifactHashes = [...artifactHashes]
+    .sort((left, right) => left.artifactId.localeCompare(right.artifactId))
+  const semantic = {
+    schemaVersion: gap.schemaVersion,
+    observationRunId: gap.observationRunId,
+    projectId: gap.projectId,
+    producer: gap.producer,
+    producerVersion: gap.producerVersion,
+    intendedMethod: gap.intendedMethod,
+    intendedMethodVersion: gap.intendedMethodVersion,
+    intendedSubjectId: gap.intendedSubjectId,
+    intendedPredicate: gap.intendedPredicate,
+    boundary: gap.boundary,
+    reason: gap.reason,
+    occurredAt: gap.occurredAt,
+    artifactHashes: canonicalArtifactHashes.map(member => ({ artifactId: member.artifactId, sha256: member.sha256 })),
   }
   return crypto.createHash('sha256').update(JSON.stringify(canonicalize(semantic))).digest('hex')
 }
