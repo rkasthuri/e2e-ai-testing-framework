@@ -213,9 +213,11 @@ jobs:
       # Hand the full reports/ dir to the AI pipeline job (Job 2).
       - name: Upload reports artifact
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: forge-reports
           path: reports/
+          if-no-files-found: warn
           retention-days: 1
 
   # ── Job 2: AI pipeline on a BARE runner (no container) ──────

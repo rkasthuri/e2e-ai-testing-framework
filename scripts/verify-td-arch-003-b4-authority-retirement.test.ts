@@ -63,6 +63,8 @@ test('readiness refuses non-canonical Observation projection authority', async (
 test('readiness accepts the canonical projection null authentication outcome without inventing truth', async () => {
   const observationId = '11111111-1111-4111-8111-111111111111'
   const evidenceId = '22222222-2222-4222-8222-222222222222'
+  let authorityReads = 0
+  let semanticAdmissionReads = 0
   const result = await readApplicationReadiness(
     'saucedemo', async () => ({ appName: 'saucedemo' }), {
       observationReader: { readObservationHistoryView: async () => ({
@@ -93,10 +95,79 @@ test('readiness accepts the canonical projection null authentication outcome wit
           sourceObservation: { id: observationId }, sourceModels: [{ rowId: 1 }],
         }],
       } } }),
+      authorityReader: { readTestDefinitionAuthority: async () => {
+        authorityReads += 1
+        return { kind: 'ok', authority: {
+          authorityClass: 'canonical_v2', modelRowId: 1, modelVersion: '1.0.0',
+          observationRunId: observationId, supportSealHash: 'a'.repeat(64),
+          characterizationPolicy: { id: 'canonical-characterization', version: '1.0.0' },
+          supportingObservationIds: [observationId], supportingGapIds: [],
+          subjectSupport: [{ canonicalSubjectId: 'inventory-html', observationIds: [observationId], gapIds: [] }],
+        } }
+      } } as any,
+      semanticAdmissionReader: { readCanonicalTestDefinitionAdmission: async () => {
+        semanticAdmissionReads += 1
+        return { kind: 'ok', authenticationExpectation: { state: 'unknown' } }
+      } } as any,
     },
   )
-  assert.equal(result.status, 200)
+  assert.equal(
+    result.status,
+    200,
+    `deterministic readiness dependency calls: authority=${authorityReads}, semanticAdmission=${semanticAdmissionReads}`,
+  )
+  assert.equal(authorityReads, 1, 'the deterministic Definition authority reader must be used exactly once')
+  assert.equal(semanticAdmissionReads, 1, 'the deterministic semantic-admission reader must be used exactly once')
   assert.equal((result.body as any).data.authoritySnapshot.latestObservation.authenticationOutcome, null)
+})
+
+test('readiness dependency failures stay bounded while test diagnostics identify the failing category', async () => {
+  let authorityFailureObserved = false
+  const result = await readApplicationReadiness(
+    'saucedemo', async () => ({ appName: 'saucedemo' }), {
+      observationReader: { readObservationHistoryView: async () => ({
+        authority: 'canonical_product', observations: [],
+      }) } as any,
+      modelReader: async () => ({ status: 200, body: { data: {
+        page: { total: 0, activeCount: 0 }, currentModel: null,
+      } } }),
+      evidenceReader: async () => ({ status: 200, body: { data: {
+        authority: 'canonical_product',
+        page: { projectTotal: 0, currentSupportTotal: 0, historicalSupportTotal: 0, filteredTotal: 0 },
+        evidence: [],
+      } } }),
+      authorityReader: { readTestDefinitionAuthority: async () => {
+        authorityFailureObserved = true
+        throw new Error('SECRET_VALUE workspace /private/forge.db')
+      } } as any,
+      semanticAdmissionReader: { readCanonicalTestDefinitionAdmission: async () => ({
+        kind: 'refused', code: 'missing_active_model',
+      }) } as any,
+    },
+  )
+  assert.equal(authorityFailureObserved, true, 'Definition authority dependency was the controlled failure source')
+  assert.equal(result.status, 503)
+  const serialized = JSON.stringify(result.body)
+  assert.match(serialized, /READINESS_UNAVAILABLE/)
+  assert.doesNotMatch(serialized, /SECRET_VALUE|private|forge\.db/i)
+})
+
+test('CI preserves real reports after an earlier test failure without requiring fabricated files', () => {
+  const workflow = source('.github/workflows/e2e-pipeline.yml')
+  const uploadStart = workflow.indexOf('- name: Upload reports artifact')
+  const nextJob = workflow.indexOf('  ai-pipeline:', uploadStart)
+  assert.notEqual(uploadStart, -1)
+  assert.notEqual(nextJob, -1)
+  const upload = workflow.slice(uploadStart, nextJob)
+  assert.match(upload, /uses: actions\/upload-artifact@v4/)
+  assert.match(upload, /if: always\(\)/)
+  assert.match(upload, /name: forge-reports/)
+  assert.match(upload, /path: reports\//)
+  assert.match(upload, /if-no-files-found: warn/)
+
+  const downstream = workflow.slice(nextJob)
+  assert.match(downstream, /needs: test\s+if: always\(\)/)
+  assert.match(downstream, /name: Download reports artifact[\s\S]*?name: forge-reports/)
 })
 
 test('active routes use canonical projection and compatibility is explicit', () => {
