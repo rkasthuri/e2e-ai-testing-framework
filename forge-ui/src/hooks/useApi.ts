@@ -12,6 +12,10 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
+import {
+  fetchCanonicalExecutionResultsDetail,
+  fetchCanonicalExecutionResultsList,
+} from '../api/resultsClient'
 import type {
   OnboardRequest, OnboardResponse, Project, Detection, CrawlRequest, CrawlStatus,
   CrawlProjectContext, ObservationRecord, ObservationHistoryResponse, ApplicationModelHistoryResponse,
@@ -304,6 +308,29 @@ export function useExecutionPreflight(
       { definitionIds, revision },
     ),
     enabled: !!appName && enabled,
+    retry: false,
+  })
+}
+
+/** Canonical Product execution summaries. No legacy endpoint fallback is permitted. */
+export function useCanonicalExecutionResults(appName: string | null, limit = 25) {
+  return useQuery({
+    queryKey: ['canonical-execution-results', appName, limit],
+    queryFn: () => fetchCanonicalExecutionResultsList(appName!, limit),
+    enabled: !!appName,
+    retry: false,
+  })
+}
+
+/** One canonical Product Execution → Run → Result projection. */
+export function useCanonicalExecutionResultDetail(
+  appName: string | null,
+  executionId: string | null,
+) {
+  return useQuery({
+    queryKey: ['canonical-execution-result-detail', appName, executionId],
+    queryFn: () => fetchCanonicalExecutionResultsDetail(appName!, executionId!),
+    enabled: !!appName && !!executionId,
     retry: false,
   })
 }

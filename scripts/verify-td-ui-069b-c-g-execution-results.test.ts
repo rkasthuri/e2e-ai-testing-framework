@@ -359,7 +359,44 @@ test('TD069B-C-G-8 list is bounded, deterministic, and excludes legacy Runs', as
   const read = await new ExecutionResultProjectionService().list(projectId, 3)
   assert.deepEqual(read.executions.map(item => item.executionId), [tiedA.executionId, tiedB.executionId, old.executionId])
   assert.equal(read.executions.every(item => item.runCount === 1 && item.observedResultCount === 1), true)
+  assert.deepEqual(
+    read.executions.map(item => [item.passedResultCount, item.failedResultCount, item.couldNotVerifyResultCount]),
+    [[1, 0, 0], [0, 1, 0], [1, 0, 0]],
+  )
   assert.equal(JSON.stringify(read).includes('legacy-list-run'), false)
+})
+
+test('TD-PRODUCT-001-A-R4 list totals come from canonical aggregation and invalid summaries refuse totals', async () => {
+  const projectId = 'projection-list-r4'
+  const rows = await Promise.all([
+    fixture({ suffix: 'r4-pass', projectId, acceptedOffset: 1, resultOutcomes: ['passed'] }),
+    fixture({ suffix: 'r4-fail', projectId, acceptedOffset: 2, resultOutcomes: ['failed'] }),
+    fixture({ suffix: 'r4-cnv', projectId, acceptedOffset: 3, resultOutcomes: ['could_not_verify'] }),
+    fixture({ suffix: 'r4-partial', projectId, acceptedOffset: 4, itemCount: 2, resultOutcomes: ['passed'] }),
+    fixture({ suffix: 'r4-cancelled', projectId, acceptedOffset: 5, resultOutcomes: [], executionLifecycle: 'cancelled', runLifecycle: 'cancelled' }),
+    fixture({ suffix: 'r4-invalid', projectId, acceptedOffset: 6, resultOutcomes: [], withRun: false }),
+  ])
+  const read = await new ExecutionResultProjectionService().list(projectId, 10)
+  const byId = new Map(read.executions.map(item => [item.executionId, item]))
+  assert.deepEqual(
+    rows.slice(0, 5).map(row => {
+      const item = byId.get(row.executionId)!
+      return [item.evidenceHeadlineOutcome, item.passedResultCount, item.failedResultCount, item.couldNotVerifyResultCount]
+    }),
+    [
+      ['passed', 1, 0, 0],
+      ['failed', 0, 1, 0],
+      ['could_not_verify', 0, 0, 1],
+      ['could_not_verify', 1, 0, 0],
+      ['could_not_verify', 0, 0, 0],
+    ],
+  )
+  const invalid = byId.get(rows[5].executionId)!
+  assert.deepEqual(
+    [invalid.integrityState, invalid.evidenceHeadlineOutcome, invalid.passedResultCount,
+      invalid.failedResultCount, invalid.couldNotVerifyResultCount],
+    ['invalid', null, null, null, null],
+  )
 })
 
 test('TD069B-C-G-9 safe result allowlist exposes no legacy metadata, paths, or credential material', async () => {
@@ -381,14 +418,46 @@ test('TD069B-C-G-10 controller maps list/detail, 404, integrity 503, and invalid
   const originalRead = executionContext.readProductExecutionResults.bind(executionContext)
   const originalList = executionContext.listProductExecutionResults.bind(executionContext)
   const project = async () => ({ appName: 'projection-api', url: 'https://example.invalid' })
+  const projection = (id: string) => ({
+    availability: 'available' as const,
+    headlineOutcome: 'passed' as const,
+    execution: {
+      executionId: id, lifecycle: 'completed' as const, outcome: 'passed' as const, reasonCode: 'completed',
+      acceptedAt: '2026-08-10T00:00:00.000Z', terminalAt: '2026-08-10T00:00:02.000Z', manifestCount: 1,
+      definitionAuthority: {
+        schemaVersion: 2 as const, testSetId: 'test-set-api', revision: 1, modelRowId: 1, modelVersion: '1.0.0',
+        supportSealHash: 'a'.repeat(64), routeEvidenceIdentityHash: 'b'.repeat(64),
+        authenticationExpectationIdentityHash: 'c'.repeat(64),
+      },
+    },
+    run: {
+      runId: 'run-api', lifecycle: 'completed' as const, outcome: 'passed' as const, reasonCode: 'completed',
+      startedAt: '2026-08-10T00:00:00.000Z', terminalAt: '2026-08-10T00:00:02.000Z',
+      expectedResultCount: 1, observedResultCount: 1,
+      aggregateCounts: { passed: 1, failed: 0, couldNotVerify: 0 },
+    },
+    items: [{
+      itemOrdinal: 1, definitionId: 'definition-api', executablePlanHash: 'd'.repeat(64),
+      result: {
+        state: 'result_observed' as const, resultId: 'result-api', outcome: 'passed' as const,
+        reasonCode: 'completed', safeMessage: null, durationMs: 2_000, oracleKind: null, observedSubjectId: null,
+      },
+    }],
+    integrityWarnings: [],
+  })
   try {
     ;(executionContext as any).readProductExecutionResults = async (_app: string, id: string) => id === 'missing'
       ? { kind: 'not_found' }
       : id === 'invalid'
         ? { kind: 'integrity_invalid', integrityWarnings: [{ code: 'manifest_mismatch', severity: 'error', safeMessage: 'Safe.' }] }
-        : { kind: 'ok', projection: { availability: 'available', execution: { executionId: id } } }
+        : { kind: 'ok', projection: projection(id) }
     ;(executionContext as any).listProductExecutionResults = async (_app: string, limit: number) => ({
-      kind: 'ok', executions: [], limit,
+      kind: 'ok', executions: [{
+        executionId: 'execution-api', lifecycle: 'completed', evidenceHeadlineOutcome: 'passed', outcome: 'passed',
+        reasonCode: 'completed', acceptedAt: '2026-08-10T00:00:00.000Z', terminalAt: '2026-08-10T00:00:02.000Z',
+        manifestCount: 1, runCount: 1, observedResultCount: 1, integrityState: 'valid',
+        passedResultCount: 1, failedResultCount: 0, couldNotVerifyResultCount: 0,
+      }], limit,
     })
     assert.equal((await readExecutionResults('projection-api', 'execution-ok', project)).status, 200)
     assert.equal((await readExecutionResults('projection-api', 'missing', project)).status, 404)

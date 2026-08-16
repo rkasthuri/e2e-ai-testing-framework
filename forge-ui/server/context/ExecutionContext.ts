@@ -368,7 +368,9 @@ export class ExecutionContext {
         throw new Error('Product execution Results for another workspace are unavailable while an execution owns the database boundary.')
       }
       await this.switchDatabaseIfNeeded(appName)
-      const mod: any = await import(ENGINE.executionResultProjection)
+      const mod = await import(ENGINE.executionResultProjection) as {
+        executionResultProjectionService: { read(projectId: string, id: string): Promise<unknown> }
+      }
       return mod.executionResultProjectionService.read(appName, executionId)
     })
   }
@@ -380,7 +382,9 @@ export class ExecutionContext {
         throw new Error('Product execution Results for another workspace are unavailable while an execution owns the database boundary.')
       }
       await this.switchDatabaseIfNeeded(appName)
-      const mod: any = await import(ENGINE.executionResultProjection)
+      const mod = await import(ENGINE.executionResultProjection) as {
+        executionResultProjectionService: { list(projectId: string, requestedLimit: number): Promise<unknown> }
+      }
       return mod.executionResultProjectionService.list(appName, limit)
     })
   }

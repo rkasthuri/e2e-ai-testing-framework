@@ -11,6 +11,11 @@
  */
 
 import { fail, ok } from '../http'
+import {
+  CanonicalResultsContractError,
+  serializeCanonicalExecutionResultsList,
+  serializeCanonicalExecutionResultsRead,
+} from '../../src/api/resultsContract'
 import { executionContext } from './ExecutionContext'
 
 export interface ExecutionResultsHttpResult { status: number; body: unknown }
@@ -36,9 +41,15 @@ export async function listExecutionResults(
     return { status: 400, body: fail('limit must be an integer from 1 through 50.', 'INVALID_EXECUTION_RESULTS_QUERY') }
   }
   try {
-    const result = await executionContext.listProductExecutionResults(appName, limit) as any
-    return { status: 200, body: ok({ executions: result.executions, page: { limit } }) }
-  } catch {
+    const result = serializeCanonicalExecutionResultsList(
+      await executionContext.listProductExecutionResults(appName, limit),
+      limit,
+    )
+    return { status: 200, body: ok(result) }
+  } catch (cause) {
+    if (cause instanceof CanonicalResultsContractError) {
+      return { status: 503, body: fail('Canonical Execution Results could not be validated.', 'EXECUTION_RESULTS_PAYLOAD_INVALID') }
+    }
     return { status: 503, body: fail('Execution Results are temporarily unavailable.', 'EXECUTION_RESULTS_UNAVAILABLE') }
   }
 }
@@ -52,7 +63,9 @@ export async function readExecutionResults(
   if (!project) return { status: 404, body: fail('Project not found', 'NOT_FOUND') }
   if (!SAFE_ID.test(executionId)) return { status: 404, body: fail('Execution not found', 'NOT_FOUND') }
   try {
-    const result = await executionContext.readProductExecutionResults(appName, executionId) as any
+    const result = serializeCanonicalExecutionResultsRead(
+      await executionContext.readProductExecutionResults(appName, executionId),
+    )
     if (result.kind === 'not_found') return { status: 404, body: fail('Execution not found', 'NOT_FOUND') }
     if (result.kind === 'integrity_invalid') {
       return {
@@ -64,7 +77,10 @@ export async function readExecutionResults(
       }
     }
     return { status: 200, body: ok(result.projection) }
-  } catch {
+  } catch (cause) {
+    if (cause instanceof CanonicalResultsContractError) {
+      return { status: 503, body: fail('Canonical Execution Results could not be validated.', 'EXECUTION_RESULTS_PAYLOAD_INVALID') }
+    }
     return { status: 503, body: fail('Execution Results are temporarily unavailable.', 'EXECUTION_RESULTS_UNAVAILABLE') }
   }
 }

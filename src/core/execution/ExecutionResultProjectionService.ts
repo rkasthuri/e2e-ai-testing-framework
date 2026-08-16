@@ -105,6 +105,8 @@ export interface ExecutionResultProjection {
 export interface ExecutionResultSummary {
   executionId: string
   lifecycle: ProjectionLifecycle
+  /** Current manifest-aware evidence truth; null only when integrity prevents safe aggregation. */
+  evidenceHeadlineOutcome: ProjectionOutcome | null
   outcome: ProjectionOutcome | null
   reasonCode: string | null
   acceptedAt: string
@@ -112,6 +114,10 @@ export interface ExecutionResultSummary {
   manifestCount: number
   runCount: number
   observedResultCount: number
+  /** Null only when projection integrity prevents trusted canonical aggregation. */
+  passedResultCount: number | null
+  failedResultCount: number | null
+  couldNotVerifyResultCount: number | null
   integrityState: 'valid' | 'warning' | 'invalid'
 }
 
@@ -185,6 +191,7 @@ export class ExecutionResultProjectionService {
           summaries.push({
             executionId: projection.execution.executionId,
             lifecycle: projection.execution.lifecycle,
+            evidenceHeadlineOutcome: projection.headlineOutcome,
             outcome: projection.execution.outcome,
             reasonCode: projection.execution.reasonCode,
             acceptedAt: projection.execution.acceptedAt,
@@ -192,6 +199,9 @@ export class ExecutionResultProjectionService {
             manifestCount: projection.execution.manifestCount,
             runCount: projection.run ? 1 : 0,
             observedResultCount: projection.run?.observedResultCount ?? 0,
+            passedResultCount: projection.run?.aggregateCounts.passed ?? 0,
+            failedResultCount: projection.run?.aggregateCounts.failed ?? 0,
+            couldNotVerifyResultCount: projection.run?.aggregateCounts.couldNotVerify ?? 0,
             integrityState: projection.integrityWarnings.length > 0 ? 'warning' : 'valid',
           })
         } catch (cause) {
@@ -203,6 +213,7 @@ export class ExecutionResultProjectionService {
           summaries.push({
             executionId: root.execution_id,
             lifecycle: 'unknown',
+            evidenceHeadlineOutcome: null,
             outcome: null,
             reasonCode: 'projection_integrity_invalid',
             acceptedAt: root.accepted_at,
@@ -210,6 +221,9 @@ export class ExecutionResultProjectionService {
             manifestCount: raw.items.length,
             runCount: productRuns.length,
             observedResultCount,
+            passedResultCount: null,
+            failedResultCount: null,
+            couldNotVerifyResultCount: null,
             integrityState: 'invalid',
           })
         }

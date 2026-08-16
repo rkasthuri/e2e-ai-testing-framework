@@ -66,6 +66,22 @@ export interface Envelope<T> {
   timestamp: string
 }
 
+export type {
+  CanonicalResultOutcome,
+  CanonicalExecutionLifecycle,
+  CanonicalRunLifecycle,
+  CanonicalResultsIntegrityCode,
+  CanonicalResultsIntegrityState,
+  CanonicalResultsIntegrityWarning,
+  CanonicalExecutionResultsListItem,
+  CanonicalExecutionResultsListResponse,
+  CanonicalObservedResult,
+  CanonicalMissingResult,
+  CanonicalExecutionResultItem,
+  CanonicalDefinitionAuthoritySummary,
+  CanonicalExecutionResultsDetail,
+} from './resultsContract'
+
 // --- TD-UI-002 Crawl tab (ADR-012, Phase 1) ---
 
 export interface CrawlRequest {

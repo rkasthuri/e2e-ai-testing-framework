@@ -17,6 +17,8 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code: string | null = null,
+    /** Optional bounded response detail; domain clients must validate before use. */
+    readonly details: unknown = null,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -48,6 +50,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       (json as { error?: string })?.error ?? `HTTP ${res.status}`,
       res.status,
       (json as { code?: string })?.code ?? null,
+      json,
     )
   }
   return (json as Envelope<T>).data
