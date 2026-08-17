@@ -132,6 +132,7 @@ interface PWReport {
     unexpected: number;
     flaky?: number;
     skipped?: number;
+    duration?: number;
     startTime?: string;    // TD-067 — Playwright run-start (real time, not triage time)
   };
   suites: PWSuite[];
@@ -560,12 +561,17 @@ export function buildMarkdown(
   // when available, never triage-execution time; plus an input-health banner so a
   // stale/unverified/degraded/invalid input is never shown as current health.
   const ts = new Date(startTime ?? runTimestamp).toLocaleString();
+  const unknownBanner = reason === 'missing-provenance'
+    ? '❓ PROVENANCE UNVERIFIED — sidecar absent'
+    : reason === 'missing-run-start'
+      ? '❓ PROVENANCE UNVERIFIED — provenance lacks canonical run-start authority'
+      : '❓ PROVENANCE UNVERIFIED — canonical provenance could not be established';
   const healthBanner: Record<InputHealth, string> = {
     healthy:  '✅ Input verified',
     stale:    '⚠️ STALE INPUT — results may not reflect this run',
-    degraded: '⚠️ DEGRADED — timing anomaly detected (>15 min)',
+    degraded: '⚠️ DEGRADED — partial or temporally incoherent execution evidence detected',
     invalid:  `🔴 INVALID INPUT — ${reason}`,
-    unknown:  '❓ PROVENANCE UNVERIFIED — sidecar absent',
+    unknown:  unknownBanner,
   };
   const lines = [
     '# AI Triage Report',

@@ -87,17 +87,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # TD-070: establish ONE canonical run id at run-start. Echo to the job
-      # output (consumed by ai-pipeline via needs.test.outputs.run_id) AND to
-      # $GITHUB_ENV so this job's own stages (db:migrate, tests + healing) write
-      # the same id. Generated once here — no stage re-derives it.
+      # TD-070/TD-CI-002: establish ONE canonical run id and its immutable start
+      # timestamp together. The id is exported to Job 2; both values are carried
+      # through this job so later provenance cannot mistake write time for start.
       - name: Establish canonical run id
         id: runid
         run: |
           RID=$(date -u +"%Y-%m-%dT%H-%M-%S")
+          RUN_STARTED_AT=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
           echo "run_id=$RID" >> "$GITHUB_OUTPUT"
           echo "CURRENT_RUN_ID=$RID" >> "$GITHUB_ENV"
+          echo "CURRENT_RUN_STARTED_AT=$RUN_STARTED_AT" >> "$GITHUB_ENV"
           echo "Canonical run id: $RID"
+          echo "Canonical run started at: $RUN_STARTED_AT"
 
       - name: Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
@@ -187,16 +189,18 @@ jobs:
       # Written AFTER tests (test-results.json now exists) and BEFORE the reports/
       # upload, so it rides along in the forge-reports artifact to the AI Pipeline
       # job. CURRENT_RUN_ID is already in $GITHUB_ENV (from "Establish canonical run
-      # id"); GITHUB_SHA is a built-in. if: always() so provenance is written even
-      # when the tests step failed (it is continue-on-error).
+      # id"); GITHUB_SHA is a built-in. runStartedAt is the immutable Job-1 start;
+      # provenanceWrittenAt records this post-test write. if: always() preserves
+      # available evidence when the Playwright step fails.
       - name: Write provenance sidecar
         if: always()
         run: |
           echo '{
             "runId": "'"$CURRENT_RUN_ID"'",
-            "timestamp": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",
+            "runStartedAt": "'"$CURRENT_RUN_STARTED_AT"'",
+            "provenanceWrittenAt": "'"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"'",
             "gitSha": "'"$GITHUB_SHA"'",
-            "provenanceVersion": 1
+            "provenanceVersion": 2
           }' > reports/provenance.json
           echo "[provenance] wrote reports/provenance.json for run $CURRENT_RUN_ID"
 

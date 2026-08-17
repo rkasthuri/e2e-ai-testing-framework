@@ -36,6 +36,7 @@ export type InputHealth = 'healthy' | 'stale' | 'degraded' | 'invalid' | 'unknow
 
 export type InputHealthReason =
   | 'missing-provenance'
+  | 'missing-run-start'
   | 'run-id-mismatch'
   | 'partial-results'
   | 'invalid-schema'
@@ -43,21 +44,30 @@ export type InputHealthReason =
   | 'stale-artifact'
   | null;
 
-// Minimal shape of the fields we read off Playwright's stats block. Deliberately
-// permissive — callers pass their already-parsed stats object. `total` is
-// intentionally NOT modeled: it does not exist in real Playwright JSON, so any
-// count must be derived from the four outcome fields below.
+// Minimal shape of the fields read from Playwright's stats block. The runtime
+// guard below requires every field used for health classification. `total` is
+// intentionally not modeled because real Playwright JSON does not provide it.
 export interface AssessableStats {
   startTime?: string;
+  duration?:   number;
   expected?:  number;
   unexpected?: number;
   flaky?:     number;
   skipped?:   number;
 }
 
-// Delta (minutes) between the provenance timestamp and the Playwright run-start
-// beyond which we treat the pair as anomalous rather than a clean current run.
-const MAX_START_DELTA_MINUTES = 15;
+interface CurrentRunProvenance {
+  provenanceVersion: 2;
+  runId: string;
+  runStartedAt: string;
+  provenanceWrittenAt: string;
+}
+
+// V2 timestamps are canonical UTC ISO-8601 with exactly millisecond precision.
+// Exact precision lets ordering remain strict without a clock-truncation grace.
+const CANONICAL_UTC_TIMESTAMP =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z$/;
+const MAX_DATE_MILLISECONDS = 8_640_000_000_000_000;
 
 // FORGE_REPORTS_DIR overrides where the provenance sidecar is read from — used by
 // tests to point at a throwaway dir (mirrors DB_PATH / HEAL_STORE_PATH in TD-066).
@@ -85,52 +95,97 @@ export async function assessInputHealth(
     return { health: 'invalid', reason: 'invalid-schema' };
   }
 
-  // 2. Provenance sidecar — the only signal that ties this file to a run.
-  let provenance: { runId?: string; timestamp?: string } | null = null;
-  if (fs.existsSync(PROVENANCE_PATH)) {
-    try {
-      provenance = JSON.parse(fs.readFileSync(PROVENANCE_PATH, 'utf-8'));
-    } catch {
-      provenance = null; // present but unparseable -> treat as missing
-    }
+  const counts = [stats.expected, stats.unexpected, stats.flaky, stats.skipped];
+  const statsStartMs = parseCanonicalUtcTimestamp(stats.startTime);
+  if (
+    statsStartMs === null
+    || !isSafeDuration(stats.duration)
+    || counts.some(count => !Number.isSafeInteger(count) || (count ?? -1) < 0)
+    || !Array.isArray(errors)
+  ) {
+    return { health: 'invalid', reason: 'invalid-schema' };
   }
 
-  if (!provenance) {
-    // Absent (or unparseable) sidecar -> we cannot verify freshness. Honest
-    // 'unknown', never 'healthy' (predates Commit 2 / local runs / lost artifact).
+  // 2. Provenance sidecar — the only signal that ties this file to a run.
+  if (!fs.existsSync(PROVENANCE_PATH)) {
     return { health: 'unknown', reason: 'missing-provenance' };
   }
 
-  if (provenance.runId !== currentRunId) {
+  let parsedProvenance: unknown;
+  try {
+    parsedProvenance = JSON.parse(fs.readFileSync(PROVENANCE_PATH, 'utf-8'));
+  } catch {
+    return { health: 'invalid', reason: 'invalid-schema' };
+  }
+
+  if (!isRecord(parsedProvenance) || typeof parsedProvenance.runId !== 'string') {
+    return { health: 'invalid', reason: 'invalid-schema' };
+  }
+
+  if (parsedProvenance.runId !== currentRunId) {
     // A complete, valid results file — but from a different run. This is the
     // TD-059 case (stale artifact presented as current).
     return { health: 'stale', reason: 'stale-artifact' };
   }
 
-  // runId matches — cross-check the timestamps if both are present. A large
-  // delta means the sidecar and the results disagree about when the run started
-  // (a timing anomaly), so we downgrade rather than trust the match blindly.
-  if (provenance.timestamp && stats.startTime) {
-    const provMs  = Date.parse(provenance.timestamp);
-    const statsMs = Date.parse(stats.startTime);
-    if (!Number.isNaN(provMs) && !Number.isNaN(statsMs)) {
-      const deltaMinutes = Math.abs(provMs - statsMs) / 60000;
-      if (deltaMinutes > MAX_START_DELTA_MINUTES) {
-        return { health: 'degraded', reason: 'partial-results' };
-      }
-    }
+  // Version-1 provenance carried one ambiguous post-test `timestamp`. It cannot
+  // truthfully be reinterpreted as run start, so current CI fails it closed while
+  // historical artifacts remain readable as legacy JSON.
+  if (parsedProvenance.provenanceVersion !== 2) {
+    return { health: 'unknown', reason: 'missing-run-start' };
+  }
+
+  if (!isCurrentRunProvenance(parsedProvenance)) {
+    return { health: 'invalid', reason: 'invalid-schema' };
+  }
+
+  const runStartedMs = parseCanonicalUtcTimestamp(parsedProvenance.runStartedAt);
+  const provenanceWrittenMs = parseCanonicalUtcTimestamp(parsedProvenance.provenanceWrittenAt);
+  if (runStartedMs === null || provenanceWrittenMs === null) {
+    return { health: 'invalid', reason: 'invalid-schema' };
+  }
+
+  // Identity is primary. Timestamps prove only coherent ordering: the canonical
+  // run starts before Playwright, and the sidecar is written after the duration
+  // Playwright says it completed. There is deliberately no maximum duration.
+  if (statsStartMs < runStartedMs) {
+    return { health: 'stale', reason: 'stale-artifact' };
+  }
+  if (provenanceWrittenMs < runStartedMs) {
+    return { health: 'invalid', reason: 'invalid-schema' };
+  }
+  const reportedCompletionMs = statsStartMs + (stats.duration ?? 0);
+  if (
+    !Number.isFinite(reportedCompletionMs)
+    || Math.abs(reportedCompletionMs) > MAX_DATE_MILLISECONDS
+    || !Number.isSafeInteger(Math.trunc(reportedCompletionMs))
+  ) {
+    return { health: 'invalid', reason: 'invalid-schema' };
+  }
+  if (provenanceWrittenMs < reportedCompletionMs) {
+    return { health: 'degraded', reason: 'partial-results' };
   }
 
   // 3. The run is provenance-verified as current — is it a real, complete run?
   //    Count from the four outcome fields; stats.total does NOT exist in real
   //    Playwright JSON and must never be used here.
-  const ran = (stats.expected ?? 0) + (stats.unexpected ?? 0) + (stats.flaky ?? 0);
-  const sum = ran + (stats.skipped ?? 0);
+  const ran = safeCountSum([stats.expected ?? 0, stats.unexpected ?? 0, stats.flaky ?? 0]);
+  const sum = safeCountSum(counts);
+  if (ran === null || sum === null) {
+    return { health: 'invalid', reason: 'invalid-schema' };
+  }
 
   if (sum === 0) {
     // Nothing executed. errors[] populated -> config/globalSetup failure;
     // empty -> no test files matched. Both are "no run happened" for our purpose.
     return { health: 'invalid', reason: 'no-run' };
+  }
+
+  // Top-level Playwright errors describe runner/configuration failures outside
+  // ordinary final test outcomes. Even if some tests ran, that evidence is not a
+  // coherent complete execution.
+  if (errors.length > 0) {
+    return { health: 'degraded', reason: 'partial-results' };
   }
 
   if ((stats.skipped ?? 0) > 0 && ran === 0) {
@@ -140,4 +195,63 @@ export async function assessInputHealth(
 
   // 4. Provenance-verified, current, and real tests executed.
   return { health: 'healthy', reason: null };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseCanonicalUtcTimestamp(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = CANONICAL_UTC_TIMESTAMP.exec(value);
+  if (!match) return null;
+
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, millisecondText] = match;
+  const fields = [yearText, monthText, dayText, hourText, minuteText, secondText]
+    .map(field => Number(field));
+  const [year, month, day, hour, minute, second] = fields;
+  const millisecond = Number(millisecondText);
+
+  const candidate = new Date(0);
+  candidate.setUTCFullYear(year, month - 1, day);
+  candidate.setUTCHours(hour, minute, second, millisecond);
+  if (
+    candidate.getUTCFullYear() !== year
+    || candidate.getUTCMonth() !== month - 1
+    || candidate.getUTCDate() !== day
+    || candidate.getUTCHours() !== hour
+    || candidate.getUTCMinutes() !== minute
+    || candidate.getUTCSeconds() !== second
+    || candidate.getUTCMilliseconds() !== millisecond
+  ) {
+    return null;
+  }
+  return candidate.getTime();
+}
+
+function isSafeDuration(value: unknown): value is number {
+  return typeof value === 'number'
+    && Number.isFinite(value)
+    && value >= 0
+    && value <= Number.MAX_SAFE_INTEGER
+    && Number.isSafeInteger(Math.trunc(value));
+}
+
+function safeCountSum(values: Array<number | undefined>): number | null {
+  let sum = 0;
+  for (const value of values) {
+    if (!Number.isSafeInteger(value) || (value ?? -1) < 0) return null;
+    if ((value ?? 0) > Number.MAX_SAFE_INTEGER - sum) return null;
+    sum += value ?? 0;
+  }
+  return sum;
+}
+
+function isCurrentRunProvenance(
+  value: Record<string, unknown>,
+): value is Record<string, unknown> & CurrentRunProvenance {
+  return value.provenanceVersion === 2
+    && typeof value.runId === 'string'
+    && typeof value.runStartedAt === 'string'
+    && typeof value.provenanceWrittenAt === 'string';
 }
