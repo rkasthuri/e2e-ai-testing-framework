@@ -44,9 +44,9 @@ export interface PersistedResultProjection {
   /** No governed result message is currently persisted; absence remains explicit. */
   safeMessage: null
   durationMs: number
-  /** Migration 021/022 did not persist these observations. They are never inferred. */
-  oracleKind: null
-  observedSubjectId: null
+  /** Null means the governed oracle was not established as performed. */
+  oracleKind: 'subject_observable' | null
+  observedSubjectId: string | null
 }
 
 export interface MissingResultProjection {
@@ -256,8 +256,8 @@ export class ExecutionResultProjectionService {
               reasonCode: result.error_msg!,
               safeMessage: null,
               durationMs: Number(result.duration_ms),
-              oracleKind: null,
-              observedSubjectId: null,
+              oracleKind: result.oracle_kind as 'subject_observable' | null,
+              observedSubjectId: result.observed_subject_id,
             }
           : { state: 'no_result_observed', reasonCode: 'expected_result_missing' },
       }

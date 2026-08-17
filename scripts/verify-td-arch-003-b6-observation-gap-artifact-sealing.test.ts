@@ -108,9 +108,9 @@ after(async () => {
   fs.rmSync(ROOT, { recursive: true, force: true })
 })
 
-test('Migration 028 is the current restart-safe schema ceiling with Gap sealing guards', async () => {
+test('Migration 028 remains installed below the current restart-safe schema ceiling', async () => {
   const history = await getProductDb().selectFrom('kysely_migration').select('name').orderBy('name').execute()
-  assert.equal(history.at(-1)?.name, '028_observation_gap_artifact_sealing')
+  assert.equal(history.at(-1)?.name, '029_canonical_result_detail_evidence')
   const columns = await sql<{ name: string }>`PRAGMA table_info(observation_gaps)`.execute(getProductDb())
   assert.ok(columns.rows.some(column => column.name === 'artifact_links_sealed'))
   const triggers = await sql<{ name: string; definition: string }>`SELECT name, sql AS definition FROM sqlite_master WHERE type = 'trigger' AND name IN ('observation_artifact_links_closed_insert', 'observation_gaps_immutable_update') ORDER BY name`.execute(getProductDb())
@@ -313,7 +313,10 @@ test('Migration 028 is forward-only and schema-ahead state is refused without re
     () => runWithMigrationContext(getDatabaseProvenance(), () => migrateDown(getProductDb())),
     /intentionally irreversible/,
   )
-  await getProductDb().deleteFrom('kysely_migration').where('name', '=', '028_observation_gap_artifact_sealing').execute()
+  await getProductDb().deleteFrom('kysely_migration').where('name', 'in', [
+    '028_observation_gap_artifact_sealing',
+    '029_canonical_result_detail_evidence',
+  ]).execute()
   await closeDb()
   await assert.rejects(
     () => openProjectDatabase(createWorkspace(ROOT)),

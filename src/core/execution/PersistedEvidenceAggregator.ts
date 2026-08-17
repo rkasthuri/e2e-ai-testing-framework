@@ -339,6 +339,13 @@ export function aggregatePersistedEvidence(evidence: PersistedExecutionEvidence)
     add('duplicate_or_conflicting_result', 'error')
   }
   const itemsByOrdinal = new Map(items.map(item => [Number(item.item_ordinal), item]))
+  for (const item of items) {
+    if (item.oracle_kind !== null && item.oracle_kind !== 'subject_observable'
+      || item.oracle_subject_id !== null && !SAFE_ID.test(item.oracle_subject_id)
+      || (item.oracle_kind === null) !== (item.oracle_subject_id === null)) {
+      add('conflicting_provenance', 'error')
+    }
+  }
   for (const result of results) {
     const item = itemsByOrdinal.get(Number(result.execution_item_ordinal))
     if (!item || !run || result.run_id !== run.run_id || result.test_id !== item.definition_id
@@ -352,7 +359,20 @@ export function aggregatePersistedEvidence(evidence: PersistedExecutionEvidence)
       || !result.error_msg || !SAFE_REASON.test(result.error_msg)
       || result.suite !== 'product-execution' || result.browser !== 'chromium' || result.tier !== 'ui'
       || result.screenshot_path !== null || result.video_path !== null
-      || result.tags !== '[]' || result.metadata !== '{}') {
+      || result.tags !== '[]' || result.metadata !== '{}'
+      || result.oracle_kind !== null && result.oracle_kind !== 'subject_observable'
+      || result.observed_subject_id !== null && !SAFE_ID.test(result.observed_subject_id)
+      || (result.oracle_kind === null) !== (result.observed_subject_id === null)) {
+      add('conflicting_provenance', 'error')
+    }
+    const performedOracle = result.status === 'passed' && result.error_msg === 'completed'
+      || result.status === 'failed' && result.error_msg === 'oracle_failed'
+    if (result.oracle_kind !== null && (!performedOracle || !item
+      || item.oracle_kind !== result.oracle_kind
+      || item.oracle_subject_id !== result.observed_subject_id)) {
+      add('conflicting_provenance', 'error')
+    }
+    if (item?.oracle_kind !== null && performedOracle && result.oracle_kind === null) {
       add('conflicting_provenance', 'error')
     }
   }

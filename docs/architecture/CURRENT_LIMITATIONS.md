@@ -17,7 +17,7 @@ A local-product constraint, accepted debt fingerprint, compatibility surface,
 deployment claim, deferred capability, or migration ceiling changes
 
 Implementation Baseline:
-`5b85bcb2aab3199c5799d3b68697ccd2c81594d6`
+`7fbee850504df65aac1e80d2588cdad75ca29c7b`
 
 Publication Provenance:
 Prepared against that committed implementation plus the governed
@@ -25,6 +25,12 @@ TD-CONFIG-003 documentation tree, then introduced by commit
 `919d5a1352801e5a1efb9c7ee9273de09daf1648`. The authority-chain correction
 was audited on 2026-08-14 under TD-CONFIG-003-R1 against that parent commit;
 Git history records the resulting commit identity.
+
+Current Verification Context:
+Reverified on 2026-08-17 against the implementation baseline above plus the
+governed, uncommitted TD-PRODUCT-001-C migration-029 documentation and code
+tree. This statement does not claim that the uncommitted tree exists in the
+named baseline commit.
 
 ---
 
@@ -142,7 +148,7 @@ Crawl
 ```
 
 For SQLite Product and disposable-certification authorities, the current
-migration ceiling is `028_observation_gap_artifact_sealing`. Legacy PostgreSQL
+migration ceiling is `029_canonical_result_detail_evidence`. Legacy PostgreSQL
 remains capped at `020_execution_lifecycle` and is not Product authority.
 
 ## Safe next work

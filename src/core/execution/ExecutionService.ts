@@ -307,6 +307,8 @@ export class ExecutionService {
           itemOrdinal: index + 1,
           definitionId: plan.value.definitionId,
           executablePlanHash: plan.fingerprint,
+          oracleKind: plan.value.oracle.kind,
+          oracleSubjectId: plan.value.oracle.subjectId,
         })),
       })
     } catch (cause) {

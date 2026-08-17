@@ -64,6 +64,8 @@ export interface BeginExecutionInput {
     itemOrdinal: number
     definitionId: string
     executablePlanHash: string
+    oracleKind?: 'subject_observable'
+    oracleSubjectId?: string
   }>
 }
 
@@ -139,7 +141,10 @@ function safeInput(input: BeginExecutionInput): boolean {
     && provenanceValid
     && Array.isArray(input.manifestItems) && input.manifestItems.length > 0
     && input.manifestItems.every((item, index) => item.itemOrdinal === index + 1
-      && SAFE_ID.test(item.definitionId) && SHA256.test(item.executablePlanHash))
+      && SAFE_ID.test(item.definitionId) && SHA256.test(item.executablePlanHash)
+      && (item.oracleKind === undefined) === (item.oracleSubjectId === undefined)
+      && (item.oracleKind === undefined
+        || item.oracleKind === 'subject_observable' && SAFE_ID.test(item.oracleSubjectId ?? '')))
     && new Set(input.manifestItems.map(item => item.definitionId)).size === input.manifestItems.length
     && manifestHash(input.manifestItems) === input.executionPlanHash
     && exactIso(input.startedAt) && SHA256.test(input.executionPlanHash)
@@ -217,6 +222,8 @@ export class ExecutionRepository {
           item_ordinal: item.itemOrdinal,
           definition_id: item.definitionId,
           executable_plan_hash: item.executablePlanHash,
+          oracle_kind: item.oracleKind ?? null,
+          oracle_subject_id: item.oracleSubjectId ?? null,
         }))).execute()
 
         await trx.insertInto('execution_locks').values({

@@ -146,6 +146,7 @@ async function beginDirect(context: Authority, executionId: string, startedAt = 
     expectedModelRowId: context.modelRowId, expectedModelVersion: '1.0.0', sourceObservationId: context.observationId,
     manifestItems: context.plans.map((plan, index) => ({
       itemOrdinal: index + 1, definitionId: plan.value.definitionId, executablePlanHash: plan.fingerprint,
+      oracleKind: plan.value.oracle.kind, oracleSubjectId: plan.value.oracle.subjectId,
     })),
   })
 }

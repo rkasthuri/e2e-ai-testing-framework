@@ -12,7 +12,9 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { Kysely, sql } from 'kysely';
+import * as os from 'os';
+import { randomUUID } from 'crypto';
+import { Kysely, SqliteDialect, sql } from 'kysely';
 import {
   getDb,
   closeDb,
@@ -95,6 +97,7 @@ const HISTORICAL_OBSERVATION_IMPORT_MIGRATION = '025_historical_observation_impo
 const CANONICAL_TEST_DEFINITION_V2_MIGRATION = '026_canonical_test_definition_v2'
 const CANONICAL_V2_EXECUTION_AUTHORITY_MIGRATION = '027_canonical_v2_execution_authority'
 const OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION = '028_observation_gap_artifact_sealing'
+const CANONICAL_RESULT_DETAIL_MIGRATION = '029_canonical_result_detail_evidence'
 const LEGACY_JSON_IMPORT_MIGRATION = '004_json_import'
 const MIGRATION_TABLE = 'kysely_migration'
 const MIGRATION_LOCK_TABLE = 'kysely_migration_lock'
@@ -273,10 +276,17 @@ async function inspectExecutionIdentitySchema(db: Kysely<any>): Promise<TableCon
     ['max_run_attempts', 1, 0], ['dispatch_mode', 1, 0], ['stop_rule', 1, 0],
   ])
   const executionsValid = legacyExecutionsValid || canonicalV2ExecutionsValid
-  const itemsValid = exactColumns(await columns('execution_items'), [
+  const executionItemColumns = await columns('execution_items')
+  const legacyItemsValid = exactColumns(executionItemColumns, [
     ['execution_id', 1, 1], ['item_ordinal', 1, 2],
     ['definition_id', 1, 0], ['executable_plan_hash', 1, 0],
   ])
+  const canonicalDetailItemsValid = exactColumns(executionItemColumns, [
+    ['execution_id', 1, 1], ['item_ordinal', 1, 2],
+    ['definition_id', 1, 0], ['executable_plan_hash', 1, 0],
+    ['oracle_kind', 0, 0], ['oracle_subject_id', 0, 0],
+  ])
+  const itemsValid = legacyItemsValid || canonicalDetailItemsValid
   const runsValid = ['execution_id', 'origin', 'attempt_ordinal'].every(name => runColumns.has(name))
   const resultsValid = ['result_id', 'execution_item_ordinal', 'definition_id', 'executable_plan_hash'].every(name => resultColumns.has(name))
   const requiredIndexes = new Set((await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'index'`.execute(db)).rows.map(row => row.name))
@@ -484,6 +494,314 @@ async function inspectObservationGapArtifactSealingSchema(db: Kysely<any>): Prom
   }
 }
 
+async function inspectCanonicalResultDetailSchema(db: Kysely<any>, behavioral = false): Promise<TableContract> {
+  if (!await tableExists(db, 'execution_items') || !await tableExists(db, 'test_results')) {
+    return { present: false, valid: false, detail: 'Result detail owner tables are absent' }
+  }
+  const resultColumns = new Set((await sql<{ name: string }>`PRAGMA table_info(test_results)`.execute(db)).rows.map(row => row.name))
+  const itemColumns = new Set((await sql<{ name: string }>`PRAGMA table_info(execution_items)`.execute(db)).rows.map(row => row.name))
+  const requiredColumns = resultColumns.has('oracle_kind') && resultColumns.has('observed_subject_id')
+    && itemColumns.has('oracle_kind') && itemColumns.has('oracle_subject_id')
+  const requiredTriggers = new Set([
+    'canonical_execution_item_oracle_insert',
+    'canonical_result_detail_insert',
+    'canonical_result_detail_performed_insert',
+    'canonical_result_detail_subject_insert',
+    'canonical_result_detail_legacy_update',
+  ])
+  const triggerRows = (await sql<{ name: string; definition: string | null }>`
+    SELECT name, sql AS definition FROM sqlite_master
+    WHERE type = 'trigger' AND name IN (
+      'canonical_execution_item_oracle_insert',
+      'canonical_result_detail_insert',
+      'canonical_result_detail_performed_insert',
+      'canonical_result_detail_subject_insert',
+      'canonical_result_detail_legacy_update'
+    )
+  `.execute(db)).rows
+  const installedTriggers = new Set(triggerRows.map(row => row.name))
+  const triggersPresent = [...requiredTriggers].every(name => installedTriggers.has(name))
+  const definitions = new Map(triggerRows.map(row => [row.name, row.definition ?? '']))
+  const structuralSemantics = /NEW\.status IS 'passed'.*NEW\.error_msg IS 'completed'/s.test(definitions.get('canonical_result_detail_performed_insert') ?? '')
+    && /NEW\.status IS 'failed'.*NEW\.error_msg IS 'oracle_failed'/s.test(definitions.get('canonical_result_detail_performed_insert') ?? '')
+    && /JOIN execution_items i/s.test(definitions.get('canonical_result_detail_subject_insert') ?? '')
+    && /i\.oracle_kind = NEW\.oracle_kind/s.test(definitions.get('canonical_result_detail_subject_insert') ?? '')
+    && /i\.oracle_subject_id = NEW\.observed_subject_id/s.test(definitions.get('canonical_result_detail_subject_insert') ?? '')
+  const present = requiredColumns || triggerRows.length > 0
+  const behavior = behavioral && requiredColumns && triggersPresent && structuralSemantics
+    ? await inspectCanonicalResultDetailGuardBehavior(db)
+    : null
+  const behaviorValid = !behavioral || behavior?.valid === true
+  return {
+    present,
+    valid: requiredColumns && triggersPresent && structuralSemantics && behaviorValid,
+    detail: requiredColumns && triggersPresent && structuralSemantics && behaviorValid
+      ? 'Canonical Result oracle detail matches Migration 029'
+      : `Canonical Result oracle detail columns or semantic persistence guards are incomplete${behavior?.failedGuard ? ` (${behavior.failedGuard})` : ''}`,
+  }
+}
+
+type CanonicalResultDetailGuardCategory =
+  | 'valid_admission'
+  | 'performed_oracle'
+  | 'subject_binding'
+  | 'field_pairing'
+  | 'bounded_shape'
+  | 'legacy_insert'
+  | 'legacy_update'
+  | 'execution_item_authority'
+  | 'snapshot_setup'
+  | 'snapshot_cleanup'
+  | 'verification_environment'
+
+interface CanonicalResultDetailGuardCertification {
+  valid: boolean
+  failedGuard: CanonicalResultDetailGuardCategory | null
+  cleanupFailed?: boolean
+}
+
+async function inspectCanonicalResultDetailGuardBehavior(db: Kysely<any>): Promise<CanonicalResultDetailGuardCertification> {
+  const hash = 'a'.repeat(64)
+  const itemBHash = 'b'.repeat(64)
+  const executionBHash = 'c'.repeat(64)
+  const workspaceBHash = 'd'.repeat(64)
+  const prefix = `r${randomUUID()}`
+  const resultInsert = (
+    id: string,
+    status: string,
+    reason: string | null,
+    oracleKind: string | null,
+    subject: string | null,
+    identity: { runId?: string; ordinal?: number; definitionId?: string; planHash?: string } = {},
+  ) => `
+    INSERT INTO test_results (
+      run_id,test_id,title,suite,status,duration_ms,retry_count,error_msg,browser,tier,started_at,
+      worker_index,tags,flaky_history,screenshot_path,video_path,metadata,result_id,
+      execution_item_ordinal,definition_id,executable_plan_hash,oracle_kind,observed_subject_id
+    ) VALUES (
+      '${identity.runId ?? `${prefix}-run`}','${identity.definitionId ?? `${prefix}-definition`}','probe','product-execution','${status}',1,0,${reason === null ? 'NULL' : `'${reason}'`},
+      'chromium','ui','2026-01-01T00:00:00.000Z',0,'[]',0,NULL,NULL,'{}','${id}',${identity.ordinal ?? 1},
+      '${identity.definitionId ?? `${prefix}-definition`}','${identity.planHash ?? hash}',${oracleKind === null ? 'NULL' : `'${oracleKind}'`},${subject === null ? 'NULL' : `'${subject}'`}
+    )`
+  const legacyResultInsert = (oracleKind: string | null, subject: string | null) => `
+    INSERT INTO test_results (
+      run_id,test_id,title,suite,status,duration_ms,retry_count,error_msg,browser,tier,started_at,
+      worker_index,tags,flaky_history,screenshot_path,video_path,metadata,result_id,
+      execution_item_ordinal,definition_id,executable_plan_hash,oracle_kind,observed_subject_id
+    ) VALUES (
+      '${prefix}-legacy-run','${prefix}-legacy-definition','legacy probe','legacy','passed',1,0,NULL,
+      'chromium','ui','2026-01-01T00:00:00.000Z',0,'[]',0,NULL,NULL,'{}',NULL,NULL,NULL,NULL,
+      ${oracleKind === null ? 'NULL' : `'${oracleKind}'`},${subject === null ? 'NULL' : `'${subject}'`}
+    )`
+  const executionItemInsert = (ordinal: number, oracleKind: string | null, subject: string | null) => `
+    INSERT INTO execution_items (
+      execution_id,item_ordinal,definition_id,executable_plan_hash,oracle_kind,oracle_subject_id
+    ) VALUES (
+      '${prefix}-execution',${ordinal},'${prefix}-definition-${ordinal}','${hash}',
+      ${oracleKind === null ? 'NULL' : `'${oracleKind}'`},${subject === null ? 'NULL' : `'${subject}'`}
+    )`
+  const attempt = async (name: string, statement: string, shouldReject: boolean): Promise<boolean> => {
+    await sql.raw(`SAVEPOINT ${name}`).execute(db)
+    let rejected = false
+    try { await sql.raw(statement).execute(db) } catch { rejected = true }
+    await sql.raw(`ROLLBACK TO ${name}`).execute(db)
+    await sql.raw(`RELEASE ${name}`).execute(db)
+    return rejected === shouldReject
+  }
+  await sql.raw(`SAVEPOINT ${prefix.replaceAll('-', '_')}`).execute(db)
+  try {
+    await sql.raw(`INSERT INTO executions (
+      execution_id,project_id,accepted_at,test_set_id,test_set_revision,definition_schema_version,
+      model_row_id,model_version,source_observation_id,support_seal_hash,route_evidence_identity_hash,
+      authentication_expectation_identity_hash,manifest_hash,max_run_attempts,dispatch_mode,stop_rule
+    ) VALUES ('${prefix}-execution','${prefix}-project','2026-01-01T00:00:00.000Z','${prefix}-set',1,2,
+      1,'1.0.0',NULL,'${hash}','${hash}','${hash}','${hash}',1,'serial','stop_on_first_non_completed')`).execute(db)
+    await sql.raw(`INSERT INTO execution_items (
+      execution_id,item_ordinal,definition_id,executable_plan_hash,oracle_kind,oracle_subject_id
+    ) VALUES ('${prefix}-execution',1,'${prefix}-definition','${hash}','subject_observable','${prefix}-subject')`).execute(db)
+    await sql.raw(`INSERT INTO execution_items (
+      execution_id,item_ordinal,definition_id,executable_plan_hash,oracle_kind,oracle_subject_id
+    ) VALUES ('${prefix}-execution',2,'${prefix}-definition-b','${itemBHash}','subject_observable','${prefix}-subject-b')`).execute(db)
+    await sql.raw(`INSERT INTO executions (
+      execution_id,project_id,accepted_at,test_set_id,test_set_revision,definition_schema_version,
+      model_row_id,model_version,source_observation_id,support_seal_hash,route_evidence_identity_hash,
+      authentication_expectation_identity_hash,manifest_hash,max_run_attempts,dispatch_mode,stop_rule
+    ) VALUES ('${prefix}-execution-b','${prefix}-project','2026-01-01T00:00:00.000Z','${prefix}-set-b',1,2,
+      1,'1.0.0',NULL,'${executionBHash}','${executionBHash}','${executionBHash}','${executionBHash}',1,'serial','stop_on_first_non_completed')`).execute(db)
+    await sql.raw(`INSERT INTO execution_items (
+      execution_id,item_ordinal,definition_id,executable_plan_hash,oracle_kind,oracle_subject_id
+    ) VALUES ('${prefix}-execution-b',1,'${prefix}-definition-c','${executionBHash}','subject_observable','${prefix}-subject-c')`).execute(db)
+    await sql.raw(`INSERT INTO executions (
+      execution_id,project_id,accepted_at,test_set_id,test_set_revision,definition_schema_version,
+      model_row_id,model_version,source_observation_id,support_seal_hash,route_evidence_identity_hash,
+      authentication_expectation_identity_hash,manifest_hash,max_run_attempts,dispatch_mode,stop_rule
+    ) VALUES ('${prefix}-execution-c','${prefix}-project-b','2026-01-01T00:00:00.000Z','${prefix}-set-c',1,2,
+      1,'1.0.0',NULL,'${workspaceBHash}','${workspaceBHash}','${workspaceBHash}','${workspaceBHash}',1,'serial','stop_on_first_non_completed')`).execute(db)
+    await sql.raw(`INSERT INTO execution_items (
+      execution_id,item_ordinal,definition_id,executable_plan_hash,oracle_kind,oracle_subject_id
+    ) VALUES ('${prefix}-execution-c',1,'${prefix}-definition-d','${workspaceBHash}','subject_observable','${prefix}-subject-d')`).execute(db)
+    await sql.raw(`INSERT INTO runs (
+      run_id,app_name,branch,commit_sha,environment,base_url,triggered_by,reporter_version,status,
+      total_tests,passed,failed,skipped,duration_ms,started_at,completed_at,metadata,input_health,
+      input_health_reason,lifecycle,execution_id,origin,attempt_ordinal
+    ) VALUES ('${prefix}-run','${prefix}-project','main','unknown','local','','probe','playwright-plan-executor/v1','unknown',
+      2,0,0,0,0,'2026-01-01T00:00:00.000Z',NULL,'{}','unknown',NULL,'running','${prefix}-execution','product',1)`).execute(db)
+    await sql.raw(`INSERT INTO runs (
+      run_id,app_name,branch,commit_sha,environment,base_url,triggered_by,reporter_version,status,
+      total_tests,passed,failed,skipped,duration_ms,started_at,completed_at,metadata,input_health,
+      input_health_reason,lifecycle,execution_id,origin,attempt_ordinal
+    ) VALUES ('${prefix}-run-b','${prefix}-project','main','unknown','local','','probe','playwright-plan-executor/v1','unknown',
+      1,0,0,0,0,'2026-01-01T00:00:00.000Z',NULL,'{}','unknown',NULL,'running','${prefix}-execution-b','product',1)`).execute(db)
+    await sql.raw(`INSERT INTO runs (
+      run_id,app_name,branch,commit_sha,environment,base_url,triggered_by,reporter_version,status,
+      total_tests,passed,failed,skipped,duration_ms,started_at,completed_at,metadata,input_health,
+      input_health_reason,lifecycle,execution_id,origin,attempt_ordinal
+    ) VALUES ('${prefix}-run-c','${prefix}-project-b','main','unknown','local','','probe','playwright-plan-executor/v1','unknown',
+      1,0,0,0,0,'2026-01-01T00:00:00.000Z',NULL,'{}','unknown',NULL,'running','${prefix}-execution-c','product',1)`).execute(db)
+    await sql.raw(`INSERT INTO runs (
+      run_id,app_name,branch,commit_sha,environment,base_url,triggered_by,reporter_version,status,
+      total_tests,passed,failed,skipped,duration_ms,started_at,completed_at,metadata,input_health,
+      input_health_reason,lifecycle,execution_id,origin,attempt_ordinal
+    ) VALUES ('${prefix}-legacy-run','${prefix}-project','main','unknown','local','','probe','legacy','passed',
+      1,1,0,0,1,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.001Z','{}','unknown',NULL,
+      'completed',NULL,'legacy',NULL)`).execute(db)
+    await sql.raw(legacyResultInsert(null, null)).execute(db)
+    if (!await attempt('m029_valid', resultInsert(`${prefix}-valid`, 'passed', 'completed', 'subject_observable', `${prefix}-subject`), false)) return { valid: false, failedGuard: 'valid_admission' }
+    if (!await attempt('m029_valid_failed', resultInsert(`${prefix}-valid-failed`, 'failed', 'oracle_failed', 'subject_observable', `${prefix}-subject`), false)) return { valid: false, failedGuard: 'valid_admission' }
+    if (!await attempt('m029_cross_pair_passed', resultInsert(`${prefix}-cross-pair-passed`, 'passed', 'oracle_failed', 'subject_observable', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'performed_oracle' }
+    if (!await attempt('m029_cross_pair_failed', resultInsert(`${prefix}-cross-pair-failed`, 'failed', 'completed', 'subject_observable', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'performed_oracle' }
+    if (!await attempt('m029_cnv_completed', resultInsert(`${prefix}-cnv-completed`, 'could_not_verify', 'completed', 'subject_observable', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'performed_oracle' }
+    if (!await attempt('m029_cnv_oracle_failed', resultInsert(`${prefix}-cnv-oracle-failed`, 'could_not_verify', 'oracle_failed', 'subject_observable', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'performed_oracle' }
+    if (!await attempt('m029_passed_navigation', resultInsert(`${prefix}-passed-navigation`, 'passed', 'navigation_failed', 'subject_observable', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'performed_oracle' }
+    if (!await attempt('m029_failed_navigation', resultInsert(`${prefix}-failed-navigation`, 'failed', 'navigation_failed', 'subject_observable', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'performed_oracle' }
+    if (!await attempt('m029_valid_without_detail', resultInsert(`${prefix}-valid-without-detail`, 'could_not_verify', 'navigation_failed', null, null), false)) return { valid: false, failedGuard: 'valid_admission' }
+    for (const [index, reason] of ['navigation_failed', 'credential_missing', 'unsupported_action', 'executor_failure', 'cancellation_requested'].entries()) {
+      if (!await attempt(`m029_non_oracle_${index}`, resultInsert(`${prefix}-non-oracle-${index}`, 'could_not_verify', reason, 'subject_observable', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'performed_oracle' }
+    }
+    if (!await attempt('m029_null_reason', resultInsert(`${prefix}-null-reason`, 'passed', null, 'subject_observable', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'performed_oracle' }
+    if (!await attempt('m029_rogue_subject', resultInsert(`${prefix}-rogue`, 'passed', 'completed', 'subject_observable', `${prefix}-rogue`), true)) return { valid: false, failedGuard: 'subject_binding' }
+    if (!await attempt('m029_cross_item_subject', resultInsert(`${prefix}-cross-item`, 'passed', 'completed', 'subject_observable', `${prefix}-subject-b`), true)) return { valid: false, failedGuard: 'subject_binding' }
+    if (!await attempt('m029_cross_execution_subject', resultInsert(`${prefix}-cross-execution`, 'passed', 'completed', 'subject_observable', `${prefix}-subject-c`), true)) return { valid: false, failedGuard: 'subject_binding' }
+    if (!await attempt('m029_cross_workspace_subject', resultInsert(`${prefix}-cross-workspace`, 'passed', 'completed', 'subject_observable', `${prefix}-subject-d`), true)) return { valid: false, failedGuard: 'subject_binding' }
+    if (!await attempt('m029_item_b_exact_authority', resultInsert(
+      `${prefix}-item-b-exact`,
+      'passed',
+      'completed',
+      'subject_observable',
+      `${prefix}-subject-b`,
+      { ordinal: 2, definitionId: `${prefix}-definition-b`, planHash: itemBHash },
+    ), false)) return { valid: false, failedGuard: 'valid_admission' }
+    if (!await attempt('m029_chimeric_item_authority', resultInsert(
+      `${prefix}-chimeric-item`,
+      'passed',
+      'completed',
+      'subject_observable',
+      `${prefix}-subject`,
+      { ordinal: 2, definitionId: `${prefix}-definition-b`, planHash: itemBHash },
+    ), true)) return { valid: false, failedGuard: 'subject_binding' }
+    if (!await attempt('m029_legacy_insert', legacyResultInsert('subject_observable', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'legacy_insert' }
+    if (!await attempt('m029_legacy_update', `
+      UPDATE test_results SET oracle_kind = 'subject_observable', observed_subject_id = '${prefix}-subject'
+      WHERE run_id = '${prefix}-legacy-run' AND result_id IS NULL
+    `, true)) return { valid: false, failedGuard: 'legacy_update' }
+    if (!await attempt('m029_incomplete', resultInsert(`${prefix}-incomplete`, 'passed', 'completed', 'subject_observable', null), true)) return { valid: false, failedGuard: 'field_pairing' }
+    if (!await attempt('m029_incomplete_subject', resultInsert(`${prefix}-incomplete-subject`, 'passed', 'completed', null, `${prefix}-subject`), true)) return { valid: false, failedGuard: 'field_pairing' }
+    if (!await attempt('m029_invalid_enum', resultInsert(`${prefix}-enum`, 'passed', 'completed', 'raw_selector', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'bounded_shape' }
+    if (!await attempt('m029_unsafe_subject', resultInsert(`${prefix}-unsafe`, 'passed', 'completed', 'subject_observable', '../unsafe'), true)) return { valid: false, failedGuard: 'bounded_shape' }
+    if (!await attempt('m029_empty_subject', resultInsert(`${prefix}-empty`, 'passed', 'completed', 'subject_observable', ''), true)) return { valid: false, failedGuard: 'bounded_shape' }
+    if (!await attempt('m029_oversized_subject', resultInsert(`${prefix}-oversized`, 'passed', 'completed', 'subject_observable', 'a'.repeat(256)), true)) return { valid: false, failedGuard: 'bounded_shape' }
+    if (!await attempt('m029_invalid_first_subject', resultInsert(`${prefix}-invalid-first`, 'passed', 'completed', 'subject_observable', '-subject'), true)) return { valid: false, failedGuard: 'bounded_shape' }
+    if (!await attempt('m029_item_valid_without_oracle', executionItemInsert(10, null, null), false)) return { valid: false, failedGuard: 'valid_admission' }
+    if (!await attempt('m029_item_kind_only', executionItemInsert(11, 'subject_observable', null), true)) return { valid: false, failedGuard: 'execution_item_authority' }
+    if (!await attempt('m029_item_subject_only', executionItemInsert(12, null, `${prefix}-subject`), true)) return { valid: false, failedGuard: 'execution_item_authority' }
+    if (!await attempt('m029_item_invalid_enum', executionItemInsert(13, 'raw_selector', `${prefix}-subject`), true)) return { valid: false, failedGuard: 'execution_item_authority' }
+    if (!await attempt('m029_item_unsafe_subject', executionItemInsert(14, 'subject_observable', '../unsafe'), true)) return { valid: false, failedGuard: 'execution_item_authority' }
+    if (!await attempt('m029_item_empty_subject', executionItemInsert(15, 'subject_observable', ''), true)) return { valid: false, failedGuard: 'execution_item_authority' }
+    if (!await attempt('m029_item_oversized_subject', executionItemInsert(16, 'subject_observable', 'a'.repeat(256)), true)) return { valid: false, failedGuard: 'execution_item_authority' }
+    if (!await attempt('m029_item_invalid_first_subject', executionItemInsert(17, 'subject_observable', '-subject'), true)) return { valid: false, failedGuard: 'execution_item_authority' }
+    return { valid: true, failedGuard: null }
+  } catch {
+    return { valid: false, failedGuard: 'verification_environment' }
+  } finally {
+    const outer = prefix.replaceAll('-', '_')
+    await sql.raw(`ROLLBACK TO ${outer}`).execute(db)
+    await sql.raw(`RELEASE ${outer}`).execute(db)
+  }
+}
+
+export async function certifyCanonicalResultDetailGuards(db: Kysely<any>): Promise<boolean> {
+  return (await inspectCanonicalResultDetailGuardBehavior(db)).valid
+}
+
+export interface SqliteMigrationCoordinatorOptions {
+  /** Fail-closed fault seam used only to prove bounded snapshot lifecycle errors. */
+  migration029SnapshotVerificationFault?: 'setup' | 'cleanup'
+  /** Test-only observer for proving cleanup of the exact disposable snapshot created by this invocation. */
+  migration029SnapshotObserver?: (snapshotRoot: string) => void
+}
+
+async function certifyCanonicalResultDetailGuardsOnSnapshot(
+  db: Kysely<any>,
+  options: SqliteMigrationCoordinatorOptions = {},
+): Promise<CanonicalResultDetailGuardCertification> {
+  const fault = options.migration029SnapshotVerificationFault
+  let root: string | null = null
+  let snapshot: Kysely<any> | null = null
+  let snapshotSqlite: { close: () => void } | null = null
+  let setupComplete = false
+  let certification: CanonicalResultDetailGuardCertification = { valid: false, failedGuard: 'snapshot_setup' }
+  try {
+    if (fault === 'setup') throw new Error('forced bounded snapshot setup failure')
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-m029-routine-cert-'))
+    options.migration029SnapshotObserver?.(root)
+    const snapshotPath = path.join(root, 'forge.db')
+    await sql`VACUUM INTO ${snapshotPath}`.execute(db)
+    const BetterSqlite3 = require('better-sqlite3')
+    const sqlite = new BetterSqlite3(snapshotPath, { fileMustExist: true })
+    snapshotSqlite = sqlite
+    snapshot = new Kysely<any>({ dialect: new SqliteDialect({ database: sqlite }) })
+    setupComplete = true
+    certification = await inspectCanonicalResultDetailGuardBehavior(snapshot)
+  } catch {
+    certification = { valid: false, failedGuard: setupComplete ? 'verification_environment' : 'snapshot_setup' }
+  } finally {
+    let cleanupFailed = false
+    try {
+      if (snapshot) {
+        await snapshot.destroy()
+        snapshot = null
+        snapshotSqlite = null
+      } else if (snapshotSqlite) {
+        snapshotSqlite.close()
+        snapshotSqlite = null
+      }
+    } catch {
+      cleanupFailed = true
+      try {
+        snapshotSqlite?.close()
+        snapshotSqlite = null
+      } catch {
+        cleanupFailed = true
+      }
+    }
+    if (root) {
+      try {
+        fs.rmSync(root, { recursive: true, force: true })
+        if (fault === 'cleanup') throw new Error('forced bounded snapshot cleanup failure')
+        if (fs.existsSync(root)) cleanupFailed = true
+      } catch {
+        cleanupFailed = true
+      }
+    }
+    if (cleanupFailed) {
+      certification = certification.valid
+        ? { valid: false, failedGuard: 'snapshot_cleanup', cleanupFailed: true }
+        : { ...certification, valid: false, cleanupFailed: true }
+    }
+  }
+  return certification
+}
+
 async function inspectHistoricalObservationImportSchema(db: Kysely<any>): Promise<TableContract> {
   const required = [
     ['table', 'observation_import_sources'],
@@ -596,7 +914,12 @@ function assertMigrationOrder(migrationNames: string[], applied: Array<{ name: s
   }
 }
 
-async function assertManagedSchemaHistoryConsistency(db: Kysely<any>, appliedNames: Set<string>): Promise<void> {
+async function assertManagedSchemaHistoryConsistency(
+  db: Kysely<any>,
+  appliedNames: Set<string>,
+  routineSemanticVerification = false,
+  coordinatorOptions: SqliteMigrationCoordinatorOptions = {},
+): Promise<void> {
   const migration016Applied = appliedNames.has(SINGLE_ACTIVE_MIGRATION)
   const migration017Applied = appliedNames.has(OPERATION_IDENTITY_MIGRATION)
   const columns = await appModelColumns(db)
@@ -611,6 +934,7 @@ async function assertManagedSchemaHistoryConsistency(db: Kysely<any>, appliedNam
   const canonicalTestDefinitionV2 = await inspectCanonicalTestDefinitionV2Schema(db)
   const canonicalV2ExecutionAuthority = await inspectCanonicalV2ExecutionAuthoritySchema(db)
   const observationGapArtifactSealing = await inspectObservationGapArtifactSealingSchema(db)
+  const canonicalResultDetail = await inspectCanonicalResultDetailSchema(db)
   const discrepancies: string[] = []
   if (migration016Applied && !activeIndex.valid) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is applied, but ${activeIndex.detail}`)
   else if (!migration016Applied && activeIndex.present) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is pending, but ${activeIndex.detail}`)
@@ -667,6 +991,23 @@ async function assertManagedSchemaHistoryConsistency(db: Kysely<any>, appliedNam
     if (!observationGapArtifactSealing.valid) discrepancies.push(`history says ${OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION} is applied, but ${observationGapArtifactSealing.detail}`)
   } else if (observationGapArtifactSealing.present) {
     discrepancies.push(`history says ${OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION} is pending, but ${observationGapArtifactSealing.detail}`)
+  }
+  if (appliedNames.has(CANONICAL_RESULT_DETAIL_MIGRATION)) {
+    if (!canonicalResultDetail.valid) discrepancies.push(`history says ${CANONICAL_RESULT_DETAIL_MIGRATION} is applied, but ${canonicalResultDetail.detail}`)
+    else if (routineSemanticVerification) {
+      const certification = await certifyCanonicalResultDetailGuardsOnSnapshot(
+        db,
+        coordinatorOptions,
+      )
+      if (!certification.valid) {
+        const cleanup = certification.cleanupFailed
+          ? '; disposable snapshot cleanup could not be established'
+          : ''
+        discrepancies.push(`history says ${CANONICAL_RESULT_DETAIL_MIGRATION} is applied, but its ${certification.failedGuard ?? 'unknown'} semantic persistence guard could not be established on a disposable snapshot${cleanup}`)
+      }
+    }
+  } else if (canonicalResultDetail.present) {
+    discrepancies.push(`history says ${CANONICAL_RESULT_DETAIL_MIGRATION} is pending, but ${canonicalResultDetail.detail}`)
   }
   if (discrepancies.length > 0) throw new MigrationStateMismatchError(discrepancies)
 }
@@ -725,9 +1066,18 @@ async function assertMigrationPostconditions(db: Kysely<any>, migrationName: str
     const gapSealing = await inspectObservationGapArtifactSealingSchema(db)
     if (!gapSealing.valid) throw new Error(gapSealing.detail)
   }
+  if (migrationName === CANONICAL_RESULT_DETAIL_MIGRATION) {
+    const resultDetail = await inspectCanonicalResultDetailSchema(db, true)
+    if (!resultDetail.valid) throw new Error(resultDetail.detail)
+  }
 }
 
-export async function runSqliteMigrationCoordinator(db: Kysely<any>, migrations: Record<string, ForgeMigration>, beforePending?: () => Promise<unknown>): Promise<string[]> {
+export async function runSqliteMigrationCoordinator(
+  db: Kysely<any>,
+  migrations: Record<string, ForgeMigration>,
+  beforePending?: () => Promise<unknown>,
+  options: SqliteMigrationCoordinatorOptions = {},
+): Promise<string[]> {
   const authority = getDatabaseProvenance()
   if (authority.dialect !== 'sqlite') {
     throw new DatabaseAuthorityError(
@@ -746,7 +1096,7 @@ export async function runSqliteMigrationCoordinator(db: Kysely<any>, migrations:
   const migrationNames = Object.keys(migrations).sort()
   let applied = await readAppliedMigrations(db)
   assertMigrationOrder(migrationNames, applied)
-  await assertManagedSchemaHistoryConsistency(db, new Set(applied.map(row => row.name)))
+  await assertManagedSchemaHistoryConsistency(db, new Set(applied.map(row => row.name)), true, options)
   const pending = migrationNames.slice(applied.length)
   if (pending.length === 0) return []
   if (beforePending) await beforePending()
@@ -876,7 +1226,7 @@ async function runKyselyMigrations(
   if (error) { console.error('[migration] Fatal error:', error); throw error; }
 }
 
-export async function runMigrations(): Promise<void> {
+export async function runMigrations(options: SqliteMigrationCoordinatorOptions = {}): Promise<void> {
   let authority: ActiveDatabaseProvenance
   try {
     authority = getDatabaseProvenance()
@@ -908,7 +1258,7 @@ export async function runMigrations(): Promise<void> {
     return
   }
   const migrations = await new TsxMigrationProvider(migrationsDir, authority).getMigrations()
-  const completed = await runSqliteMigrationCoordinator(db, migrations, () => createVerifiedBackupBefore016(db))
+  const completed = await runSqliteMigrationCoordinator(db, migrations, () => createVerifiedBackupBefore016(db), options)
   if (completed.length === 0) console.log('[migration] Already up to date.');
   else for (const migrationName of completed) console.log(`[migration] SUCCESS ${migrationName}`)
 }

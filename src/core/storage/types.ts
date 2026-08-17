@@ -71,6 +71,10 @@ export interface TestResultsTable {
   execution_item_ordinal:     Generated<number | null>;
   definition_id:              Generated<string | null>;
   executable_plan_hash:       Generated<string | null>;
+  // Migration 029: bounded native Product Result detail. Both remain NULL for
+  // legacy rows and when the Result did not reach its governed oracle.
+  oracle_kind:                Generated<string | null>;
+  observed_subject_id:        Generated<string | null>;
 }
 
 // ── Test Steps ────────────────────────────────────────────────────────────────
@@ -372,6 +376,9 @@ export interface ExecutionItemsTable {
   item_ordinal: number;
   definition_id: string;
   executable_plan_hash: string;
+  // Migration 029: immutable plan oracle authority. Historical items remain NULL.
+  oracle_kind: Generated<string | null>;
+  oracle_subject_id: Generated<string | null>;
 }
 
 // ── Canonical Observation authority ─────────────────────────────────────────

@@ -535,6 +535,32 @@ test('TD-PRODUCT-001-A-5 malformed identity, enum, count, required field, and le
   )
 })
 
+test('TD-PRODUCT-001-C bounded oracle detail is typed, paired, and closed', () => {
+  const withDetail = detail({
+    items: [{
+      manifestOrdinal: 1, definitionId: 'definition-alpha', executablePlanHash: HASH_A,
+      evidence: { ...observed(), oracleKind: 'subject_observable', observedSubjectId: 'subject-inventory' },
+    }],
+  })
+  const decoded = decodeCanonicalExecutionResultsDetail(withDetail)
+  assert.deepEqual(
+    decoded.items[0].evidence.kind === 'observed_result'
+      ? [decoded.items[0].evidence.oracleKind, decoded.items[0].evidence.observedSubjectId]
+      : null,
+    ['subject_observable', 'subject-inventory'],
+  )
+  for (const evidence of [
+    { ...observed(), oracleKind: 'visual_guess', observedSubjectId: 'subject-inventory' },
+    { ...observed(), oracleKind: 'subject_observable', observedSubjectId: null },
+    { ...observed(), oracleKind: null, observedSubjectId: 'subject-inventory' },
+    { ...observed(), oracleKind: 'subject_observable', observedSubjectId: '../unsafe' },
+  ]) {
+    assert.throws(() => decodeCanonicalExecutionResultsDetail(detail({
+      items: [{ manifestOrdinal: 1, definitionId: 'definition-alpha', executablePlanHash: HASH_A, evidence }],
+    })), CanonicalResultsContractError)
+  }
+})
+
 test('TD-PRODUCT-001-A-6 core adapter renames ambiguous fields and rejects unpersisted Result richness', () => {
   const read = serializeCanonicalExecutionResultsRead(coreRead())
   assert.equal(read.kind, 'ok')
@@ -551,6 +577,18 @@ test('TD-PRODUCT-001-A-6 core adapter renames ambiguous fields and rejects unper
     }],
   })
   assert.throws(() => serializeCanonicalExecutionResultsRead(rich), CanonicalResultsContractError)
+  const bounded = coreRead({
+    items: [{
+      itemOrdinal: 1, definitionId: 'definition-alpha', executablePlanHash: HASH_A,
+      result: {
+        state: 'result_observed', resultId: 'result-alpha', outcome: 'passed', reasonCode: 'completed',
+        safeMessage: null, durationMs: 1_000, oracleKind: 'subject_observable', observedSubjectId: 'subject-inventory',
+      },
+    }],
+  })
+  const serialized = serializeCanonicalExecutionResultsRead(bounded)
+  assert.equal(serialized.kind === 'ok' && serialized.projection.items[0].evidence.kind === 'observed_result'
+    ? serialized.projection.items[0].evidence.observedSubjectId : null, 'subject-inventory')
 })
 
 test('TD-PRODUCT-001-A-7 canonical client uses only project-scoped endpoints and decodes valid list/detail', async () => {

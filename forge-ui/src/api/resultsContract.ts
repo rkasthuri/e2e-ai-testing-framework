@@ -72,8 +72,8 @@ export interface CanonicalObservedResult {
   reasonCode: string
   safeMessage: null
   durationMs: number
-  oracleKind: null
-  observedSubjectId: null
+  oracleKind: 'subject_observable' | null
+  observedSubjectId: string | null
 }
 
 export interface CanonicalMissingResult {
@@ -152,6 +152,7 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/
 const SHA256 = /^[a-f0-9]{64}$/
 const REASON = /^[a-z][a-z0-9_]{0,99}$/
 const OUTCOMES = ['passed', 'failed', 'could_not_verify'] as const
+const ORACLE_KINDS = ['subject_observable'] as const
 const EXECUTION_LIFECYCLES = ['accepted', 'running', 'cancellation_requested', 'completed', 'cancelled', 'interrupted', 'unknown'] as const
 const RUN_LIFECYCLES = ['running', 'completed', 'cancelled', 'interrupted'] as const
 const INTEGRITY_STATES = ['valid', 'warning', 'invalid'] as const
@@ -332,8 +333,15 @@ function decodeEvidence(value: unknown, label: string): CanonicalObservedResult 
     return { kind: 'missing_result', reasonCode: 'expected_result_missing' }
   }
   if (item.kind !== 'observed_result') throw new CanonicalResultsContractError(`${label}.kind is unsupported.`)
-  if (item.safeMessage !== null || item.oracleKind !== null || item.observedSubjectId !== null) {
+  if (item.safeMessage !== null) {
     throw new CanonicalResultsContractError(`${label} contains unpersisted Result detail.`)
+  }
+  const oracleKind = nullable(item.oracleKind, value => enumeration(
+    value, ORACLE_KINDS, `${label}.oracleKind`,
+  ))
+  const observedSubjectId = nullable(item.observedSubjectId, value => id(value, `${label}.observedSubjectId`))
+  if ((oracleKind === null) !== (observedSubjectId === null)) {
+    throw new CanonicalResultsContractError(`${label} Result detail is incomplete.`)
   }
   return {
     kind: 'observed_result',
@@ -342,8 +350,8 @@ function decodeEvidence(value: unknown, label: string): CanonicalObservedResult 
     reasonCode: reason(item.reasonCode, `${label}.reasonCode`),
     safeMessage: null,
     durationMs: integer(item.durationMs, `${label}.durationMs`),
-    oracleKind: null,
-    observedSubjectId: null,
+    oracleKind,
+    observedSubjectId,
   }
 }
 
@@ -543,8 +551,13 @@ export function serializeCanonicalExecutionResultsRead(value: unknown): Canonica
             reasonCode: reason(result.reasonCode, `Core items[${index}].result.reasonCode`),
             safeMessage: result.safeMessage === null ? null : (() => { throw new CanonicalResultsContractError('Core Result safeMessage was not persisted.') })(),
             durationMs: integer(result.durationMs, `Core items[${index}].result.durationMs`),
-            oracleKind: result.oracleKind === null ? null : (() => { throw new CanonicalResultsContractError('Core Result oracleKind was not persisted.') })(),
-            observedSubjectId: result.observedSubjectId === null ? null : (() => { throw new CanonicalResultsContractError('Core Result observedSubjectId was not persisted.') })(),
+            oracleKind: nullable(result.oracleKind, value => enumeration(
+              value, ORACLE_KINDS, `Core items[${index}].result.oracleKind`,
+            )),
+            observedSubjectId: nullable(
+              result.observedSubjectId,
+              value => id(value, `Core items[${index}].result.observedSubjectId`),
+            ),
           }
         : (() => { throw new CanonicalResultsContractError(`Core items[${index}].result state is unsupported.`) })()
     return {

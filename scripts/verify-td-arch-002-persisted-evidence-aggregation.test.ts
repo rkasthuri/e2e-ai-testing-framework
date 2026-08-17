@@ -98,6 +98,8 @@ function evidence(
     item_ordinal: index + 1,
     definition_id: `definition-${suffix}-${index + 1}`,
     executable_plan_hash: planHash,
+    oracle_kind: null,
+    oracle_subject_id: null,
   }))
   const root: Execution = {
     execution_id: executionId,
@@ -136,6 +138,8 @@ function evidence(
     execution_item_ordinal: index + 1,
     definition_id: items[index].definition_id,
     executable_plan_hash: items[index].executable_plan_hash,
+    oracle_kind: null,
+    observed_subject_id: null,
   }))
   const terminal = lifecycle !== 'running'
   const runOutcome = observedOutcome(outcomes)
@@ -345,6 +349,26 @@ test('TD-ARCH-002-4 duplicate, manifest, provenance, legacy, lifecycle, and aggr
   const warnings = aggregatePersistedEvidence(disagreement).integrityWarnings.map(item => item.code)
   assert.equal(warnings.includes('run_aggregate_mismatch'), true)
   assert.equal(warnings.includes('execution_aggregate_mismatch'), true)
+})
+
+test('TD-PRODUCT-001-C-R1 malformed oracle detail invalidates integrity without changing outcome aggregation', () => {
+  const source = evidence('oracle-detail-corrupt', ['passed'])
+  source.items[0].oracle_kind = 'subject_observable'
+  source.items[0].oracle_subject_id = 'subject-canonical'
+  source.results[0].oracle_kind = 'subject_observable'
+  source.results[0].observed_subject_id = 'subject-rogue'
+  const aggregate = aggregatePersistedEvidence(source)
+  assert.equal(aggregate.execution.outcome, 'passed')
+  assert.equal(aggregate.integrityWarnings.some(item => item.code === 'conflicting_provenance' && item.severity === 'error'), true)
+
+  const nonOracle = evidence('oracle-detail-not-performed', ['could_not_verify'])
+  nonOracle.items[0].oracle_kind = 'subject_observable'
+  nonOracle.items[0].oracle_subject_id = 'subject-canonical'
+  nonOracle.results[0].oracle_kind = 'subject_observable'
+  nonOracle.results[0].observed_subject_id = 'subject-canonical'
+  const nonOracleAggregate = aggregatePersistedEvidence(nonOracle)
+  assert.equal(nonOracleAggregate.execution.outcome, 'could_not_verify')
+  assert.equal(nonOracleAggregate.integrityWarnings.some(item => item.code === 'conflicting_provenance' && item.severity === 'error'), true)
 })
 
 test('TD-ARCH-002-5 normal terminalization preserves failed dominance across a partial manifest', async () => {

@@ -195,6 +195,9 @@ export class ExecutionRunCoordinator {
     const definitionId = input.plan.value.definitionId
     const fingerprint = input.plan.fingerprint
     const truth = resultTruth(input.observed)
+    const observedOracle = input.observed.status === 'completed' || input.observed.status === 'oracle_failed'
+      ? { oracleKind: input.plan.value.oracle.kind, observedSubjectId: input.plan.value.oracle.subjectId }
+      : null
     if (!SAFE_ID.test(input.executionId) || !SAFE_ID.test(input.runId)
       || !SAFE_ID.test(definitionId) || !SHA256.test(fingerprint)
       || !Number.isSafeInteger(input.itemOrdinal) || input.itemOrdinal < 1
@@ -234,6 +237,8 @@ export class ExecutionRunCoordinator {
           execution_item_ordinal: input.itemOrdinal,
           definition_id: definitionId,
           executable_plan_hash: fingerprint,
+          oracle_kind: observedOracle?.oracleKind ?? null,
+          observed_subject_id: observedOracle?.observedSubjectId ?? null,
         }, trx)
       })
     } catch (cause) {
