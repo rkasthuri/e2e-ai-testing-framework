@@ -2,72 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-06T17-19-28",
-      "timestamp": "2026-07-06T17:19:47.183Z",
-      "durationMs": 448846,
-      "stats": {
-        "total": 316,
-        "passed": 312,
-        "failed": 4,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "98.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC069 - E2E journey with locked_out_user - verify login prevention blocks entire flow",
-          "suiteName": "desktop/ui/saucedemo/tests/e2e-journey.spec.ts > E2E Journey - Locked Out User",
-          "file": "desktop/ui/saucedemo/tests/e2e-journey.spec.ts",
-          "browser": "chromium",
-          "priority": "Unknown",
-          "verdict": "app-bug",
-          "confidence": "High",
-          "reasoning": "A locked_out_user bypassing login prevention and accessing the inventory page is a clear authentication/authorization defect in the application.",
-          "suggestedAction": "Verify the locked_out_user account configuration in saucedemo and confirm whether this user should indeed be blocked at login; if so, report as authentication bypass bug to the app team.",
-          "errorMessage": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mnot\u001b[2m.\u001b[22mtoContain\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // indexOf\u001b[22m\n\nExpected substring: not \u001b[32m\"inventory.html\"\u001b[39m\nReceived string:        "
-        },
-        {
-          "testTitle": "TC069 - E2E journey with locked_out_user - verify login prevention blocks entire flow",
-          "suiteName": "desktop/ui/saucedemo/tests/e2e-journey.spec.ts > E2E Journey - Locked Out User",
-          "file": "desktop/ui/saucedemo/tests/e2e-journey.spec.ts",
-          "browser": "webkit",
-          "priority": "Unknown",
-          "verdict": "app-bug",
-          "confidence": "High",
-          "reasoning": "A locked_out_user bypassing authentication and reaching the inventory page is a clear application security bug.",
-          "suggestedAction": "Verify locked_out_user account status in the application database/config and test manually to confirm authentication bypass.",
-          "errorMessage": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mnot\u001b[2m.\u001b[22mtoContain\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // indexOf\u001b[22m\n\nExpected substring: not \u001b[32m\"inventory.html\"\u001b[39m\nReceived string:        "
-        },
-        {
-          "testTitle": "TC069 - E2E journey with locked_out_user - verify login prevention blocks entire flow",
-          "suiteName": "desktop/ui/saucedemo/tests/migrated/tc069-e2e-journey.spec.ts > E2E Journey - Locked Out User",
-          "file": "desktop/ui/saucedemo/tests/migrated/tc069-e2e-journey.spec.ts",
-          "browser": "chromium",
-          "priority": "Unknown",
-          "verdict": "app-bug",
-          "confidence": "High",
-          "reasoning": "The application allowed a locked_out_user to authenticate and access inventory.html when it should have blocked login entirely.",
-          "suggestedAction": "Verify saucedemo's authentication logic for locked_out_user; confirm the test is using correct credentials and that the app's lockout mechanism is functioning as designed.",
-          "errorMessage": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mnot\u001b[2m.\u001b[22mtoContain\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // indexOf\u001b[22m\n\nExpected substring: not \u001b[32m\"inventory.html\"\u001b[39m\nReceived string:        "
-        },
-        {
-          "testTitle": "TC069 - E2E journey with locked_out_user - verify login prevention blocks entire flow",
-          "suiteName": "desktop/ui/saucedemo/tests/migrated/tc069-e2e-journey.spec.ts > E2E Journey - Locked Out User",
-          "file": "desktop/ui/saucedemo/tests/migrated/tc069-e2e-journey.spec.ts",
-          "browser": "webkit",
-          "priority": "Unknown",
-          "verdict": "app-bug",
-          "confidence": "High",
-          "reasoning": "A locked_out_user successfully authenticated and accessed the inventory page when the application should have blocked the login entirely.",
-          "suggestedAction": "Verify the application's authentication logic for locked_out_user credentials - the account lockout feature is not functioning as designed.",
-          "errorMessage": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mnot\u001b[2m.\u001b[22mtoContain\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // indexOf\u001b[22m\n\nExpected substring: not \u001b[32m\"inventory.html\"\u001b[39m\nReceived string:        "
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
       "runId": "2026-07-06T18-02-25",
       "timestamp": "2026-07-06T18:02:43.358Z",
       "durationMs": 422794,
@@ -1964,6 +1898,23 @@
       "stats": {
         "total": 320,
         "passed": 320,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-17T21-08-14",
+      "timestamp": "2026-08-17T21:09:38.447Z",
+      "durationMs": 416653,
+      "stats": {
+        "total": 316,
+        "passed": 316,
         "failed": 0,
         "flaky": 0,
         "skipped": 0,
