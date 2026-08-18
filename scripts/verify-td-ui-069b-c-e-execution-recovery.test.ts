@@ -69,6 +69,7 @@ async function accepted(suffix: string, itemCount = 1, withLock = true): Promise
     model_version: '1.0.0', source_observation_id: `observation-${suffix}`,
     manifest_hash: planHash, max_run_attempts: 1, dispatch_mode: 'serial',
     stop_rule: 'stop_on_first_non_completed',
+    execution_intent_key: `intent-${suffix}`, execution_intent_fingerprint: planHash,
   }).execute()
   await getDb().insertInto('execution_items').values(hashes.map((hash, index) => ({
     execution_id: executionId, item_ordinal: index + 1,

@@ -27,10 +27,10 @@ was audited on 2026-08-14 under TD-CONFIG-003-R1 against that parent commit;
 Git history records the resulting commit identity.
 
 Current Verification Context:
-Reverified on 2026-08-17 against the implementation baseline above plus the
-governed, uncommitted TD-PRODUCT-001-C migration-029 documentation and code
-tree. This statement does not claim that the uncommitted tree exists in the
-named baseline commit.
+Reverified on 2026-08-18 against committed `main` at
+`c52172dd7551f997d46af8e275d1dd32371650bd` plus the governed, uncommitted
+TD-PRODUCT-004-A Migration 030 documentation and code tree. This statement
+does not claim that the uncommitted tree exists in the named commit.
 
 ---
 
@@ -52,6 +52,9 @@ or override current operational truth.
   are process-local.
 - Cancellation combines durable local lifecycle intent with process-local
   signalling to the matching execution.
+- Canonical execution Start replay is durable and project-scoped: one opaque
+  client intent key maps immutably to one accepted Execution and its semantic
+  request fingerprint for the lifetime of that Execution row.
 - The control plane has process-global registries and service composition.
 - Credential material is resolved for one local operation and is never
   Definition, plan, Result, or persisted Observation truth.
@@ -148,7 +151,7 @@ Crawl
 ```
 
 For SQLite Product and disposable-certification authorities, the current
-migration ceiling is `029_canonical_result_detail_evidence`. Legacy PostgreSQL
+migration ceiling is `030_canonical_execution_start_idempotency`. Legacy PostgreSQL
 remains capped at `020_execution_lifecycle` and is not Product authority.
 
 ## Safe next work

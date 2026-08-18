@@ -98,6 +98,7 @@ const CANONICAL_TEST_DEFINITION_V2_MIGRATION = '026_canonical_test_definition_v2
 const CANONICAL_V2_EXECUTION_AUTHORITY_MIGRATION = '027_canonical_v2_execution_authority'
 const OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION = '028_observation_gap_artifact_sealing'
 const CANONICAL_RESULT_DETAIL_MIGRATION = '029_canonical_result_detail_evidence'
+const CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION = '030_canonical_execution_start_idempotency'
 const LEGACY_JSON_IMPORT_MIGRATION = '004_json_import'
 const MIGRATION_TABLE = 'kysely_migration'
 const MIGRATION_LOCK_TABLE = 'kysely_migration_lock'
@@ -275,7 +276,16 @@ async function inspectExecutionIdentitySchema(db: Kysely<any>): Promise<TableCon
     ['authentication_expectation_identity_hash', 0, 0], ['manifest_hash', 1, 0],
     ['max_run_attempts', 1, 0], ['dispatch_mode', 1, 0], ['stop_rule', 1, 0],
   ])
-  const executionsValid = legacyExecutionsValid || canonicalV2ExecutionsValid
+  const idempotentExecutionsValid = exactColumns(executionColumns, [
+    ['execution_id', 1, 1], ['project_id', 1, 0], ['accepted_at', 1, 0],
+    ['test_set_id', 1, 0], ['test_set_revision', 1, 0], ['definition_schema_version', 1, 0],
+    ['model_row_id', 1, 0], ['model_version', 1, 0], ['source_observation_id', 0, 0],
+    ['support_seal_hash', 0, 0], ['route_evidence_identity_hash', 0, 0],
+    ['authentication_expectation_identity_hash', 0, 0], ['manifest_hash', 1, 0],
+    ['max_run_attempts', 1, 0], ['dispatch_mode', 1, 0], ['stop_rule', 1, 0],
+    ['execution_intent_key', 0, 0], ['execution_intent_fingerprint', 0, 0],
+  ])
+  const executionsValid = legacyExecutionsValid || canonicalV2ExecutionsValid || idempotentExecutionsValid
   const executionItemColumns = await columns('execution_items')
   const legacyItemsValid = exactColumns(executionItemColumns, [
     ['execution_id', 1, 1], ['item_ordinal', 1, 2],
@@ -541,6 +551,106 @@ async function inspectCanonicalResultDetailSchema(db: Kysely<any>, behavioral = 
   }
 }
 
+type ExecutionIntentGuardCategory =
+  | 'valid_admission'
+  | 'required_authority'
+  | 'bounded_key'
+  | 'bounded_fingerprint'
+  | 'scoped_uniqueness'
+  | 'immutability'
+  | 'snapshot_setup'
+  | 'snapshot_cleanup'
+  | 'verification_environment'
+
+interface ExecutionIntentGuardCertification {
+  valid: boolean
+  failedGuard: ExecutionIntentGuardCategory | null
+}
+
+async function inspectExecutionIntentGuardBehavior(db: Kysely<any>): Promise<ExecutionIntentGuardCertification> {
+  const prefix = `i${randomUUID()}`
+  const fingerprint = 'e'.repeat(64)
+  const otherFingerprint = 'f'.repeat(64)
+  const outer = prefix.replaceAll('-', '_')
+  const insert = (executionId: string, projectId: string, key: string | null, hash: string | null) => `
+    INSERT INTO executions (
+      execution_id,project_id,accepted_at,test_set_id,test_set_revision,definition_schema_version,
+      model_row_id,model_version,source_observation_id,support_seal_hash,route_evidence_identity_hash,
+      authentication_expectation_identity_hash,manifest_hash,max_run_attempts,dispatch_mode,stop_rule,
+      execution_intent_key,execution_intent_fingerprint
+    ) VALUES (
+      '${executionId}','${projectId}','2026-01-01T00:00:00.000Z','${prefix}-set',1,2,
+      1,'1.0.0',NULL,'${fingerprint}','${fingerprint}','${fingerprint}','${fingerprint}',1,
+      'serial','stop_on_first_non_completed',${key === null ? 'NULL' : `'${key}'`},${hash === null ? 'NULL' : `'${hash}'`}
+    )`
+  const attempt = async (name: string, statement: string, shouldReject: boolean): Promise<boolean> => {
+    await sql.raw(`SAVEPOINT ${name}`).execute(db)
+    let rejected = false
+    try { await sql.raw(statement).execute(db) } catch { rejected = true }
+    await sql.raw(`ROLLBACK TO ${name}`).execute(db)
+    await sql.raw(`RELEASE ${name}`).execute(db)
+    return rejected === shouldReject
+  }
+  await sql.raw(`SAVEPOINT ${outer}`).execute(db)
+  try {
+    const key = `${prefix}-intent`
+    await sql.raw(insert(`${prefix}-execution`, `${prefix}-project`, key, fingerprint)).execute(db)
+    if (!await attempt('m030_valid', insert(`${prefix}-valid`, `${prefix}-project`, `${prefix}-valid-key`, fingerprint), false)) return { valid: false, failedGuard: 'valid_admission' }
+    if (!await attempt('m030_missing_key', insert(`${prefix}-missing-key`, `${prefix}-project`, null, fingerprint), true)) return { valid: false, failedGuard: 'required_authority' }
+    if (!await attempt('m030_missing_hash', insert(`${prefix}-missing-hash`, `${prefix}-project`, `${prefix}-missing-hash-key`, null), true)) return { valid: false, failedGuard: 'required_authority' }
+    if (!await attempt('m030_empty_key', insert(`${prefix}-empty-key`, `${prefix}-project`, '', fingerprint), true)) return { valid: false, failedGuard: 'bounded_key' }
+    if (!await attempt('m030_bad_key_start', insert(`${prefix}-bad-key-start`, `${prefix}-project`, '_unsafe', fingerprint), true)) return { valid: false, failedGuard: 'bounded_key' }
+    if (!await attempt('m030_bad_key', insert(`${prefix}-bad-key`, `${prefix}-project`, '../unsafe', fingerprint), true)) return { valid: false, failedGuard: 'bounded_key' }
+    if (!await attempt('m030_space_key', insert(`${prefix}-space-key`, `${prefix}-project`, 'unsafe key', fingerprint), true)) return { valid: false, failedGuard: 'bounded_key' }
+    if (!await attempt('m030_unicode_key', insert(`${prefix}-unicode-key`, `${prefix}-project`, 'intent-é', fingerprint), true)) return { valid: false, failedGuard: 'bounded_key' }
+    if (!await attempt('m030_long_key', insert(`${prefix}-long-key`, `${prefix}-project`, `a${'b'.repeat(128)}`, fingerprint), true)) return { valid: false, failedGuard: 'bounded_key' }
+    if (!await attempt('m030_short_hash', insert(`${prefix}-short-hash`, `${prefix}-project`, `${prefix}-short-hash-key`, otherFingerprint.slice(1)), true)) return { valid: false, failedGuard: 'bounded_fingerprint' }
+    if (!await attempt('m030_bad_hash', insert(`${prefix}-bad-hash`, `${prefix}-project`, `${prefix}-bad-hash-key`, otherFingerprint.toUpperCase()), true)) return { valid: false, failedGuard: 'bounded_fingerprint' }
+    if (!await attempt('m030_non_hex_hash', insert(`${prefix}-non-hex-hash`, `${prefix}-project`, `${prefix}-non-hex-key`, `g${otherFingerprint.slice(1)}`), true)) return { valid: false, failedGuard: 'bounded_fingerprint' }
+    if (!await attempt('m030_duplicate', insert(`${prefix}-duplicate`, `${prefix}-project`, key, fingerprint), true)) return { valid: false, failedGuard: 'scoped_uniqueness' }
+    if (!await attempt('m030_cross_project', insert(`${prefix}-cross-project`, `${prefix}-project-b`, key, fingerprint), false)) return { valid: false, failedGuard: 'scoped_uniqueness' }
+    if (!await attempt('m030_reassign', `UPDATE executions SET execution_intent_key = '${prefix}-other' WHERE execution_id = '${prefix}-execution'`, true)) return { valid: false, failedGuard: 'immutability' }
+    if (!await attempt('m030_refingerprint', `UPDATE executions SET execution_intent_fingerprint = '${otherFingerprint}' WHERE execution_id = '${prefix}-execution'`, true)) return { valid: false, failedGuard: 'immutability' }
+    if (!await attempt('m030_delete', `DELETE FROM executions WHERE execution_id = '${prefix}-execution'`, true)) return { valid: false, failedGuard: 'immutability' }
+    return { valid: true, failedGuard: null }
+  } catch {
+    return { valid: false, failedGuard: 'verification_environment' }
+  } finally {
+    await sql.raw(`ROLLBACK TO ${outer}`).execute(db)
+    await sql.raw(`RELEASE ${outer}`).execute(db)
+  }
+}
+
+async function inspectCanonicalExecutionIntentSchema(db: Kysely<any>, behavioral = false): Promise<TableContract> {
+  if (!await tableExists(db, 'executions')) return { present: false, valid: false, detail: 'Execution roots are absent' }
+  const columns = new Set((await sql<{ name: string }>`PRAGMA table_info(executions)`.execute(db)).rows.map(row => row.name))
+  const tableSql = (await sql<{ sql: string | null }>`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'executions'`.execute(db)).rows[0]?.sql ?? ''
+  const indexRows = (await sql<{ name: string; unique: number; partial: number }>`PRAGMA index_list(executions)`.execute(db)).rows
+  const index = indexRows.find(row => row.name === 'uq_executions_project_intent')
+  const indexColumns = index
+    ? (await sql<{ name: string }>`SELECT name FROM pragma_index_info('uq_executions_project_intent') ORDER BY seqno`.execute(db)).rows.map(row => row.name)
+    : []
+  const indexSql = (await sql<{ sql: string | null }>`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'uq_executions_project_intent'`.execute(db)).rows[0]?.sql ?? ''
+  const trigger = (await sql<{ sql: string | null }>`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'execution_intent_authority_required_insert'`.execute(db)).rows[0]?.sql ?? ''
+  const requiredColumns = columns.has('execution_intent_key') && columns.has('execution_intent_fingerprint')
+  const structural = requiredColumns
+    && /length\s*\(\s*execution_intent_key\s*\)\s+BETWEEN\s+1\s+AND\s+128/i.test(tableSql)
+    && /length\s*\(\s*execution_intent_fingerprint\s*\)\s*=\s*64/i.test(tableSql)
+    && Number(index?.unique) === 1 && Number(index?.partial) === 1
+    && indexColumns.join(',') === 'project_id,execution_intent_key'
+    && /WHERE\s+execution_intent_key\s+IS\s+NOT\s+NULL/i.test(indexSql)
+    && /NEW\.execution_intent_key\s+IS\s+NULL\s+OR\s+NEW\.execution_intent_fingerprint\s+IS\s+NULL/i.test(trigger)
+  const behavior = behavioral && structural ? await inspectExecutionIntentGuardBehavior(db) : null
+  const valid = structural && (!behavioral || behavior?.valid === true)
+  return {
+    present: requiredColumns || Boolean(index) || Boolean(trigger),
+    valid,
+    detail: valid
+      ? 'Canonical Execution Start intent authority matches Migration 030'
+      : `Canonical Execution Start intent authority is incomplete${behavior?.failedGuard ? ` (${behavior.failedGuard})` : ''}`,
+  }
+}
+
 type CanonicalResultDetailGuardCategory =
   | 'valid_admission'
   | 'performed_oracle'
@@ -566,6 +676,12 @@ async function inspectCanonicalResultDetailGuardBehavior(db: Kysely<any>): Promi
   const executionBHash = 'c'.repeat(64)
   const workspaceBHash = 'd'.repeat(64)
   const prefix = `r${randomUUID()}`
+  const executionColumns = new Set((await sql<{ name: string }>`PRAGMA table_info(executions)`.execute(db)).rows.map(row => row.name))
+  const hasIntentAuthority = executionColumns.has('execution_intent_key') && executionColumns.has('execution_intent_fingerprint')
+  const intentColumns = hasIntentAuthority ? ',execution_intent_key,execution_intent_fingerprint' : ''
+  const intentValues = (suffix: string, fingerprint: string) => hasIntentAuthority
+    ? `,'${prefix}-intent-${suffix}','${fingerprint}'`
+    : ''
   const resultInsert = (
     id: string,
     status: string,
@@ -613,9 +729,9 @@ async function inspectCanonicalResultDetailGuardBehavior(db: Kysely<any>): Promi
     await sql.raw(`INSERT INTO executions (
       execution_id,project_id,accepted_at,test_set_id,test_set_revision,definition_schema_version,
       model_row_id,model_version,source_observation_id,support_seal_hash,route_evidence_identity_hash,
-      authentication_expectation_identity_hash,manifest_hash,max_run_attempts,dispatch_mode,stop_rule
+      authentication_expectation_identity_hash,manifest_hash,max_run_attempts,dispatch_mode,stop_rule${intentColumns}
     ) VALUES ('${prefix}-execution','${prefix}-project','2026-01-01T00:00:00.000Z','${prefix}-set',1,2,
-      1,'1.0.0',NULL,'${hash}','${hash}','${hash}','${hash}',1,'serial','stop_on_first_non_completed')`).execute(db)
+      1,'1.0.0',NULL,'${hash}','${hash}','${hash}','${hash}',1,'serial','stop_on_first_non_completed'${intentValues('a', hash)})`).execute(db)
     await sql.raw(`INSERT INTO execution_items (
       execution_id,item_ordinal,definition_id,executable_plan_hash,oracle_kind,oracle_subject_id
     ) VALUES ('${prefix}-execution',1,'${prefix}-definition','${hash}','subject_observable','${prefix}-subject')`).execute(db)
@@ -625,18 +741,18 @@ async function inspectCanonicalResultDetailGuardBehavior(db: Kysely<any>): Promi
     await sql.raw(`INSERT INTO executions (
       execution_id,project_id,accepted_at,test_set_id,test_set_revision,definition_schema_version,
       model_row_id,model_version,source_observation_id,support_seal_hash,route_evidence_identity_hash,
-      authentication_expectation_identity_hash,manifest_hash,max_run_attempts,dispatch_mode,stop_rule
+      authentication_expectation_identity_hash,manifest_hash,max_run_attempts,dispatch_mode,stop_rule${intentColumns}
     ) VALUES ('${prefix}-execution-b','${prefix}-project','2026-01-01T00:00:00.000Z','${prefix}-set-b',1,2,
-      1,'1.0.0',NULL,'${executionBHash}','${executionBHash}','${executionBHash}','${executionBHash}',1,'serial','stop_on_first_non_completed')`).execute(db)
+      1,'1.0.0',NULL,'${executionBHash}','${executionBHash}','${executionBHash}','${executionBHash}',1,'serial','stop_on_first_non_completed'${intentValues('b', executionBHash)})`).execute(db)
     await sql.raw(`INSERT INTO execution_items (
       execution_id,item_ordinal,definition_id,executable_plan_hash,oracle_kind,oracle_subject_id
     ) VALUES ('${prefix}-execution-b',1,'${prefix}-definition-c','${executionBHash}','subject_observable','${prefix}-subject-c')`).execute(db)
     await sql.raw(`INSERT INTO executions (
       execution_id,project_id,accepted_at,test_set_id,test_set_revision,definition_schema_version,
       model_row_id,model_version,source_observation_id,support_seal_hash,route_evidence_identity_hash,
-      authentication_expectation_identity_hash,manifest_hash,max_run_attempts,dispatch_mode,stop_rule
+      authentication_expectation_identity_hash,manifest_hash,max_run_attempts,dispatch_mode,stop_rule${intentColumns}
     ) VALUES ('${prefix}-execution-c','${prefix}-project-b','2026-01-01T00:00:00.000Z','${prefix}-set-c',1,2,
-      1,'1.0.0',NULL,'${workspaceBHash}','${workspaceBHash}','${workspaceBHash}','${workspaceBHash}',1,'serial','stop_on_first_non_completed')`).execute(db)
+      1,'1.0.0',NULL,'${workspaceBHash}','${workspaceBHash}','${workspaceBHash}','${workspaceBHash}',1,'serial','stop_on_first_non_completed'${intentValues('c', workspaceBHash)})`).execute(db)
     await sql.raw(`INSERT INTO execution_items (
       execution_id,item_ordinal,definition_id,executable_plan_hash,oracle_kind,oracle_subject_id
     ) VALUES ('${prefix}-execution-c',1,'${prefix}-definition-d','${workspaceBHash}','subject_observable','${prefix}-subject-d')`).execute(db)
@@ -802,6 +918,50 @@ async function certifyCanonicalResultDetailGuardsOnSnapshot(
   return certification
 }
 
+async function certifyExecutionIntentGuardsOnSnapshot(db: Kysely<any>): Promise<ExecutionIntentGuardCertification> {
+  let root: string | null = null
+  let snapshot: Kysely<any> | null = null
+  let snapshotSqlite: { close: () => void } | null = null
+  let setupComplete = false
+  let certification: ExecutionIntentGuardCertification = { valid: false, failedGuard: 'snapshot_setup' }
+  try {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-m030-routine-cert-'))
+    const snapshotPath = path.join(root, 'forge.db')
+    await sql`VACUUM INTO ${snapshotPath}`.execute(db)
+    const BetterSqlite3 = require('better-sqlite3')
+    const sqlite = new BetterSqlite3(snapshotPath, { fileMustExist: true })
+    snapshotSqlite = sqlite
+    snapshot = new Kysely<any>({ dialect: new SqliteDialect({ database: sqlite }) })
+    setupComplete = true
+    certification = await inspectExecutionIntentGuardBehavior(snapshot)
+  } catch {
+    certification = { valid: false, failedGuard: setupComplete ? 'verification_environment' : 'snapshot_setup' }
+  } finally {
+    let cleanupFailed = false
+    try {
+      if (snapshot) {
+        await snapshot.destroy()
+        snapshot = null
+        snapshotSqlite = null
+      } else if (snapshotSqlite) {
+        snapshotSqlite.close()
+        snapshotSqlite = null
+      }
+    } catch {
+      cleanupFailed = true
+      try { snapshotSqlite?.close() } catch { cleanupFailed = true }
+    }
+    if (root) {
+      try {
+        fs.rmSync(root, { recursive: true, force: true })
+        if (fs.existsSync(root)) cleanupFailed = true
+      } catch { cleanupFailed = true }
+    }
+    if (cleanupFailed) certification = { valid: false, failedGuard: 'snapshot_cleanup' }
+  }
+  return certification
+}
+
 async function inspectHistoricalObservationImportSchema(db: Kysely<any>): Promise<TableContract> {
   const required = [
     ['table', 'observation_import_sources'],
@@ -935,6 +1095,7 @@ async function assertManagedSchemaHistoryConsistency(
   const canonicalV2ExecutionAuthority = await inspectCanonicalV2ExecutionAuthoritySchema(db)
   const observationGapArtifactSealing = await inspectObservationGapArtifactSealingSchema(db)
   const canonicalResultDetail = await inspectCanonicalResultDetailSchema(db)
+  const canonicalExecutionIntent = await inspectCanonicalExecutionIntentSchema(db)
   const discrepancies: string[] = []
   if (migration016Applied && !activeIndex.valid) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is applied, but ${activeIndex.detail}`)
   else if (!migration016Applied && activeIndex.present) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is pending, but ${activeIndex.detail}`)
@@ -1009,6 +1170,18 @@ async function assertManagedSchemaHistoryConsistency(
   } else if (canonicalResultDetail.present) {
     discrepancies.push(`history says ${CANONICAL_RESULT_DETAIL_MIGRATION} is pending, but ${canonicalResultDetail.detail}`)
   }
+  if (appliedNames.has(CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION)) {
+    if (!canonicalExecutionIntent.valid) {
+      discrepancies.push(`history says ${CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION} is applied, but ${canonicalExecutionIntent.detail}`)
+    } else if (routineSemanticVerification) {
+      const certification = await certifyExecutionIntentGuardsOnSnapshot(db)
+      if (!certification.valid) {
+        discrepancies.push(`history says ${CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION} is applied, but its ${certification.failedGuard ?? 'unknown'} semantic persistence guard could not be established on a disposable snapshot`)
+      }
+    }
+  } else if (canonicalExecutionIntent.present) {
+    discrepancies.push(`history says ${CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION} is pending, but ${canonicalExecutionIntent.detail}`)
+  }
   if (discrepancies.length > 0) throw new MigrationStateMismatchError(discrepancies)
 }
 
@@ -1069,6 +1242,10 @@ async function assertMigrationPostconditions(db: Kysely<any>, migrationName: str
   if (migrationName === CANONICAL_RESULT_DETAIL_MIGRATION) {
     const resultDetail = await inspectCanonicalResultDetailSchema(db, true)
     if (!resultDetail.valid) throw new Error(resultDetail.detail)
+  }
+  if (migrationName === CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION) {
+    const intent = await inspectCanonicalExecutionIntentSchema(db, true)
+    if (!intent.valid) throw new Error(intent.detail)
   }
 }
 

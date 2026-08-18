@@ -12,7 +12,7 @@
 
 import * as path from 'path'
 
-export const CURRENT_PRODUCT_MIGRATION_CEILING = '029_canonical_result_detail_evidence'
+export const CURRENT_PRODUCT_MIGRATION_CEILING = '030_canonical_execution_start_idempotency'
 export const LEGACY_POSTGRES_MIGRATION_CEILING = '020_execution_lifecycle'
 
 export enum DatabaseAuthorityMode {

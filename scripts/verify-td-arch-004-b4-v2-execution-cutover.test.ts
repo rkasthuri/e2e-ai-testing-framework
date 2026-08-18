@@ -16,7 +16,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { closeDb, getDatabaseProvenance, getDb, initDb } from '../src/core/storage/db'
-import { runMigrations } from '../src/core/storage/migrate'
+import { runMigrations, runSqliteMigrationCoordinator } from '../src/core/storage/migrate'
 import { runWithMigrationContext } from '../src/core/storage/MigrationContext'
 import { up as migrateUp, down as migrateDown } from '../src/core/storage/migrations/027_canonical_v2_execution_authority'
 import { generateCanonicalTestSetV2 } from '../src/core/test-design/TestDefinitionContract'
@@ -125,7 +125,7 @@ function service(authentication: ReturnType<typeof auth>, credentialAvailable: b
   }) }
 }
 
-const request = { projectId: 'product', definitionIds: [] as string[], revision: 2, workspaceRoot: 'unused',
+const request = { projectId: 'product', executionIntentKey: 'intent-v2-cutover', definitionIds: [] as string[], revision: 2, workspaceRoot: 'unused',
   credentialReference: { usernameEnv: 'PRODUCT_USERNAME', passwordEnv: 'PRODUCT_PASSWORD' }, runtime: { baseUrl: 'https://example.invalid' } }
 
 test('live eligibility separates auth states, credential availability, and runner availability', async () => {
@@ -154,8 +154,14 @@ test('Migration 027 preserves v1 roots, reapplies, enforces exclusive v2 identit
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-td-arch-004-b4-migration-'))
   initDb(path.join(root, 'forge.db'))
   try {
-    await runMigrations()
-    await runMigrations()
+    const migrationsDirectory = path.resolve(__dirname, '..', 'src', 'core', 'storage', 'migrations')
+    const through026 = Object.fromEntries(fs.readdirSync(migrationsDirectory)
+      .filter(file => file.endsWith('.ts') && file <= '026_canonical_test_definition_v2.ts')
+      .sort()
+      .map(file => [file.replace(/\.ts$/, ''), require(path.join(migrationsDirectory, file))]))
+    await runSqliteMigrationCoordinator(getDb(), through026)
+    const authority = getDatabaseProvenance()
+    await runWithMigrationContext(authority, () => migrateUp(getDb()))
     const base = {
       project_id: 'product', accepted_at: '2026-08-13T10:00:00.000Z', test_set_id: 'test-set', test_set_revision: 1,
       model_row_id: 1, model_version: '1.0.0', manifest_hash: '1'.repeat(64), max_run_attempts: 1,
@@ -165,7 +171,6 @@ test('Migration 027 preserves v1 roots, reapplies, enforces exclusive v2 identit
       ...base, execution_id: 'execution-v1', definition_schema_version: 1, source_observation_id: 'observation-v1',
       support_seal_hash: null, route_evidence_identity_hash: null, authentication_expectation_identity_hash: null,
     }).execute()
-    const authority = getDatabaseProvenance()
     await runWithMigrationContext(authority, () => migrateDown(getDb()))
     const historical = await getDb().selectFrom('executions').selectAll().where('execution_id', '=', 'execution-v1').executeTakeFirstOrThrow() as any
     assert.equal(historical.source_observation_id, 'observation-v1')

@@ -319,7 +319,7 @@ export class ExecutionContext {
         workspaceRoot: this.workspaces.resolve(appName).root,
         credentialReference: credentialStore.read(appName) ?? CredentialStore.defaultReference(appName),
       })
-      if (result.kind === 'accepted') {
+      if (result.kind === 'accepted' && !result.replayed) {
         const completion = result.completion as Promise<void>
         this.activeProductExecution = { appName, executionId: result.executionId, completion }
         void completion.finally(() => {
@@ -330,6 +330,7 @@ export class ExecutionContext {
           executionId: result.executionId,
           startedAt: result.startedAt,
           executionPlanHash: result.executionPlanHash,
+          replayed: false,
         }
       }
       return result

@@ -17,12 +17,12 @@ Database modes, resolution, migration ceilings, legacy import policy, or
 Product workspace scoping changes
 
 Last Verified:
-2026-08-17
+2026-08-18
 
 Verification Baseline:
-`7fbee850504df65aac1e80d2588cdad75ca29c7b` plus the governed, uncommitted
-TD-PRODUCT-001-C migration-029 documentation and code tree; Migration 029 is
-not claimed to exist in that baseline commit.
+Committed `main` at `c52172dd7551f997d46af8e275d1dd32371650bd` plus the
+governed, uncommitted TD-PRODUCT-004-A Migration 030 documentation and code
+tree; Migration 030 is not claimed to exist in that baseline commit.
 
 ---
 
@@ -35,12 +35,18 @@ migration policy, legacy-import eligibility, Product eligibility, and whether
 
 | Mode | Location source | SQLite ceiling | Migration 004 import | Product schema authority | `DB_URL` |
 |---|---|---|---|---|---|
-| `PRODUCT_WORKSPACE` | Exact selected workspace `<root>/.forge/forge.db` | `029_canonical_result_detail_evidence` | Forbidden; migration name is recorded with a governed no-op body | Yes | Ignored |
-| `LEGACY_RUNTIME` | Repository-root `.forge/forge.db`, explicit `DB_PATH`, explicit reporter path, or governed legacy PostgreSQL URL | SQLite: `029_canonical_result_detail_evidence`; PostgreSQL: `020_execution_lifecycle` | Allowed only from the import root captured when authority is established | No, even where compatible tables exist | Allowed |
-| `DISPOSABLE_CERTIFICATION` | Required explicit SQLite path | `029_canonical_result_detail_evidence` | Forbidden; migration name is recorded with a governed no-op body | Eligible only so Product repositories can be certified hermetically | Ignored |
+| `PRODUCT_WORKSPACE` | Exact selected workspace `<root>/.forge/forge.db` | `030_canonical_execution_start_idempotency` | Forbidden; migration name is recorded with a governed no-op body | Yes | Ignored |
+| `LEGACY_RUNTIME` | Repository-root `.forge/forge.db`, explicit `DB_PATH`, explicit reporter path, or governed legacy PostgreSQL URL | SQLite: `030_canonical_execution_start_idempotency`; PostgreSQL: `020_execution_lifecycle` | Allowed only from the import root captured when authority is established | No, even where compatible tables exist | Allowed |
+| `DISPOSABLE_CERTIFICATION` | Required explicit SQLite path | `030_canonical_execution_start_idempotency` | Forbidden; migration name is recorded with a governed no-op body | Eligible only so Product repositories can be certified hermetically | Ignored |
 
 Migration ceilings are explicit constants. Adding a migration does not silently
 expand any authority; the ceiling must move as part of an approved change.
+
+Migration 030 stores Start replay authority on the immutable Execution root.
+Pre-030 Executions retain `NULL` key/fingerprint history. Every new Execution
+must carry a bounded opaque intent key and lowercase SHA-256 semantic request
+fingerprint, unique within `project_id`; no expiry is inferred while the
+Execution row is retained.
 
 ## Entry-point classification
 

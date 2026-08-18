@@ -369,6 +369,9 @@ export interface ExecutionsTable {
   max_run_attempts: number;
   dispatch_mode: string;
   stop_rule: string;
+  // Migration 030: NULL only for historical pre-idempotency executions.
+  execution_intent_key: Generated<string | null>;
+  execution_intent_fingerprint: Generated<string | null>;
 }
 
 export interface ExecutionItemsTable {

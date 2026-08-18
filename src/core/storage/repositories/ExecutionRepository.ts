@@ -50,6 +50,8 @@ export interface BeginExecutionInput {
   processInstanceId: string
   startedAt: string
   executionPlanHash: string
+  executionIntentKey: string
+  executionIntentFingerprint: string
   expectedTestSetId: string
   expectedRevision: number
   expectedTestSetContentHash?: string
@@ -69,6 +71,17 @@ export interface BeginExecutionInput {
   }>
 }
 
+export interface ExecutionIntentReplay {
+  executionId: string
+  acceptedAt: string
+  executionPlanHash: string
+  requestFingerprint: string
+}
+
+export type ExecutionAcceptanceWrite =
+  | { kind: 'accepted' }
+  | ({ kind: 'replayed' } & ExecutionIntentReplay)
+
 export interface ExecutionRecoverySnapshot {
   execution: Execution | null
   items: ExecutionItem[]
@@ -82,6 +95,13 @@ export class DuplicateExecutionError extends Error {
   constructor() {
     super('A Product UI execution is already active for this project.')
     this.name = 'DuplicateExecutionError'
+  }
+}
+
+export class ExecutionIntentConflictError extends Error {
+  constructor() {
+    super('The execution intent key was already accepted with different request semantics.')
+    this.name = 'ExecutionIntentConflictError'
   }
 }
 
@@ -109,6 +129,7 @@ export class ExecutionOwnershipError extends Error {
 }
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/
+const SAFE_INTENT_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const SHA256 = /^[a-f0-9]{64}$/
 
 function exactIso(value: string): boolean {
@@ -134,6 +155,8 @@ function safeInput(input: BeginExecutionInput): boolean {
       && SHA256.test(input.supportSealHash ?? '') && SHA256.test(input.routeEvidenceIdentityHash ?? '')
       && SHA256.test(input.authenticationExpectationIdentityHash ?? '')
   return SAFE_ID.test(input.executionId) && SAFE_ID.test(input.projectId)
+    && SAFE_INTENT_KEY.test(input.executionIntentKey)
+    && SHA256.test(input.executionIntentFingerprint)
     && SAFE_ID.test(input.processInstanceId) && SAFE_ID.test(input.expectedTestSetId)
     && Number.isSafeInteger(input.expectedRevision) && input.expectedRevision > 0
     && Number.isSafeInteger(input.expectedModelRowId) && input.expectedModelRowId > 0
@@ -168,14 +191,52 @@ function terminalMessage(outcome: ExecutionTerminalOutcome): string {
 export class ExecutionRepository {
   constructor(private readonly dbProvider: () => Kysely<Database> = getProductDb) {}
 
-  /** Lock acquisition and the started event are one all-or-nothing transaction. */
-  async beginExecution(input: BeginExecutionInput): Promise<void> {
+  async findExecutionIntent(projectId: string, executionIntentKey: string): Promise<ExecutionIntentReplay | null> {
+    if (!SAFE_ID.test(projectId) || !SAFE_INTENT_KEY.test(executionIntentKey)) {
+      throw new ExecutionPersistenceError('Execution intent lookup is malformed.')
+    }
+    const row = await this.dbProvider().selectFrom('executions')
+      .select(['execution_id', 'accepted_at', 'manifest_hash', 'execution_intent_fingerprint'])
+      .where('project_id', '=', projectId)
+      .where('execution_intent_key', '=', executionIntentKey)
+      .executeTakeFirst()
+    if (!row) return null
+    if (!row.execution_intent_fingerprint || !SHA256.test(row.execution_intent_fingerprint)) {
+      throw new ExecutionPersistenceError('Persisted execution intent authority is malformed.')
+    }
+    return {
+      executionId: row.execution_id,
+      acceptedAt: row.accepted_at,
+      executionPlanHash: row.manifest_hash,
+      requestFingerprint: row.execution_intent_fingerprint,
+    }
+  }
+
+  /** Intent claim, Execution root, manifest, lock, and started event commit atomically. */
+  async beginExecution(input: BeginExecutionInput): Promise<ExecutionAcceptanceWrite> {
     if (!safeInput(input)) {
       throw new ExecutionPersistenceError('Execution acceptance input is malformed.')
     }
     const db = this.dbProvider()
     try {
-      await db.transaction().execute(async trx => {
+      return await db.transaction().execute(async trx => {
+        const replay = await trx.selectFrom('executions')
+          .select(['execution_id', 'accepted_at', 'manifest_hash', 'execution_intent_fingerprint'])
+          .where('project_id', '=', input.projectId)
+          .where('execution_intent_key', '=', input.executionIntentKey)
+          .executeTakeFirst()
+        if (replay) {
+          if (replay.execution_intent_fingerprint !== input.executionIntentFingerprint) {
+            throw new ExecutionIntentConflictError()
+          }
+          return {
+            kind: 'replayed' as const,
+            executionId: replay.execution_id,
+            acceptedAt: replay.accepted_at,
+            executionPlanHash: replay.manifest_hash,
+            requestFingerprint: replay.execution_intent_fingerprint,
+          }
+        }
         const existingLock = await trx.selectFrom('execution_locks')
           .selectAll().where('project_id', '=', input.projectId).executeTakeFirst()
         if (existingLock) throw new DuplicateExecutionError()
@@ -216,6 +277,8 @@ export class ExecutionRepository {
           max_run_attempts: 1,
           dispatch_mode: 'serial',
           stop_rule: 'stop_on_first_non_completed',
+          execution_intent_key: input.executionIntentKey,
+          execution_intent_fingerprint: input.executionIntentFingerprint,
         }).execute()
         await trx.insertInto('execution_items').values(input.manifestItems.map(item => ({
           execution_id: input.executionId,
@@ -245,13 +308,24 @@ export class ExecutionRepository {
           execution_plan_hash: input.executionPlanHash,
           lifecycle: 'accepted',
         }).execute()
+        return { kind: 'accepted' as const }
       })
     } catch (cause) {
       if (cause instanceof DuplicateExecutionError
         || cause instanceof StaleExecutionAuthorityError
-        || cause instanceof ExecutionPersistenceError) throw cause
+        || cause instanceof ExecutionPersistenceError
+        || cause instanceof ExecutionIntentConflictError) throw cause
       const message = cause instanceof Error ? cause.message : String(cause)
-      if (/execution_locks|UNIQUE constraint failed/i.test(message)) throw new DuplicateExecutionError()
+      // A concurrent exact request can win the unique intent claim after this
+      // transaction's lookup. Resolve only the persisted exact replay.
+      if (/uq_executions_project_intent|executions\.project_id, executions\.execution_intent_key|UNIQUE constraint failed/i.test(message)) {
+        const replay = await this.findExecutionIntent(input.projectId, input.executionIntentKey)
+        if (replay) {
+          if (replay.requestFingerprint !== input.executionIntentFingerprint) throw new ExecutionIntentConflictError()
+          return { kind: 'replayed', ...replay }
+        }
+      }
+      if (/execution_locks/i.test(message)) throw new DuplicateExecutionError()
       throw new ExecutionPersistenceError('Atomic execution acceptance failed; no execution identity was persisted.', { cause })
     }
   }

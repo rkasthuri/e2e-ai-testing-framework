@@ -44,9 +44,12 @@ const PASSWORD_REFERENCE = 'SAUCEDEMO_PASSWORD'
 let modelRowId = 0
 let definition: CanonicalTestDefinition
 let testSetId = ''
+let executionIntentOrdinal = 0
 
 function manifest(executablePlanHash: string) {
   return {
+    executionIntentKey: `intent-direct-${executablePlanHash.slice(0, 12)}`,
+    executionIntentFingerprint: executablePlanHash,
     sourceObservationId: OBSERVATION,
     manifestItems: [{ itemOrdinal: 1, definitionId: 'definition-direct', executablePlanHash }],
   }
@@ -90,6 +93,7 @@ function designInput(): TestDesignAuthorityInput {
 function request(overrides: Partial<GovernedExecutionStartRequest> = {}): GovernedExecutionStartRequest {
   return {
     projectId: PROJECT,
+    executionIntentKey: `intent-service-${++executionIntentOrdinal}`,
     definitionIds: [definition.id],
     revision: 1,
     preflightState: 'ready',

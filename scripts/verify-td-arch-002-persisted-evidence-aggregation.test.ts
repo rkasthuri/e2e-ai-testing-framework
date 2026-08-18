@@ -114,6 +114,8 @@ function evidence(
     max_run_attempts: 1,
     dispatch_mode: 'serial',
     stop_rule: 'stop_on_first_non_completed',
+    execution_intent_key: `intent-${suffix}`,
+    execution_intent_fingerprint: hash(`intent:${suffix}`),
   }
   const results: TestResult[] = outcomes.map((outcome, index) => ({
     id: index + 1,

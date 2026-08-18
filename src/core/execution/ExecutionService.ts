@@ -15,10 +15,13 @@ import { runMigrations } from '../storage/migrate'
 import { assertProductDatabaseAuthority } from '../storage/db'
 import {
   DuplicateExecutionError,
+  ExecutionIntentConflictError,
   ExecutionRepository,
   StaleExecutionAuthorityError,
   type ExecutionTerminalOutcome,
   type CancellationRequestWrite,
+  type ExecutionAcceptanceWrite,
+  type ExecutionIntentReplay,
 } from '../storage/repositories/ExecutionRepository'
 import { TestSetRepository, type TestInventoryRead } from '../storage/repositories/TestSetRepository'
 import {
@@ -54,6 +57,7 @@ import {
 
 const PROCESS_INSTANCE_ID = `process-${crypto.randomUUID()}`
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/
+const SAFE_INTENT_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 
 export type ExecutionStartRejectionCode =
   | 'empty_selection'
@@ -71,12 +75,14 @@ export type ExecutionStartRejectionCode =
   | 'conflicting_evidence'
   | 'preflight_source_invalid'
   | 'execution_already_active'
+  | 'execution_intent_conflict'
   | 'execution_persistence_unavailable'
 
 export interface GovernedExecutionStartRequest {
   projectId: string
+  executionIntentKey: string
   definitionIds: string[]
-  revision: number
+  revision?: number
   workspaceRoot: string
   credentialReference: CredentialReference
   runtime: { baseUrl: string; loginUrl?: string; navigationTimeoutMs?: number }
@@ -92,6 +98,7 @@ export type ExecutionStartResult =
       executionId: string
       startedAt: string
       executionPlanHash: string
+      replayed: boolean
       completion: Promise<void>
     }
   | { kind: 'rejected'; code: ExecutionStartRejectionCode; safeMessage: string }
@@ -105,7 +112,8 @@ interface DefinitionReader {
 }
 
 interface LifecycleRepository {
-  beginExecution(input: Parameters<ExecutionRepository['beginExecution']>[0]): Promise<void>
+  findExecutionIntent(projectId: string, executionIntentKey: string): Promise<ExecutionIntentReplay | null>
+  beginExecution(input: Parameters<ExecutionRepository['beginExecution']>[0]): Promise<ExecutionAcceptanceWrite>
   heartbeat(projectId: string, executionId: string, processInstanceId: string, occurredAt: string): Promise<void>
   completeExecution(projectId: string, executionId: string, processInstanceId: string, completedAt: string): Promise<void>
   failExecution(
@@ -184,6 +192,15 @@ function selectionHash(plans: MaterializedExecutablePlan[]): string {
   return crypto.createHash('sha256').update(semanticSelection).digest('hex')
 }
 
+export function executionIntentFingerprint(input: Pick<GovernedExecutionStartRequest, 'projectId' | 'definitionIds' | 'revision'>): string {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    schemaVersion: 1,
+    projectId: input.projectId,
+    revision: input.revision ?? null,
+    definitionIds: input.definitionIds,
+  })).digest('hex')
+}
+
 function routeSelectionIdentity(plans: MaterializedExecutablePlan[]): string {
   const identities = plans.map(plan => plan.value.schemaVersion === 2
     ? plan.value.provenance.routeEvidenceIdentityHash : '')
@@ -244,23 +261,43 @@ export class ExecutionService {
     if (!Array.isArray(request.definitionIds) || request.definitionIds.length === 0) {
       return reject('empty_selection', 'At least one current-revision definition must be selected.')
     }
-    if (!SAFE_ID.test(request.projectId) || request.definitionIds.length > 50
+    if (!SAFE_ID.test(request.projectId) || !SAFE_INTENT_KEY.test(request.executionIntentKey)
+      || request.definitionIds.length > 50
       || request.definitionIds.some(id => !SAFE_ID.test(id))
       || new Set(request.definitionIds).size !== request.definitionIds.length
-      || !Number.isSafeInteger(request.revision) || request.revision < 1
+      || request.revision !== undefined && (!Number.isSafeInteger(request.revision) || request.revision < 1)
       || this.v1ExecutionPolicy !== 'historical_compatibility'
         && (typeof request.workspaceRoot !== 'string' || request.workspaceRoot.length < 1)) {
       return reject('invalid_request', 'The governed execution request is malformed.')
     }
-    if (this.activeExecutions.has(request.projectId)) {
-      return reject('execution_already_active', 'A Product UI execution is already active for this project.')
-    }
-
+    const requestFingerprint = executionIntentFingerprint(request)
+    const replayResult = (replay: ExecutionIntentReplay): ExecutionStartResult => replay.requestFingerprint === requestFingerprint
+      ? {
+          kind: 'accepted', executionId: replay.executionId, startedAt: replay.acceptedAt,
+          executionPlanHash: replay.executionPlanHash, replayed: true, completion: Promise.resolve(),
+        }
+      : reject('execution_intent_conflict', 'The execution intent key was already accepted with different request semantics.')
     try {
       assertProductDatabaseAuthority()
       await this.migrate()
     } catch {
       return reject('execution_persistence_unavailable', 'The workspace execution schema could not be established safely.')
+    }
+
+    try {
+      const replay = await this.repository.findExecutionIntent(request.projectId, request.executionIntentKey)
+      if (replay) return replayResult(replay)
+    } catch {
+      return reject('execution_persistence_unavailable', 'Execution replay authority could not be read safely.')
+    }
+    if (this.activeExecutions.has(request.projectId)) {
+      try {
+        const replay = await this.repository.findExecutionIntent(request.projectId, request.executionIntentKey)
+        if (replay) return replayResult(replay)
+      } catch {
+        return reject('execution_persistence_unavailable', 'Execution replay authority could not be read safely.')
+      }
+      return reject('execution_already_active', 'A Product UI execution is already active for this project.')
     }
 
     const preflight = await this.preflight(request)
@@ -286,10 +323,16 @@ export class ExecutionService {
         locallyActive: this.activeExecutions.has(request.projectId),
         now: startedAt,
       })
-      if (existing?.action === 'untouched_active') throw new DuplicateExecutionError()
-      await this.repository.beginExecution({
+      if (existing?.action === 'untouched_active') {
+        const replay = await this.repository.findExecutionIntent(request.projectId, request.executionIntentKey)
+        if (replay) return replayResult(replay)
+        throw new DuplicateExecutionError()
+      }
+      const acceptance = await this.repository.beginExecution({
         executionId,
         projectId: request.projectId,
+        executionIntentKey: request.executionIntentKey,
+        executionIntentFingerprint: requestFingerprint,
         processInstanceId: this.processInstanceId,
         startedAt,
         executionPlanHash,
@@ -311,18 +354,20 @@ export class ExecutionService {
           oracleSubjectId: plan.value.oracle.subjectId,
         })),
       })
+      if (acceptance.kind === 'replayed') return replayResult(acceptance)
     } catch (cause) {
       if (cause instanceof DuplicateExecutionError) {
         return reject('execution_already_active', 'A Product UI execution is already active for this project.')
       }
       if (cause instanceof StaleExecutionAuthorityError) return reject(cause.code, cause.message)
+      if (cause instanceof ExecutionIntentConflictError) return reject('execution_intent_conflict', cause.message)
       return reject('execution_persistence_unavailable', 'Atomic execution acceptance did not commit.')
     }
 
     this.activeExecutions.add(request.projectId)
     this.cancellationTokens.set(executionId, { projectId: request.projectId, token: cancellation })
     const completion = this.runAccepted(request, executionId, plans, cancellation)
-    return { kind: 'accepted', executionId, startedAt, executionPlanHash, completion }
+    return { kind: 'accepted', executionId, startedAt, executionPlanHash, replayed: false, completion }
   }
 
   async preflight(request: GovernedExecutionStartRequest): Promise<ExecutionPreflightResult> {
@@ -331,7 +376,7 @@ export class ExecutionService {
     catch { return { kind: 'rejected', code: 'preflight_source_invalid', safeMessage: 'The current test-definition authority could not be re-read safely.' } }
     if ('kind' in inventory || !inventory.current) return { kind: 'rejected', code: 'stale_definition', safeMessage: 'No current Test Set revision is available for execution.' }
     const current = inventory.current
-    if (current.testSet.revision !== request.revision) return { kind: 'rejected', code: 'stale_definition', safeMessage: 'The requested Test Set revision is no longer current.' }
+    if (request.revision !== undefined && current.testSet.revision !== request.revision) return { kind: 'rejected', code: 'stale_definition', safeMessage: 'The requested Test Set revision is no longer current.' }
     if (current.testSet.schemaVersion === 1) {
       if (this.v1ExecutionPolicy !== 'historical_compatibility') return { kind: 'rejected', code: 'legacy_provenance_unsupported', safeMessage: 'Historical v1 definitions remain readable but are not eligible for new Product execution.' }
       const readiness = this.runnerReadiness()

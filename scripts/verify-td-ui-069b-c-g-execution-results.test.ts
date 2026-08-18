@@ -88,6 +88,8 @@ async function fixture(options: FixtureOptions): Promise<{ projectId: string; ex
     max_run_attempts: 1,
     dispatch_mode: 'serial',
     stop_rule: 'stop_on_first_non_completed',
+    execution_intent_key: `intent-${options.suffix}`,
+    execution_intent_fingerprint: rootHash,
   }).execute()
   await db.insertInto('execution_items').values(hashes.map((planHash, index) => ({
     execution_id: executionId,

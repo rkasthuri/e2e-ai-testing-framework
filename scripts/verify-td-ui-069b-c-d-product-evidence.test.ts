@@ -113,6 +113,7 @@ async function authority(suffix: string): Promise<Authority> {
     plan: projected.plan,
     request: {
       projectId,
+      executionIntentKey: `intent-${suffix}`,
       definitionIds: [definition.id],
       revision: 1,
       preflightState: 'ready',
@@ -170,6 +171,7 @@ async function admitWithoutResult(suffix: string): Promise<{ authority: Authorit
   const executionId = `execution-${suffix}`
   await new ExecutionRepository().beginExecution({
     executionId, projectId: context.projectId, processInstanceId: PROCESS,
+    executionIntentKey: `intent-direct-${suffix}`, executionIntentFingerprint: context.plan.fingerprint,
     startedAt: NOW, executionPlanHash: context.plan.fingerprint,
     expectedTestSetId: context.testSetId, expectedRevision: 1, expectedModelRowId: context.modelRowId,
     expectedModelVersion: '1.0.0', sourceObservationId: `observation-${suffix}`,
@@ -735,6 +737,7 @@ test('TD069B-C-D-5 duplicate Result append is rejected and cannot overwrite the 
   const repository = new ExecutionRepository()
   await repository.beginExecution({
     executionId: 'execution-duplicate-result', projectId: context.projectId, processInstanceId: PROCESS,
+    executionIntentKey: 'intent-duplicate-result', executionIntentFingerprint: context.plan.fingerprint,
     startedAt: NOW, executionPlanHash: context.plan.fingerprint,
     expectedTestSetId: context.testSetId, expectedRevision: 1, expectedModelRowId: context.modelRowId,
     expectedModelVersion: '1.0.0', sourceObservationId: 'observation-duplicate-result',

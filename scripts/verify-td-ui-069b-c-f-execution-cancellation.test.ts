@@ -108,7 +108,7 @@ async function authority(suffix: string, itemCount = 1): Promise<Authority> {
   return {
     projectId, plans, testSetId: generated.testSet.testSetId, modelRowId, observationId,
     request: {
-      projectId, definitionIds: generated.testSet.definitions.map(definition => definition.id), revision: 1,
+      projectId, executionIntentKey: `intent-${suffix}`, definitionIds: generated.testSet.definitions.map(definition => definition.id), revision: 1,
       preflightState: 'ready', projectionAuthority: {
         sourceObservation: projectionAuthority.sourceObservation,
         model: projectionAuthority.model,
@@ -142,6 +142,7 @@ async function beginDirect(context: Authority, executionId: string, startedAt = 
     : require('crypto').createHash('sha256').update(JSON.stringify({ schemaVersion: 1, planFingerprints: context.plans.map(plan => plan.fingerprint) })).digest('hex')
   await new ExecutionRepository().beginExecution({
     executionId, projectId: context.projectId, processInstanceId: process, startedAt,
+    executionIntentKey: `intent-direct-${executionId}`, executionIntentFingerprint: hash,
     executionPlanHash: hash, expectedTestSetId: context.testSetId, expectedRevision: 1,
     expectedModelRowId: context.modelRowId, expectedModelVersion: '1.0.0', sourceObservationId: context.observationId,
     manifestItems: context.plans.map((plan, index) => ({

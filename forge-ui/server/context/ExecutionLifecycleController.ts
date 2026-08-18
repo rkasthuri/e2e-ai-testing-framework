@@ -12,17 +12,31 @@
 
 import { fail, ok } from '../http'
 import { executionContext } from './ExecutionContext'
-import { parseExecutionSelection, readExecutionPreflight } from './ExecutionPreflightController'
 
 export interface ExecutionLifecycleHttpResult { status: number; body: unknown }
 type Project = { appName: string; url: string }
 
-function record(value: unknown): Record<string, any> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : null
-}
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/
+const SAFE_INTENT_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 
-function envelopeData(result: ExecutionLifecycleHttpResult): Record<string, any> | null {
-  return result.status === 200 ? record(record(result.body)?.data) : null
+type StartRequest = { executionIntentKey: string; definitionIds: string[]; revision?: number }
+type StartResult =
+  | { kind: 'accepted'; executionId: string; startedAt: string; executionPlanHash: string; replayed: boolean }
+  | { kind: 'rejected'; code: string; safeMessage: string }
+
+function parseStartRequest(body: unknown): StartRequest | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null
+  const value = body as Record<string, unknown>
+  if (Object.keys(value).some(key => !['executionIntentKey', 'definitionIds', 'revision'].includes(key))
+    || typeof value.executionIntentKey !== 'string' || !SAFE_INTENT_KEY.test(value.executionIntentKey)
+    || !Array.isArray(value.definitionIds) || value.definitionIds.length > 50
+    || value.definitionIds.some(id => typeof id !== 'string' || !SAFE_ID.test(id))
+    || value.revision !== undefined && (!Number.isSafeInteger(value.revision) || Number(value.revision) < 1)) return null
+  return {
+    executionIntentKey: value.executionIntentKey,
+    definitionIds: value.definitionIds as string[],
+    ...(value.revision === undefined ? {} : { revision: Number(value.revision) }),
+  }
 }
 
 function rejectionStatus(code: string): number {
@@ -35,6 +49,7 @@ function rejectionStatus(code: string): number {
 function rejectionCode(code: string): string {
   switch (code) {
     case 'execution_already_active': return 'EXECUTION_ALREADY_ACTIVE'
+    case 'execution_intent_conflict': return 'EXECUTION_INTENT_CONFLICT'
     case 'stale_definition': return 'PREFLIGHT_STALE_DEFINITION'
     case 'incompatible_definition': return 'PREFLIGHT_INCOMPATIBLE_DEFINITION'
     case 'legacy_provenance_unsupported': return 'PREFLIGHT_LEGACY_PROVENANCE_UNSUPPORTED'
@@ -65,30 +80,19 @@ export async function startExecution(
 ): Promise<ExecutionLifecycleHttpResult> {
   const project = await resolveProject(appName)
   if (!project) return { status: 404, body: fail('Project not found', 'NOT_FOUND') }
-  const selection = parseExecutionSelection(body)
+  const selection = parseStartRequest(body)
   if (!selection) return { status: 400, body: fail('Invalid execution request.', 'INVALID_EXECUTION_REQUEST') }
   if (selection.definitionIds.length === 0) {
     return { status: 400, body: fail('At least one current-revision definition must be selected.', 'PREFLIGHT_EMPTY_SELECTION') }
   }
 
-  const preflight = await readExecutionPreflight(appName, body, async () => project)
-  if (preflight.status !== 200) return preflight
-  const preflightData = envelopeData(preflight)
-  const aggregate = record(preflightData?.aggregate)
-  if (!aggregate || aggregate.state !== 'ready') {
-    const state = typeof aggregate?.state === 'string' ? aggregate.state : 'source_invalid'
-    const message = typeof aggregate?.explanation === 'string'
-      ? aggregate.explanation
-      : 'Execution preflight could not establish a ready verdict.'
-    return { status: 409, body: fail(message, `PREFLIGHT_${state.toUpperCase()}`) }
-  }
-
   try {
     const result = await executionContext.startProductExecution(appName, {
+      executionIntentKey: selection.executionIntentKey,
       definitionIds: selection.definitionIds,
-      revision: selection.revision ?? Number(preflightData?.testSetRevision?.revision),
+      ...(selection.revision === undefined ? {} : { revision: selection.revision }),
       runtime: { baseUrl: project.url, loginUrl: project.url },
-    }) as any
+    }) as StartResult
     if (result.kind !== 'accepted') {
       return {
         status: rejectionStatus(result.code),
@@ -102,6 +106,7 @@ export async function startExecution(
         state: 'accepted',
         startedAt: result.startedAt,
         executionPlanHash: result.executionPlanHash,
+        replayed: result.replayed,
       }),
     }
   } catch {
