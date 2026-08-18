@@ -2,31 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-06T23-15-27",
-      "timestamp": "2026-07-06T23:15:46.503Z",
-      "durationMs": 439126,
-      "stats": {
-        "total": 316,
-        "passed": 315,
-        "failed": 0,
-        "flaky": 1,
-        "skipped": 0,
-        "passRate": "100.0%"
-      },
-      "failures": [],
-      "flakyTests": [
-        {
-          "testTitle": "TC040 - Session persists after page refresh and browser navigation",
-          "file": "desktop/ui/saucedemo/tests/migrated/tc040-login.spec.ts",
-          "browser": "webkit",
-          "retries": 1,
-          "durationMs": 8753
-        }
-      ],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
       "runId": "2026-07-06T23-43-45",
       "timestamp": "2026-07-06T23:44:03.168Z",
       "durationMs": 431831,
@@ -1943,6 +1918,23 @@
           "durationMs": 46310
         }
       ],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-18T15-47-49",
+      "timestamp": "2026-08-18T15:49:23.830Z",
+      "durationMs": 450810,
+      "stats": {
+        "total": 316,
+        "passed": 316,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
       "inputHealth": "healthy",
       "inputHealthReason": null
     }
