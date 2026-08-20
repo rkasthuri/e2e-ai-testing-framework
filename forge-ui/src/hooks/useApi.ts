@@ -16,20 +16,34 @@ import {
   fetchCanonicalExecutionResultsDetail,
   fetchCanonicalExecutionResultsList,
 } from '../api/resultsClient'
+import {
+  cancelCanonicalExecution,
+  canonicalExecutionStatusQueryKey,
+  fetchCanonicalExecutionPreflight,
+  fetchCanonicalExecutionStatus,
+} from '../api/executionClient'
 import type {
   OnboardRequest, OnboardResponse, Project, Detection, CrawlRequest, CrawlStatus,
   CrawlProjectContext, ObservationRecord, ObservationHistoryResponse, ApplicationModelHistoryResponse,
   EvidenceLedgerResponse, EvidenceLedgerSourceClass, EvidenceLedgerSupport, EvidenceLedgerIntegrity,
   ApplicationReadinessResponse,
   TestInventoryResponse, TestGenerationResponse, TestGenerationStatusResponse,
-  GenerationManifest, TestFileContent, ExecutionPreflightResponse,
+  GenerationManifest, TestFileContent,
 } from '../api/types'
+import type { RunIntentController } from '../pages/runIntentState'
 
 /** GET /api/v1/projects — the project switcher + lists consume this. */
 export function useProjects() {
   return useQuery({
     queryKey: ['projects'],
     queryFn: () => apiClient.get<{ projects: Project[] }>('/api/v1/projects'),
+  })
+}
+
+/** Start is a controller-owned operation; no request or authority token crosses the hook boundary. */
+export function useStartCanonicalExecution(controller: RunIntentController | null) {
+  return useMutation({
+    mutationFn: () => controller ? controller.start() : Promise.reject(new Error('Run Start controller is unavailable.')),
   })
 }
 
@@ -302,13 +316,52 @@ export function useExecutionPreflight(
   enabled: boolean,
 ) {
   return useQuery({
-    queryKey: ['execution-preflight', appName, definitionIds, revision],
-    queryFn: () => apiClient.post<ExecutionPreflightResponse>(
-      `/api/v1/projects/${encodeURIComponent(appName!)}/execution/preflight`,
-      { definitionIds, revision },
-    ),
+    queryKey: executionPreflightQueryKey(appName, definitionIds, revision),
+    queryFn: () => fetchCanonicalExecutionPreflight(appName!, definitionIds, revision!),
     enabled: !!appName && enabled,
     retry: false,
+  })
+}
+
+/** Exact ordered cache identity for canonical Product execution preflight authority. */
+export function executionPreflightQueryKey(
+  appName: string | null,
+  definitionIds: readonly string[],
+  revision: number | null,
+) {
+  return ['execution-preflight', appName, [...definitionIds], revision] as const
+}
+
+/**
+ * Durable lifecycle authority. React Query serializes each query's requests;
+ * polling remains active only while canonical lifecycle can still change.
+ */
+export function useCanonicalExecutionStatus(
+  appName: string | null,
+  executionId: string | null,
+  queryAuthority: object | null = null,
+) {
+  return useQuery({
+    queryKey: canonicalExecutionStatusQueryKey(appName, executionId),
+    queryFn: () => fetchCanonicalExecutionStatus(appName!, executionId!, queryAuthority ?? undefined),
+    enabled: !!appName && !!executionId,
+    retry: false,
+    structuralSharing: false,
+    refetchInterval: query => query.state.status === 'error' || query.state.data?.terminal ? false : 1_500,
+  })
+}
+
+/** Durable cancellation intent; lifecycle is reconciled by the subsequent status read. */
+export function useCancelCanonicalExecution(appName: string, executionId: string | null) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => cancelCanonicalExecution(appName, executionId!),
+    onSettled: async () => {
+      if (!executionId) return
+      await qc.invalidateQueries({ queryKey: canonicalExecutionStatusQueryKey(appName, executionId) })
+      await qc.invalidateQueries({ queryKey: ['canonical-execution-result-detail', appName, executionId] })
+      await qc.invalidateQueries({ queryKey: ['canonical-execution-results', appName] })
+    },
   })
 }
 
@@ -323,15 +376,28 @@ export function useCanonicalExecutionResults(appName: string | null, limit = 25)
 }
 
 /** One canonical Product Execution → Run → Result projection. */
+export type CanonicalExecutionDetailPhase = 'live' | 'terminal'
+
+export function canonicalExecutionDetailQueryKey(
+  appName: string | null,
+  executionId: string | null,
+  phase: CanonicalExecutionDetailPhase,
+) {
+  return ['canonical-execution-result-detail', appName, executionId, phase] as const
+}
+
 export function useCanonicalExecutionResultDetail(
   appName: string | null,
   executionId: string | null,
+  monitor = false,
+  phase: CanonicalExecutionDetailPhase = 'live',
 ) {
   return useQuery({
-    queryKey: ['canonical-execution-result-detail', appName, executionId],
+    queryKey: canonicalExecutionDetailQueryKey(appName, executionId, phase),
     queryFn: () => fetchCanonicalExecutionResultsDetail(appName!, executionId!),
     enabled: !!appName && !!executionId,
     retry: false,
+    refetchInterval: query => monitor && query.state.status !== 'error' ? 1_500 : false,
   })
 }
 

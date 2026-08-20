@@ -28,9 +28,9 @@ Git history records the resulting commit identity.
 
 Current Verification Context:
 Reverified on 2026-08-18 against committed `main` at
-`c52172dd7551f997d46af8e275d1dd32371650bd` plus the governed, uncommitted
-TD-PRODUCT-004-A Migration 030 documentation and code tree. This statement
-does not claim that the uncommitted tree exists in the named commit.
+`44f140bab0b1dd5a11b4cf1dcf4c22373f628e02`, including committed
+TD-PRODUCT-004-A Migration 030 authority. Uncommitted Product work is not
+included in this verification claim.
 
 ---
 

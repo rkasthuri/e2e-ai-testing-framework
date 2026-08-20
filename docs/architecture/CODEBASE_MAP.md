@@ -207,8 +207,14 @@ Authoritative Product execution preflight is owned by
 identity and delegates to core; it does not compose execution authority.
 `forge-ui/server/registry/ExecutionPreflightPresenter.ts` remains a
 compatibility-era read presenter and is not the active Product authority.
-`forge-ui/src/pages/RunPage.tsx` renders v2 eligibility only and has no runner
-invocation or persistence path.
+`forge-ui/src/pages/RunPage.tsx` submits canonical user intent through the
+typed execution client, monitors durable lifecycle, requests cancellation,
+and links terminal Executions to canonical Results. It neither invokes the
+runner nor persists or reconstructs Execution, Run, Result, recovery, or
+evidence authority. `ExecutionLifecycleController.ts` remains the transport
+boundary for Start, status, and cancellation; `ExecutionService.ts` owns
+acceptance, durable idempotent replay, execution, and cancellation while
+invoking the sole `ExecutionRecoveryCoordinator` on canonical status reads.
 
 For the canonical crawl path, `forge-ui/server/routes/crawl.ts` owns transport
 identity and orchestration only. `src/core/observation/ObservationService.ts`,

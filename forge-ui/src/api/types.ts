@@ -855,18 +855,3 @@ export interface ExecutionPreflightResponse {
   }
   boundaries: { generationAuthority: 'established' | 'not_established'; executionEligibility: 'eligible' | 'blocked'; persisted: false }
 }
-
-// --- TD-PRODUCT-004-A canonical execution Start intent/replay boundary ---
-export interface CanonicalExecutionStartRequest {
-  executionIntentKey: string
-  definitionIds: string[]
-  revision?: number
-}
-
-export interface CanonicalExecutionStartAccepted {
-  executionId: string
-  state: 'accepted'
-  startedAt: string
-  executionPlanHash: string
-  replayed: boolean
-}
