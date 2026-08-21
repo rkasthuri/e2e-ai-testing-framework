@@ -2,23 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-07T13-57-12",
-      "timestamp": "2026-07-07T13:57:37.906Z",
-      "durationMs": 452316,
-      "stats": {
-        "total": 316,
-        "passed": 316,
-        "failed": 0,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "100.0%"
-      },
-      "failures": [],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
       "runId": "2026-07-07T14-38-14",
       "timestamp": "2026-07-07T14:38:36.510Z",
       "durationMs": 453175,
@@ -1934,6 +1917,36 @@
         "passRate": "100.0%"
       },
       "failures": [],
+      "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-21T06-33-15",
+      "timestamp": "2026-08-21T06:34:33.058Z",
+      "durationMs": 402507,
+      "stats": {
+        "total": 320,
+        "passed": 319,
+        "failed": 1,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "99.7%"
+      },
+      "failures": [
+        {
+          "testTitle": "TC066 - Filter bookings by checkin and checkout date parameters",
+          "suiteName": "desktop/api/restful-booker/tests/migrated/tc066-api.spec.ts > API - Booking Date Filter Tests",
+          "file": "desktop/api/restful-booker/tests/migrated/tc066-api.spec.ts",
+          "browser": "api",
+          "priority": "Unknown",
+          "verdict": "test-defect",
+          "confidence": "High",
+          "reasoning": "NaN in a date comparison indicates the test failed to properly parse or extract date data from the API response before performing the assertion.",
+          "suggestedAction": "Review line 50 of tc066-api.spec.ts to verify the date parsing logic correctly extracts and converts checkin/checkout dates from the API response to timestamps before comparison.",
+          "errorMessage": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThanOrEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: >= \u001b[32m1704067200000\u001b[39m\nReceived:    \u001b[31mNaN\u001b[39m"
+        }
+      ],
       "flakyTests": [],
       "inputHealth": "healthy",
       "inputHealthReason": null
