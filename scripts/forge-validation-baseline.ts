@@ -18,8 +18,10 @@
  * migrations, generate tests, or invoke the adaptive FORGE pipeline.
  */
 import { spawnSync } from 'child_process'
+import { randomUUID } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as os from 'os'
 import * as dotenv from 'dotenv'
 import {
   aggregateValidationStatus,
@@ -33,6 +35,13 @@ import {
   ValidationStatus,
 } from '../src/core/validation/ValidationBaseline'
 import { resolveSqlitePath } from '../src/core/storage/db'
+import {
+  canonicalGovernedReportEvidence,
+  openProductionGovernanceSidecar,
+  type AcceptedGovernedInvocation,
+  type GovernanceValidationSidecarHandle,
+  type GovernedInvocationExpectation,
+} from './governance-validation-sidecar'
 
 const ROOT = path.resolve(__dirname, '..')
 const SAUCEDEMO_URL = 'https://www.saucedemo.com'
@@ -69,6 +78,7 @@ export type CommandExecutor = (spec: CommandSpec) => CommandExecution
 
 interface CliOptions {
   profile: ValidationProfile
+  governedTargetId: string
   databasePath: string
   reportPath: string
   baselinePath: string | null
@@ -126,6 +136,7 @@ export function parseOptions(args: string[]): CliOptions {
   }
   return {
     profile,
+    governedTargetId: optionValue(args, '--governed-target') ?? profile,
     databasePath,
     reportPath,
     baselinePath: baselineValue ? path.resolve(baselineValue) : null,
@@ -200,34 +211,60 @@ export function sauceDemoCommandSpec(): CommandSpec {
   }
 }
 
-export const executeCommand: CommandExecutor = spec => {
-  console.log(`\n[validation] ${spec.id}`)
-  console.log(`[validation] ${spec.command} ${spec.args.join(' ')}`)
-  const result = spawnSync(spec.command, spec.args, {
-    cwd: spec.cwd,
-    env: { ...process.env, CI: '1', FORGE_VALIDATION_MODE: '1' },
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-    shell: false,
-    windowsHide: true,
+interface ValidationInvocationContext {
+  readonly root: string
+  readonly childEnvironment: NodeJS.ProcessEnv
+}
+
+function createValidationInvocationContext(): ValidationInvocationContext {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-governed-baseline-'))
+  const parsedRoot = path.parse(root).root
+  const childEnvironment: NodeJS.ProcessEnv = Object.freeze({
+    ...process.env,
+    CI: '1',
+    FORGE_VALIDATION_MODE: '1',
+    HOME: root,
+    USERPROFILE: root,
+    HOMEDRIVE: parsedRoot.replace(/\\$/, ''),
+    HOMEPATH: process.platform === 'win32'
+      ? root.slice(Math.max(0, parsedRoot.length - 1))
+      : root,
+    TMP: root,
+    TEMP: root,
   })
-  const stdout = result.stdout ?? ''
-  const stderr = result.stderr ?? ''
-  if (stdout) process.stdout.write(stdout)
-  if (stderr) process.stderr.write(stderr)
-  return {
-    exitCode: result.status,
-    signal: result.signal,
-    error: result.error?.message ?? null,
-    stdout,
-    stderr,
-    termination: result.signal
-      ? 'signal'
-      : result.status !== null
-        ? 'exit'
-        : result.error
-          ? 'spawn-error'
-          : 'unknown',
+  return Object.freeze({ root, childEnvironment })
+}
+
+function createCommandExecutor(context: ValidationInvocationContext): CommandExecutor {
+  return spec => {
+    console.log(`\n[validation] ${spec.id}`)
+    console.log(`[validation] ${spec.command} ${spec.args.join(' ')}`)
+    const result = spawnSync(spec.command, spec.args, {
+      cwd: spec.cwd,
+      env: context.childEnvironment,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      shell: false,
+      windowsHide: true,
+    })
+    const stdout = result.stdout ?? ''
+    const stderr = result.stderr ?? ''
+    if (stdout) process.stdout.write(stdout)
+    if (stderr) process.stderr.write(stderr)
+    return {
+      exitCode: result.status,
+      signal: result.signal,
+      error: result.error?.message ?? null,
+      stdout,
+      stderr,
+      termination: result.signal
+        ? 'signal'
+        : result.status !== null
+          ? 'exit'
+          : result.error
+            ? 'spawn-error'
+            : 'unknown',
+    }
   }
 }
 
@@ -409,11 +446,13 @@ async function productGate(executor: CommandExecutor): Promise<ValidationGateRes
   return commandResult(spec, executor(spec))
 }
 
-function gitOutput(args: string[]): string {
+function gitOutput(args: string[], childEnvironment: NodeJS.ProcessEnv): string {
   const result = spawnSync('git', args, {
     cwd: ROOT,
+    env: childEnvironment,
     encoding: 'utf8',
     shell: false,
+    windowsHide: true,
   })
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.error?.message || 'unknown error'}`)
@@ -421,8 +460,9 @@ function gitOutput(args: string[]): string {
   return result.stdout.trim()
 }
 
-function loadBaseline(filePath: string): ValidationReport {
-  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as ValidationReport
+function loadReferenceBaseline(filePath: string): ValidationReport {
+  const contents = fs.readFileSync(filePath, 'utf8')
+  const parsed = JSON.parse(contents) as ValidationReport
   if (parsed.schemaVersion !== 'forge-validation-baseline/v1' || !Array.isArray(parsed.gates)) {
     throw new Error(`Not a FORGE validation baseline report: ${filePath}`)
   }
@@ -519,12 +559,13 @@ export function humanGate(
   })
 }
 
-export async function buildValidationReport(
+async function buildValidationReport(
   options: CliOptions,
-  executor: CommandExecutor = executeCommand,
+  executor: CommandExecutor,
+  childEnvironment: NodeJS.ProcessEnv,
 ): Promise<ValidationReport> {
-  const commit = gitOutput(['rev-parse', 'HEAD'])
-  const dirty = gitOutput(['status', '--short']).length > 0
+  const commit = gitOutput(['rev-parse', 'HEAD'], childEnvironment)
+  const dirty = gitOutput(['status', '--short'], childEnvironment).length > 0
   const gates = profileCommandSpecs(options.profile)
     .map(spec => commandResult(spec, executor(spec)))
 
@@ -564,7 +605,7 @@ export async function buildValidationReport(
   }
 
   gates.push(humanGate(options.profile, options.humanAttestationPath, commit))
-  const baselineReport = options.baselinePath ? loadBaseline(options.baselinePath) : undefined
+  const baselineReport = options.baselinePath ? loadReferenceBaseline(options.baselinePath) : undefined
   const classified = classifyAgainstBaseline(gates, {
     establishBaseline: options.establishBaseline,
     baselineReport,
@@ -614,7 +655,140 @@ function printSummary(report: ValidationReport, reportPath: string): void {
     }
   }
   console.log(`Overall: ${report.overallStatus}`)
-  console.log(`Machine report: ${reportPath}`)
+  console.log(`Non-authoritative JSON export: ${reportPath}`)
+}
+
+function cleanupLifecycleGate(
+  phase: 'pending' | 'failed',
+  detail: string,
+  evidence: unknown,
+): ValidationGateResult {
+  return createGateResult({
+    id: 'governance.invocation-cleanup',
+    title: 'Governed invocation lifecycle cleanup',
+    required: true,
+    status: 'BLOCKED',
+    detail,
+    evidence: { phase, ...evidence as object },
+    remedy: {
+      tier: 1,
+      action: 'Restore writable temporary-storage cleanup, remove the owned invocation residue, and rerun validation.',
+    },
+  })
+}
+
+function withCleanupLifecycle(
+  report: ValidationReport,
+  gate: ValidationGateResult,
+): ValidationReport {
+  const gates = [...report.gates, gate]
+  return { ...report, gates, overallStatus: aggregateValidationStatus(gates) }
+}
+
+function persistNonAuthoritativeExport(report: ValidationReport, reportPath: string): void {
+  const directory = path.dirname(reportPath)
+  fs.mkdirSync(directory, { recursive: true })
+  const temporaryPath = path.join(
+    directory,
+    `.${path.basename(reportPath)}.${process.pid}.${randomUUID()}.tmp`,
+  )
+  let descriptor: number | null = null
+  const persistenceFailures: unknown[] = []
+  try {
+    descriptor = fs.openSync(temporaryPath, 'wx')
+    fs.writeFileSync(descriptor, deterministicValidationReportJson(report), 'utf8')
+    fs.fsyncSync(descriptor)
+    fs.closeSync(descriptor)
+    descriptor = null
+    fs.renameSync(temporaryPath, reportPath)
+  } catch (cause) {
+    persistenceFailures.push(cause)
+  } finally {
+    if (descriptor !== null) {
+      try {
+        fs.closeSync(descriptor)
+      } catch (cause) {
+        persistenceFailures.push(cause)
+      }
+    }
+    try {
+      fs.unlinkSync(temporaryPath)
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') persistenceFailures.push(cause)
+    }
+  }
+  if (persistenceFailures.length > 0) {
+    const details = persistenceFailures
+      .map(cause => cause instanceof Error ? cause.message : String(cause))
+      .join('; ')
+    throw new AggregateError(
+      persistenceFailures,
+      `Atomic report persistence failed: ${details}`,
+    )
+  }
+}
+
+function invocationLifecycleFailureReport(
+  options: CliOptions,
+  phase: string,
+  detail: string,
+): ValidationReport {
+  const gate = createGateResult({
+    id: 'governance.invocation-completion',
+    title: 'Governed invocation completion',
+    required: true,
+    status: 'BLOCKED',
+    detail,
+    evidence: { phase },
+    remedy: {
+      tier: 1,
+      action: 'Allow the current invocation to complete or rerun validation; do not use an earlier PASS report.',
+    },
+  })
+  return {
+    schemaVersion: 'forge-validation-baseline/v1',
+    profile: options.profile,
+    referenceApplication: {
+      name: 'SauceDemo',
+      baseUrl: SAUCEDEMO_URL,
+      smokeTests: SAUCEDEMO_SMOKE_TITLES,
+    },
+    repository: { commit: 'pending', dirty: true },
+    environment: {
+      node: process.version,
+      platform: process.platform,
+      architecture: process.arch,
+    },
+    databasePath: options.databasePath,
+    comparison: {
+      mode: options.establishBaseline
+        ? 'establish'
+        : (options.baselinePath ? 'baseline' : 'none'),
+      baselinePath: options.baselinePath,
+    },
+    gates: [gate],
+    overallStatus: 'BLOCKED',
+  }
+}
+
+function governedExpectation(invocation: AcceptedGovernedInvocation): GovernedInvocationExpectation {
+  return Object.freeze({
+    targetId: invocation.targetId,
+    invocationId: invocation.invocationId,
+    sequence: invocation.sequence,
+    stateRevision: invocation.stateRevision,
+    authorityEpoch: invocation.lastAuthorityEpoch,
+  })
+}
+
+function closeGovernanceSidecar(sidecar: GovernanceValidationSidecarHandle): boolean {
+  try {
+    sidecar.close()
+    return true
+  } catch (cause) {
+    console.error(`ERROR: Governance sidecar close failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+    return false
+  }
 }
 
 export async function run(args: string[]): Promise<number> {
@@ -626,16 +800,130 @@ export async function run(args: string[]): Promise<number> {
     return 2
   }
 
+  let sidecar: GovernanceValidationSidecarHandle
   try {
-    const report = await buildValidationReport(options)
-    fs.mkdirSync(path.dirname(options.reportPath), { recursive: true })
-    fs.writeFileSync(options.reportPath, deterministicValidationReportJson(report), 'utf8')
-    printSummary(report, options.reportPath)
-    return exitCode(report.overallStatus)
+    sidecar = openProductionGovernanceSidecar()
   } catch (cause) {
-    console.error(`ERROR: ${cause instanceof Error ? cause.message : String(cause)}`)
+    console.error(`ERROR: Governance sidecar is unavailable: ${cause instanceof Error ? cause.message : String(cause)}`)
     return 2
   }
+
+  let accepted: AcceptedGovernedInvocation
+  try {
+    const acceptance = sidecar.acceptInvocation(options.governedTargetId)
+    if (acceptance.kind === 'CONFLICT') {
+      console.error(`ERROR: Governed target '${options.governedTargetId}' already has ${acceptance.state} invocation '${acceptance.invocationId}'.`)
+      closeGovernanceSidecar(sidecar)
+      return 2
+    }
+    accepted = acceptance.invocation
+  } catch (cause) {
+    console.error(`ERROR: Could not accept the governed invocation: ${cause instanceof Error ? cause.message : String(cause)}`)
+    closeGovernanceSidecar(sidecar)
+    return 2
+  }
+
+  let context: ValidationInvocationContext
+  try {
+    context = createValidationInvocationContext()
+  } catch (cause) {
+    const detail = `Could not create the governed invocation context: ${cause instanceof Error ? cause.message : String(cause)}`
+    console.error(`ERROR: ${detail}`)
+    try {
+      const report = invocationLifecycleFailureReport(options, 'context-creation', detail)
+      const evidence = canonicalGovernedReportEvidence(report)
+      const completion = sidecar.completeInvocation(governedExpectation(accepted), evidence, 'BLOCKED')
+      if (completion.kind !== 'COMPLETED') throw new Error(completion.reason)
+      try { persistNonAuthoritativeExport(report, options.reportPath) } catch { /* export is derived evidence */ }
+    } catch (completionCause) {
+      console.error(`ERROR: Could not persist context-creation failure authority: ${completionCause instanceof Error ? completionCause.message : String(completionCause)}`)
+    }
+    closeGovernanceSidecar(sidecar)
+    return 2
+  }
+
+  let report: ValidationReport
+  try {
+    report = await buildValidationReport(
+      options,
+      createCommandExecutor(context),
+      context.childEnvironment,
+    )
+  } catch (cause) {
+    const detail = `Governed validation execution could not produce complete evidence: ${cause instanceof Error ? cause.message : String(cause)}`
+    console.error(`ERROR: ${detail}`)
+    report = invocationLifecycleFailureReport(options, 'execution', detail)
+  }
+
+  let cleanupFailure: unknown = null
+  try {
+    // `context` is created in this invocation and never crosses the public API.
+    // Keeping the recursive deletion target local prevents structural objects
+    // supplied by callers from ever becoming cleanup authority.
+    fs.rmSync(context.root, { recursive: true, force: true })
+  } catch (cause) {
+    cleanupFailure = cause
+    console.error(
+      `ERROR: Validation invocation cleanup failed for '${context.root}': ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    )
+  }
+
+  if (cleanupFailure) {
+    report = withCleanupLifecycle(
+      report,
+      cleanupLifecycleGate(
+        'failed',
+        `Invocation-root cleanup failed: ${cleanupFailure instanceof Error ? cleanupFailure.message : String(cleanupFailure)}`,
+        {
+          invocationRoot: context.root,
+          error: cleanupFailure instanceof Error ? cleanupFailure.message : String(cleanupFailure),
+        },
+      ),
+    )
+  }
+
+  let exportFailure: unknown = null
+  try {
+    persistNonAuthoritativeExport(report, options.reportPath)
+  } catch (cause) {
+    console.error(`ERROR: Could not persist non-authoritative report export: ${cause instanceof Error ? cause.message : String(cause)}`)
+    exportFailure = cause
+  }
+
+  const resultCode = exitCode(report.overallStatus)
+  try {
+    const evidence = canonicalGovernedReportEvidence(report)
+    const completion = sidecar.completeInvocation(
+      governedExpectation(accepted),
+      evidence,
+      cleanupFailure ? 'BLOCKED' : 'HEALTHY',
+    )
+    if (completion.kind !== 'COMPLETED') throw new Error(completion.reason)
+    printSummary(report, options.reportPath)
+  } catch (cause) {
+    console.error(`ERROR: Could not complete governed invocation authority: ${cause instanceof Error ? cause.message : String(cause)}`)
+    try {
+      const recovery = sidecar.requireRecovery(
+        governedExpectation(accepted),
+        randomUUID(),
+        `Completion failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      )
+      if (recovery.kind === 'CONFLICT') {
+        console.error(`ERROR: Could not mark governed invocation recovery-required: ${recovery.reason}`)
+      }
+    } catch (recoveryCause) {
+      console.error(`ERROR: Could not persist governed recovery authority: ${recoveryCause instanceof Error ? recoveryCause.message : String(recoveryCause)}`)
+    }
+    closeGovernanceSidecar(sidecar)
+    return resultCode === 1 ? 1 : 2
+  }
+
+  const sidecarClosed = closeGovernanceSidecar(sidecar)
+  if (resultCode === 1) return 1
+  if (exportFailure || !sidecarClosed) return 2
+  return resultCode
 }
 
 if (require.main === module) {
