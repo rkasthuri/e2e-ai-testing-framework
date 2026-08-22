@@ -60,7 +60,6 @@ const SIDECAR_MODULE_URL = pathToFileURL(path.join(__dirname, 'governance-valida
 const SIDECAR_TEST_SUPPORT_MODULE_URL = pathToFileURL(path.join(__dirname, 'governance-validation-sidecar.test-support.ts')).href
 const BETTER_SQLITE3_MODULE_URL = pathToFileURL(require.resolve('better-sqlite3')).href
 const TSX_CLI = path.join(REPOSITORY_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs')
-const USERINFO_PRELOAD = path.join(REPOSITORY_ROOT, 'notes', 'review-scratch', 'tsx-userinfo-preload.cjs')
 const ENVIRONMENT_KEYS = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TMP', 'TEMP'] as const
 const activeChildren = new Set<ChildProcess>()
 
@@ -244,8 +243,7 @@ function launchRun(options: {
     GOV_FAIL_EXPORT: options.failExport ? '1' : '0',
     GOV_EXPORT_PATH: exportPath,
     GOV_RUN_ARGS: JSON.stringify(args),
-    NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${USERINFO_PRELOAD}`, `--require=${PRELOAD_PATH}`]
-      .filter(Boolean).join(' '),
+    NODE_OPTIONS: `--require=${PRELOAD_PATH}`,
   }
   const child = spawn(process.execPath, [TSX_CLI, RUNNER_PATH], {
     cwd: REPOSITORY_ROOT,
@@ -320,13 +318,14 @@ function removeRecoveredCrashJournal(databasePath: string): void {
 }
 
 function directChild(environment: NodeJS.ProcessEnv): Promise<CompletedRun> {
+  const childEnvironment: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...environment,
+  }
+  delete childEnvironment.NODE_OPTIONS
   const child = spawn(process.execPath, [TSX_CLI, DIRECT_CHILD_PATH], {
     cwd: REPOSITORY_ROOT,
-    env: {
-      ...process.env,
-      ...environment,
-      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${USERINFO_PRELOAD}`].filter(Boolean).join(' '),
-    },
+    env: childEnvironment,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
