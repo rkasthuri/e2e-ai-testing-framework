@@ -53,6 +53,7 @@ export type PlaywrightPlanExecutionResult =
   | { status: 'completed'; reasonCode: 'completed'; finalUrl: string }
   | { status: 'authentication_failed'; reasonCode: 'credential_missing' | 'authentication_failed' }
   | { status: 'navigation_failed'; reasonCode: 'navigation_failed' }
+  | { status: 'action_failed'; reasonCode: 'action_failed' }
   | { status: 'oracle_failed'; reasonCode: 'oracle_failed'; finalUrl: string }
   | { status: 'unsupported_plan'; reasonCode: 'unsupported_action' | 'unsupported_oracle' | 'unsupported_auth_mechanism' | 'invalid_plan' }
   | { status: 'executor_failure'; reasonCode: 'executor_failure' }
@@ -61,6 +62,7 @@ export type PlaywrightPlanExecutionResult =
 interface ExecutionSession {
   authenticateFormLogin(loginUrl: string, credentials: CredentialMaterial, timeoutMs: number): Promise<boolean>
   navigate(url: string, timeoutMs: number): Promise<void>
+  clickDataTest?(value: string, timeoutMs: number): Promise<void>
   currentUrl(): string
   close(): Promise<void>
 }
@@ -116,6 +118,12 @@ class PlaywrightExecutionSession implements ExecutionSession {
     await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
   }
 
+  async clickDataTest(value: string, timeoutMs: number): Promise<void> {
+    const target = this.page.locator(`[data-test="${value}"]`)
+    await target.waitFor({ state: 'visible', timeout: timeoutMs })
+    await target.click({ timeout: timeoutMs })
+  }
+
   currentUrl(): string { return this.page.url() }
 
   async close(): Promise<void> {
@@ -147,7 +155,9 @@ export class PlaywrightPlanExecutor {
     cancellation?: ExecutionCancellationToken,
   ): Promise<PlaywrightPlanExecutionResult> {
     const input = plan as any
-    if (!Array.isArray(input?.steps) || input.steps.length !== 1 || input.steps[0]?.kind !== 'navigate_to_observed_route') {
+    if (!Array.isArray(input?.steps) || ![1, 2].includes(input.steps.length)
+      || input.steps[0]?.kind !== 'navigate_to_observed_route'
+      || input.steps.length === 2 && input.steps[1]?.kind !== 'click_observed_data_test') {
       return { status: 'unsupported_plan', reasonCode: 'unsupported_action' }
     }
     if (input?.oracle?.kind !== 'subject_observable') {
@@ -217,7 +227,11 @@ export class PlaywrightPlanExecutor {
 
       const activeSession = session
       if (!activeSession) return { status: 'executor_failure', reasonCode: 'executor_failure' }
-      const targetUrl = new URL(plan.steps[0].routePath, runtime.baseUrl).href
+      const navigation = plan.steps[0]
+      if (navigation.kind !== 'navigate_to_observed_route') {
+        return { status: 'unsupported_plan', reasonCode: 'invalid_plan' }
+      }
+      const targetUrl = new URL(navigation.routePath, runtime.baseUrl).href
       if (cancellation?.isCancellationRequested()) {
         return { status: 'cancelled', reasonCode: 'cancellation_requested' }
       }
@@ -229,8 +243,27 @@ export class PlaywrightPlanExecutor {
       if (cancellation?.isCancellationRequested()) {
         return { status: 'cancelled', reasonCode: 'cancellation_requested' }
       }
+      if (plan.steps.length === 2) {
+        if (cancellation?.isCancellationRequested()) {
+          return { status: 'cancelled', reasonCode: 'cancellation_requested' }
+        }
+        const click = plan.steps[1]
+        if (click.kind !== 'click_observed_data_test' || !activeSession.clickDataTest) {
+          return { status: 'executor_failure', reasonCode: 'executor_failure' }
+        }
+        try {
+          await activeSession.clickDataTest(click.dataTestValue, timeoutMs)
+        } catch {
+          return { status: 'action_failed', reasonCode: 'action_failed' }
+        }
+      }
+      if (cancellation?.isCancellationRequested()) {
+        return { status: 'cancelled', reasonCode: 'cancellation_requested' }
+      }
       const finalUrl = activeSession.currentUrl()
-      if (!urlMatchesRoute(finalUrl, targetUrl)) {
+      const expectedRoute = plan.oracle.routePath ?? navigation.routePath
+      const expectedUrl = new URL(expectedRoute, runtime.baseUrl).href
+      if (!urlMatchesRoute(finalUrl, expectedUrl)) {
         return { status: 'oracle_failed', reasonCode: 'oracle_failed', finalUrl }
       }
       return { status: 'completed', reasonCode: 'completed', finalUrl }

@@ -19,6 +19,12 @@ import {
 import type { CanonicalTestDefinitionAuthority } from './TestDefinitionAuthorityProjectionService'
 import type { CanonicalRouteEvidence } from './CanonicalRouteEvidenceProjection'
 import type { AuthenticationExpectationProjection } from './AuthenticationExpectationProjection'
+import {
+  materializeSupportedNormalizedTestIntentV1,
+  type MaterializedNormalizedTestIntentV1,
+  type NormalizedIntentStepV1,
+  type SupportedNormalizedTestIntentV1,
+} from './NormalizedTestIntentContract'
 
 export type TestGenerationMethod = 'deterministic' | 'heuristic' | 'ai_assisted' | 'manual'
 export type TestGenerationOutcome = 'completed' | 'partially_completed' | 'blocked' | 'failed' | 'interrupted'
@@ -214,6 +220,40 @@ export interface CanonicalTestDefinitionV2 {
   preventedStrongerDefinition: string
 }
 
+/** Frozen M1 richer flow contract. V2 remains navigation-only. */
+export interface CanonicalTestDefinitionV3 {
+  id: string
+  title: string
+  intent: string
+  canonicalSubjects: readonly string[]
+  provenance: {
+    modelRowId: number
+    modelVersion: string
+    supportSealHash: string
+    subjectSupport: readonly CanonicalSubjectSupportV2[]
+    intentId: string
+    intentContentHash: string
+  }
+  appArea: string
+  normalizedIntent: SupportedNormalizedTestIntentV1
+  flowRouteEvidence: ReadonlyArray<{
+    subjectId: string
+    normalizedPath: string
+    normalizationPolicy: { id: string; version: string }
+    supportingObservationIds: readonly string[]
+  }>
+  authenticationExpectation: NonNullable<CanonicalTestDefinitionV2['authenticationExpectation']>
+  actions: readonly NormalizedIntentStepV1[]
+  oracle: NonNullable<CanonicalTestDefinitionV2['oracle']>
+  generationMethod: TestGenerationMethod
+  validation: { state: 'valid'; explanation: string }
+  runnerCompatibility: CanonicalRunnerCompatibility
+  confidenceLimitations: string[]
+  materialUnknowns: string[]
+  unobservedScope: string[]
+  preventedStrongerDefinition: string
+}
+
 export interface CanonicalTestSetV2 {
   schemaVersion: 2
   testSetId: string
@@ -241,9 +281,15 @@ export interface CanonicalTestSetV2 {
   freshness: 'not_evaluated'
 }
 
+export interface CanonicalTestSetV3 extends Omit<CanonicalTestSetV2, 'schemaVersion' | 'definitions'> {
+  schemaVersion: 3
+  definitions: readonly CanonicalTestDefinitionV3[]
+}
+
 /** V1 remains the active generation/execution contract until later cutovers. */
 export type CanonicalTestDefinition = CanonicalTestDefinitionV1
-export type CanonicalTestSet = CanonicalTestSetV1 | CanonicalTestSetV2
+export type AnyCanonicalTestDefinition = CanonicalTestDefinitionV1 | CanonicalTestDefinitionV2 | CanonicalTestDefinitionV3
+export type CanonicalTestSet = CanonicalTestSetV1 | CanonicalTestSetV2 | CanonicalTestSetV3
 
 export interface MaterializedTestSet<T extends CanonicalTestSet = CanonicalTestSet> {
   value: T
@@ -328,16 +374,49 @@ export function materializeCanonicalTestSet<T extends CanonicalTestSet>(value: T
 export function parseCanonicalTestSet(json: string): MaterializedTestSet {
   let value: unknown
   try { value = JSON.parse(json) } catch { throw new TestDefinitionContractError('INVALID_DEFINITION') }
-  if (!value || typeof value !== 'object' || ![1, 2].includes((value as { schemaVersion?: unknown }).schemaVersion as number)) {
+  if (!value || typeof value !== 'object' || ![1, 2, 3].includes((value as { schemaVersion?: unknown }).schemaVersion as number)) {
     throw new TestDefinitionContractError('INVALID_DEFINITION')
   }
   return materializeCanonicalTestSet(value as CanonicalTestSet)
+}
+
+export function parseCanonicalTestSetV2(json: string): MaterializedTestSet<CanonicalTestSetV2> {
+  const parsed = parseCanonicalTestSet(json)
+  if (parsed.value.schemaVersion !== 2) throw new TestDefinitionContractError('INVALID_DEFINITION')
+  return parsed as MaterializedTestSet<CanonicalTestSetV2>
+}
+
+export function parseCanonicalTestSetV3(json: string): MaterializedTestSet<CanonicalTestSetV3> {
+  const parsed = parseCanonicalTestSet(json)
+  if (parsed.value.schemaVersion !== 3) throw new TestDefinitionContractError('INVALID_DEFINITION')
+  return parsed as MaterializedTestSet<CanonicalTestSetV3>
+}
+
+export interface CanonicalDefinitionSaveResultV3 {
+  schemaVersion: 3
+  testSetId: string
+  definitionId: string
+  revision: number
+}
+
+export function canonicalDefinitionSaveResultV3(
+  testSet: CanonicalTestSetV3,
+): CanonicalDefinitionSaveResultV3 {
+  validateCanonicalTestSet(testSet)
+  if (testSet.definitions.length !== 1) throw new TestDefinitionContractError('INVALID_DEFINITION')
+  return {
+    schemaVersion: 3,
+    testSetId: testSet.testSetId,
+    definitionId: testSet.definitions[0].id,
+    revision: testSet.revision,
+  }
 }
 
 export function validateCanonicalTestSet(value: CanonicalTestSet): void {
   if (!value || typeof value !== 'object') throw new TestDefinitionContractError('INVALID_DEFINITION')
   if (value.schemaVersion === 1) return validateCanonicalTestSetV1(value)
   if (value.schemaVersion === 2) return validateCanonicalTestSetV2(value)
+  if (value.schemaVersion === 3) return validateCanonicalTestSetV3(value)
   throw new TestDefinitionContractError('INVALID_DEFINITION')
 }
 
@@ -423,6 +502,142 @@ function validateCanonicalTestSetV1(value: CanonicalTestSetV1): void {
     assertTextList(definition.materialUnknowns)
     assertTextList(definition.unobservedScope)
     assertText(definition.preventedStrongerDefinition)
+  }
+}
+
+function validateCanonicalFlowDefinitionV3(
+  definition: CanonicalTestDefinitionV3,
+  projectId: string,
+  authority: CanonicalTestSetV3['canonicalSupport'],
+): void {
+  if (!definition.appArea || !ID.test(definition.appArea) || !definition.normalizedIntent
+    || !definition.flowRouteEvidence || !definition.actions || !definition.oracle
+    || !definition.authenticationExpectation || !definition.runnerCompatibility) {
+    throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  let materialized: MaterializedNormalizedTestIntentV1
+  try {
+    materialized = materializeSupportedNormalizedTestIntentV1(definition.normalizedIntent)
+  } catch {
+    throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  if (!definition.provenance.intentId || !definition.provenance.intentContentHash
+    || definition.provenance.intentId !== materialized.value.intentId
+    || definition.provenance.intentContentHash !== materialized.fingerprint
+    || definition.appArea !== materialized.value.appArea.id
+    || materialized.value.projectId !== projectId
+    || materialized.value.grounding.modelRowId !== authority.modelRowId
+    || materialized.value.grounding.modelVersion !== authority.modelVersion
+    || materialized.value.grounding.observationRunId !== authority.observationRunId
+    || materialized.value.grounding.supportSealHash !== authority.supportSealHash) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+  if (JSON.stringify(definition.actions) !== JSON.stringify(materialized.value.steps)) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+  const intentSubjects = materialized.value.grounding.subjectSupport.map(subject => subject.canonicalSubjectId)
+  if (JSON.stringify(intentSubjects) !== JSON.stringify(definition.canonicalSubjects)
+    || materialized.value.grounding.subjectSupport.some((subject, index) => {
+      const provenance = definition.provenance.subjectSupport[index]
+      return !provenance || provenance.canonicalSubjectId !== subject.canonicalSubjectId
+        || JSON.stringify(provenance.supportingObservationIds) !== JSON.stringify(subject.supportingObservationIds)
+        || JSON.stringify(provenance.supportingGapIds) !== JSON.stringify(subject.supportingGapIds)
+    })) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+
+  if (!Array.isArray(definition.flowRouteEvidence)
+    || definition.flowRouteEvidence.length !== definition.canonicalSubjects.length) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+  const routeSubjects: string[] = []
+  const definitionObservationIds = new Set(definition.provenance.subjectSupport.flatMap(subject => [...subject.supportingObservationIds]))
+  for (const route of definition.flowRouteEvidence) {
+    if (!route || typeof route !== 'object' || Array.isArray(route)) throw new TestDefinitionContractError('INVALID_DEFINITION')
+    exactKeys(route as unknown as Record<string, unknown>, ['subjectId', 'normalizedPath', 'normalizationPolicy', 'supportingObservationIds'])
+    if (!ID.test(route.subjectId) || !ROUTE.test(route.normalizedPath)
+      || !route.normalizationPolicy || !ID.test(route.normalizationPolicy.id) || !ID.test(route.normalizationPolicy.version)) {
+      throw new TestDefinitionContractError('INVALID_DEFINITION')
+    }
+    assertCanonicalIds(route.supportingObservationIds, { min: 1 })
+    if (route.supportingObservationIds.some((id: string) => !definitionObservationIds.has(id))) {
+      throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+    }
+    routeSubjects.push(route.subjectId)
+  }
+  assertCanonicalIds(routeSubjects, { min: 1, max: 2 })
+  if (JSON.stringify(routeSubjects) !== JSON.stringify(definition.canonicalSubjects)) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+  const routes = new Map(definition.flowRouteEvidence.map(route => [route.subjectId, route]))
+  const [navigate, click] = definition.actions
+  const outcome = materialized.value.expectedOutcomes[0]
+  if (definition.actions.length !== 2 || navigate.kind !== 'navigate_to_observed_route'
+    || click.kind !== 'click_observed_data_test' || navigate.ordinal !== 0 || click.ordinal !== 1
+    || routes.get(navigate.subjectId)?.normalizedPath !== navigate.routePath
+    || routes.get(outcome.subjectId)?.normalizedPath !== outcome.routePath
+    || click.targetSubjectId !== outcome.subjectId) {
+    throw new TestDefinitionContractError('UNSUPPORTED_DEFINITION')
+  }
+
+  const oracle = definition.oracle
+  exactKeys(oracle as unknown as Record<string, unknown>, ['kind', 'subjectId', 'supportingObservationIds', 'explanation'])
+  const outcomeRoute = routes.get(outcome.subjectId)!
+  if (oracle.kind !== 'subject_observable' || oracle.subjectId !== outcome.subjectId) {
+    throw new TestDefinitionContractError('UNSUPPORTED_DEFINITION')
+  }
+  assertCanonicalIds(oracle.supportingObservationIds, { min: 1 })
+  if (JSON.stringify(oracle.supportingObservationIds) !== JSON.stringify(outcomeRoute.supportingObservationIds)) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+  assertText(oracle.explanation)
+
+  const auth = definition.authenticationExpectation
+  exactKeys(auth as unknown as Record<string, unknown>, ['state', 'mechanism', 'bases'])
+  if (!['required', 'not_required', 'unknown', 'conflicted'].includes(auth.state)
+    || auth.state === 'required' && (!auth.mechanism || !ID.test(auth.mechanism))
+    || auth.state !== 'required' && auth.mechanism !== null || !Array.isArray(auth.bases)) {
+    throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  if ((auth.state === 'required' || auth.state === 'not_required') && auth.bases.length < 1) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+  let previousDigest = ''
+  const basisIdentities = new Set<string>()
+  for (const basis of auth.bases) {
+    if (!basis || typeof basis !== 'object' || Array.isArray(basis)) throw new TestDefinitionContractError('INVALID_DEFINITION')
+    exactKeys(basis as unknown as Record<string, unknown>, ['kind', 'policyId', 'policyVersion', 'configurationDigest', 'mechanism'])
+    if (basis.kind !== 'declared_configuration' || !ID.test(basis.policyId) || !ID.test(basis.policyVersion)
+      || !SHA256.test(basis.configurationDigest) || basis.configurationDigest < previousDigest
+      || basisIdentities.has(basis.configurationDigest)
+      || basis.mechanism !== null && !ID.test(basis.mechanism)) throw new TestDefinitionContractError('INVALID_DEFINITION')
+    previousDigest = basis.configurationDigest
+    basisIdentities.add(basis.configurationDigest)
+  }
+  const expectedPreconditions = auth.state === 'required' ? 1 : 0
+  if (materialized.value.preconditions.length !== expectedPreconditions
+    || auth.state === 'required' && materialized.value.preconditions[0]?.mechanism !== auth.mechanism) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+
+  const runnerCompatibility = definition.runnerCompatibility
+  if (!['compatible', 'blocked'].includes(runnerCompatibility.state)) throw new TestDefinitionContractError('INVALID_DEFINITION')
+  if (runnerCompatibility.state === 'blocked') {
+    if (!PROJECTION_FAILURE_CODES.includes(runnerCompatibility.reason as ProjectionFailureCode)) {
+      throw new TestDefinitionContractError('INVALID_DEFINITION')
+    }
+  } else if ('reason' in runnerCompatibility) throw new TestDefinitionContractError('INVALID_DEFINITION')
+  assertText(runnerCompatibility.explanation)
+  const evaluated = evaluateIntrinsicCompatibility({
+    steps: definition.actions.map(action => action.kind === 'click_observed_data_test'
+      ? { kind: action.kind, subjectId: action.subjectId, targetSubjectId: action.targetSubjectId, dataTestValue: action.dataTestValue }
+      : { kind: action.kind, subjectId: action.subjectId }),
+    oracle: { kind: oracle.kind, subjectId: oracle.subjectId },
+    authenticationRequired: undefined,
+    authenticationExpectation: { state: auth.state, mechanism: auth.mechanism },
+  })
+  if (JSON.stringify(evaluated) !== JSON.stringify(runnerCompatibility)) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
   }
 }
 
@@ -607,6 +822,102 @@ function validateCanonicalTestSetV2(value: CanonicalTestSetV2): void {
       throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
     }
   }
+}
+
+function validateCanonicalTestSetV3(value: CanonicalTestSetV3): void {
+  exactKeys(value as unknown as Record<string, unknown>, [
+    'schemaVersion', 'testSetId', 'revision', 'projectId', 'generationId', 'generatedAt',
+    'generationMethod', 'outcome', 'canonicalSupport', 'definitions', 'limitations',
+    'materialUnknowns', 'unobservedScope', 'preventedStrongerSet', 'coverage', 'freshness',
+  ])
+  for (const identity of [value.testSetId, value.projectId, value.generationId]) {
+    if (!ID.test(identity)) throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  if (!Number.isSafeInteger(value.revision) || value.revision < 1
+    || !ISO.test(value.generatedAt) || Number.isNaN(Date.parse(value.generatedAt))
+    || value.generationMethod !== 'deterministic' || value.outcome !== 'completed'
+    || value.coverage !== 'unknown' || value.freshness !== 'not_evaluated') {
+    throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  assertTextList(value.limitations)
+  assertTextList(value.materialUnknowns)
+  assertTextList(value.unobservedScope)
+  assertText(value.preventedStrongerSet)
+
+  const authority = value.canonicalSupport
+  if (!authority || typeof authority !== 'object' || Array.isArray(authority)) {
+    throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  exactKeys(authority as unknown as Record<string, unknown>, [
+    'modelRowId', 'modelVersion', 'observationRunId', 'supportSealHash',
+    'characterizationPolicy', 'supportingObservationIds', 'supportingGapIds',
+  ])
+  if (!Number.isSafeInteger(authority.modelRowId) || authority.modelRowId < 1
+    || !ID.test(authority.modelVersion) || !ID.test(authority.observationRunId)
+    || !SHA256.test(authority.supportSealHash)) throw new TestDefinitionContractError('INVALID_DEFINITION')
+  if (!authority.characterizationPolicy || typeof authority.characterizationPolicy !== 'object'
+    || Array.isArray(authority.characterizationPolicy)) throw new TestDefinitionContractError('INVALID_DEFINITION')
+  exactKeys(authority.characterizationPolicy as unknown as Record<string, unknown>, ['id', 'version'])
+  if (!ID.test(authority.characterizationPolicy.id) || !ID.test(authority.characterizationPolicy.version)) {
+    throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  assertCanonicalIds(authority.supportingObservationIds, { min: 1 })
+  assertCanonicalIds(authority.supportingGapIds)
+
+  if (!Array.isArray(value.definitions) || value.definitions.length !== 1) {
+    throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  const definition = value.definitions[0]
+  exactKeys(definition as unknown as Record<string, unknown>, [
+    'id', 'title', 'intent', 'canonicalSubjects', 'provenance', 'appArea',
+    'normalizedIntent', 'flowRouteEvidence', 'authenticationExpectation', 'actions',
+    'oracle', 'generationMethod', 'validation', 'runnerCompatibility',
+    'confidenceLimitations', 'materialUnknowns', 'unobservedScope', 'preventedStrongerDefinition',
+  ])
+  if (!ID.test(definition.id) || definition.generationMethod !== 'deterministic') {
+    throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  assertText(definition.title)
+  assertText(definition.intent)
+  assertCanonicalIds(definition.canonicalSubjects, { min: 2, max: 2 })
+  if (!definition.validation || typeof definition.validation !== 'object' || Array.isArray(definition.validation)) {
+    throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  exactKeys(definition.validation as unknown as Record<string, unknown>, ['state', 'explanation'])
+  if (definition.validation.state !== 'valid') throw new TestDefinitionContractError('INVALID_DEFINITION')
+  assertText(definition.validation.explanation)
+  assertTextList(definition.confidenceLimitations)
+  assertTextList(definition.materialUnknowns)
+  assertTextList(definition.unobservedScope)
+  assertText(definition.preventedStrongerDefinition)
+
+  const provenance = definition.provenance
+  exactKeys(provenance as unknown as Record<string, unknown>, [
+    'modelRowId', 'modelVersion', 'supportSealHash', 'subjectSupport', 'intentId', 'intentContentHash',
+  ])
+  if (provenance.modelRowId !== authority.modelRowId || provenance.modelVersion !== authority.modelVersion
+    || provenance.supportSealHash !== authority.supportSealHash || !ID.test(provenance.intentId)
+    || !SHA256.test(provenance.intentContentHash)
+    || !Array.isArray(provenance.subjectSupport) || provenance.subjectSupport.length !== 2) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+  const sealedObservations = new Set(authority.supportingObservationIds)
+  const sealedGaps = new Set(authority.supportingGapIds)
+  const subjectIds: string[] = []
+  for (const subject of provenance.subjectSupport) {
+    exactKeys(subject as unknown as Record<string, unknown>, ['canonicalSubjectId', 'supportingObservationIds', 'supportingGapIds'])
+    if (!ID.test(subject.canonicalSubjectId)) throw new TestDefinitionContractError('INVALID_DEFINITION')
+    assertCanonicalIds(subject.supportingObservationIds, { min: 1 })
+    assertCanonicalIds(subject.supportingGapIds)
+    if (subject.supportingObservationIds.some((id: string) => !sealedObservations.has(id))
+      || subject.supportingGapIds.some((id: string) => !sealedGaps.has(id))) throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+    subjectIds.push(subject.canonicalSubjectId)
+  }
+  assertCanonicalIds(subjectIds, { min: 2, max: 2 })
+  if (JSON.stringify(subjectIds) !== JSON.stringify(definition.canonicalSubjects)) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+  validateCanonicalFlowDefinitionV3(definition, value.projectId, authority)
 }
 
 export function generateEvidenceBackedTestSet(
@@ -836,6 +1147,147 @@ export function generateCanonicalTestSetV2(
     preventedStrongerSet: blocked
       ? 'One or more definitions preserve unresolved authentication semantics and are intentionally blocked.'
       : 'Current evidence supports bounded navigation and subject-observability semantics only.',
+    coverage: 'unknown',
+    freshness: 'not_evaluated',
+  })
+}
+
+export interface CanonicalV3FlowGenerationInput extends CanonicalV2GenerationInput {
+  normalizedIntent: MaterializedNormalizedTestIntentV1
+}
+
+/** Materializes the one bounded M1 observed-flow definition. */
+export function generateCanonicalFlowTestSetV3(
+  input: CanonicalV3FlowGenerationInput,
+  generationId: string,
+  revision: number,
+): MaterializedTestSet<CanonicalTestSetV3> {
+  const { authority, routeEvidence, authenticationExpectation } = input
+  let normalized: MaterializedNormalizedTestIntentV1
+  try {
+    normalized = materializeSupportedNormalizedTestIntentV1(input.normalizedIntent.value)
+  } catch {
+    throw new TestDefinitionContractError('INVALID_DEFINITION')
+  }
+  if (normalized.fingerprint !== input.normalizedIntent.fingerprint || normalized.json !== input.normalizedIntent.json
+    || !ID.test(input.projectId) || !ID.test(generationId) || !ISO.test(input.generatedAt)
+    || normalized.value.source !== 'discovered'
+    || normalized.value.projectId !== input.projectId || authority.projectId !== input.projectId
+    || routeEvidence.projectId !== input.projectId || routeEvidence.modelRowId !== authority.modelRowId
+    || routeEvidence.supportSealHash !== authority.supportSealHash
+    || normalized.value.grounding.modelRowId !== authority.modelRowId
+    || normalized.value.grounding.modelVersion !== authority.modelVersion
+    || normalized.value.grounding.observationRunId !== authority.observationRunId
+    || normalized.value.grounding.supportSealHash !== authority.supportSealHash) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+  const routeBySubject = new Map(routeEvidence.subjects.map(subject => [subject.canonicalSubjectId, subject]))
+  const supportBySubject = new Map(authority.subjectSupport.map(subject => [subject.canonicalSubjectId, subject]))
+  const subjects = normalized.value.grounding.subjectSupport.map(subject => subject.canonicalSubjectId)
+  const flowRoutes = subjects.map(subjectId => {
+    const route = routeBySubject.get(subjectId)
+    const support = supportBySubject.get(subjectId)
+    const intentSupport = normalized.value.grounding.subjectSupport.find(subject => subject.canonicalSubjectId === subjectId)
+    if (!route || !support || !intentSupport
+      || JSON.stringify(support.supportingObservationIds) !== JSON.stringify(intentSupport.supportingObservationIds)
+      || JSON.stringify(support.supportingGapIds) !== JSON.stringify(intentSupport.supportingGapIds)) {
+      throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+    }
+    return {
+      subjectId,
+      normalizedPath: route.normalizedPath,
+      normalizationPolicy: { ...routeEvidence.normalizationPolicy },
+      supportingObservationIds: [...route.supportingObservationIds],
+    }
+  })
+  const actions = normalized.value.steps.map(action => ({ ...action })) as NormalizedIntentStepV1[]
+  const outcome = normalized.value.expectedOutcomes[0]
+  const outcomeRoute = flowRoutes.find(route => route.subjectId === outcome.subjectId)
+  if (!outcomeRoute || outcomeRoute.normalizedPath !== outcome.routePath) {
+    throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+  }
+  const oracle = {
+    kind: 'subject_observable' as const,
+    subjectId: outcome.subjectId,
+    supportingObservationIds: [...outcomeRoute.supportingObservationIds],
+    explanation: 'Observe the sealed target subject at its governed final route after the directly observed click transition.',
+  }
+  const runnerCompatibility = evaluateIntrinsicCompatibility({
+    steps: actions.map(action => action.kind === 'click_observed_data_test'
+      ? { kind: action.kind, subjectId: action.subjectId, targetSubjectId: action.targetSubjectId, dataTestValue: action.dataTestValue }
+      : { kind: action.kind, subjectId: action.subjectId }),
+    oracle: { kind: oracle.kind, subjectId: oracle.subjectId },
+    authenticationRequired: undefined,
+    authenticationExpectation: {
+      state: authenticationExpectation.state,
+      mechanism: authenticationExpectation.mechanism,
+    },
+  })
+  if (runnerCompatibility.state !== 'compatible') throw new TestDefinitionContractError('UNSUPPORTED_DEFINITION')
+  const definition: CanonicalTestDefinitionV3 = {
+    id: stableId('test-v3-flow', input.projectId, normalized.value.intentId, normalized.fingerprint),
+    title: normalized.value.title,
+    intent: normalized.value.objective,
+    canonicalSubjects: subjects,
+    provenance: {
+      modelRowId: authority.modelRowId,
+      modelVersion: authority.modelVersion,
+      supportSealHash: authority.supportSealHash,
+      subjectSupport: normalized.value.grounding.subjectSupport.map(subject => ({
+        canonicalSubjectId: subject.canonicalSubjectId,
+        supportingObservationIds: [...subject.supportingObservationIds],
+        supportingGapIds: [...subject.supportingGapIds],
+      })),
+      intentId: normalized.value.intentId,
+      intentContentHash: normalized.fingerprint,
+    },
+    appArea: normalized.value.appArea.id,
+    normalizedIntent: normalized.value,
+    flowRouteEvidence: flowRoutes,
+    authenticationExpectation: {
+      state: authenticationExpectation.state,
+      mechanism: authenticationExpectation.mechanism,
+      bases: authenticationExpectation.bases.map(basis => ({ ...basis })),
+    },
+    actions,
+    oracle,
+    generationMethod: 'deterministic',
+    validation: {
+      state: 'valid',
+      explanation: 'The definition embeds one immutable normalized intent whose selected click is directly observed and exactly sealed.',
+    },
+    runnerCompatibility,
+    confidenceLimitations: [...normalized.value.evidenceAssessment.limitations],
+    materialUnknowns: ['Credential availability and runtime authentication outcome remain execution-time truths.'],
+    unobservedScope: ['Excluded source-flow steps and behavior outside the selected transition remain unobserved M1 scope.'],
+    preventedStrongerDefinition: 'M1 supports one observed data-test click between two governed subjects; additional actions and oracles are refused.',
+  }
+  return materializeCanonicalTestSet({
+    schemaVersion: 3,
+    testSetId: stableId('test-set-v3', input.projectId),
+    revision,
+    projectId: input.projectId,
+    generationId,
+    generatedAt: input.generatedAt,
+    generationMethod: 'deterministic',
+    outcome: 'completed',
+    canonicalSupport: {
+      modelRowId: authority.modelRowId,
+      modelVersion: authority.modelVersion,
+      observationRunId: authority.observationRunId,
+      supportSealHash: authority.supportSealHash,
+      characterizationPolicy: { ...authority.characterizationPolicy },
+      supportingObservationIds: [...authority.supportingObservationIds],
+      supportingGapIds: [...authority.supportingGapIds],
+    },
+    definitions: [definition],
+    limitations: [
+      'Generation was deterministic, used no AI enrichment, and did not execute the definition.',
+      ...normalized.value.evidenceAssessment.limitations,
+    ],
+    materialUnknowns: ['Credential availability and authentication execution outcome remain outside Test Definition authority.'],
+    unobservedScope: ['Coverage outside the exact selected observed transition is unknown.'],
+    preventedStrongerSet: 'The frozen M1 contract permits one observed data-test click only.',
     coverage: 'unknown',
     freshness: 'not_evaluated',
   })

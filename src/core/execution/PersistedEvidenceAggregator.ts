@@ -251,10 +251,10 @@ export function aggregatePersistedEvidence(evidence: PersistedExecutionEvidence)
     || Number(root.test_set_revision) < 1 || !Number.isSafeInteger(Number(root.model_row_id))
     || Number(root.model_row_id) < 1
     || Number(root.definition_schema_version) === 1 && (!root.source_observation_id || !SAFE_ID.test(root.source_observation_id))
-    || Number(root.definition_schema_version) === 2 && (root.source_observation_id !== null
+    || [2, 3].includes(Number(root.definition_schema_version)) && (root.source_observation_id !== null
       || !SHA256.test(root.support_seal_hash ?? '') || !SHA256.test(root.route_evidence_identity_hash ?? '')
       || !SHA256.test(root.authentication_expectation_identity_hash ?? ''))
-    || ![1, 2].includes(Number(root.definition_schema_version))
+    || ![1, 2, 3].includes(Number(root.definition_schema_version))
     || !SHA256.test(root.manifest_hash) || Number(root.max_run_attempts) !== 1
     || root.dispatch_mode !== 'serial' || root.stop_rule !== 'stop_on_first_non_completed') {
     add('conflicting_provenance', 'error')

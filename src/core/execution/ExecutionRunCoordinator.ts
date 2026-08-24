@@ -31,7 +31,7 @@ export interface ProductRunAdmission {
   projectId: string
   processInstanceId: string
   expectedResultCount: number
-  runnerAdapter: 'playwright-plan-executor/v1'
+  runnerAdapter: 'playwright-plan-executor/v1' | 'playwright-plan-executor/v2'
   environmentSnapshot: {
     environment: 'local' | 'ci' | 'staging' | 'production'
     browser: 'chromium'
@@ -97,7 +97,7 @@ function exactIso(value: string): boolean {
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === value
 }
 
-function resultTruth(result: PlaywrightPlanExecutionResult): { outcome: ProductResultOutcome; reasonCode: string } {
+export function productResultTruth(result: PlaywrightPlanExecutionResult): { outcome: ProductResultOutcome; reasonCode: string } {
   if (result.status === 'cancelled') {
     throw new ProductResultPersistenceError('Cancellation is not Product Result evidence.')
   }
@@ -130,7 +130,7 @@ export class ExecutionRunCoordinator {
     if (!SAFE_ID.test(input.executionId) || !SAFE_ID.test(input.projectId)
       || !SAFE_ID.test(input.processInstanceId) || !exactIso(input.startedAt)
       || !Number.isSafeInteger(input.expectedResultCount) || input.expectedResultCount < 1
-      || input.runnerAdapter !== 'playwright-plan-executor/v1'
+      || !['playwright-plan-executor/v1', 'playwright-plan-executor/v2'].includes(input.runnerAdapter)
       || !['local', 'ci', 'staging', 'production'].includes(input.environmentSnapshot.environment)
       || input.environmentSnapshot.browser !== 'chromium'
       || typeof input.environmentSnapshot.headless !== 'boolean') {
@@ -194,7 +194,7 @@ export class ExecutionRunCoordinator {
   async recordResult(input: ProductResultObservation): Promise<TestResult> {
     const definitionId = input.plan.value.definitionId
     const fingerprint = input.plan.fingerprint
-    const truth = resultTruth(input.observed)
+    const truth = productResultTruth(input.observed)
     const observedOracle = input.observed.status === 'completed' || input.observed.status === 'oracle_failed'
       ? { oracleKind: input.plan.value.oracle.kind, observedSubjectId: input.plan.value.oracle.subjectId }
       : null
