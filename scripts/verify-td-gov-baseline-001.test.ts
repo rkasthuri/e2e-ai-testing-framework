@@ -45,30 +45,47 @@ import {
 } from './governance-validation-sidecar.test-support'
 import { readGovernedInvocationAtPathInternal } from './governance-validation-sidecar-internal'
 
-const REPOSITORY_ROOT = path.resolve(__dirname, '..')
-const TEST_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-gov-sqlite-certification-'))
-const TEST_REPOSITORY = path.join(TEST_ROOT, 'repository')
+const SOURCE_REPOSITORY_ROOT = path.resolve(__dirname, '..')
+const TEST_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'fgc-'))
+const GOVERNED_REPOSITORY_ROOT = path.join(TEST_ROOT, 'r')
 const BARRIER_ROOT = path.join(TEST_ROOT, 'barriers')
 const AMBIENT_PROFILE = path.join(TEST_ROOT, 'ambient-profile')
 const CLEAN_DATABASE = path.join(TEST_ROOT, 'clean-forge.db')
-const SHARED_SIDECAR = path.join(TEST_REPOSITORY, '.forge', 'governance.db')
+const SHARED_SIDECAR = path.join(GOVERNED_REPOSITORY_ROOT, '.forge', 'governance.db')
 const PRELOAD_PATH = path.join(TEST_ROOT, 'governed-run-preload.cjs')
 const RUNNER_PATH = path.join(TEST_ROOT, 'governed-run-child.ts')
 const DIRECT_CHILD_PATH = path.join(TEST_ROOT, 'governed-sidecar-child.ts')
-const BASELINE_MODULE_URL = pathToFileURL(path.join(TEST_REPOSITORY, 'scripts', 'forge-validation-baseline.ts')).href
+const BASELINE_MODULE_URL = pathToFileURL(path.join(GOVERNED_REPOSITORY_ROOT, 'scripts', 'forge-validation-baseline.ts')).href
 const SIDECAR_MODULE_URL = pathToFileURL(path.join(__dirname, 'governance-validation-sidecar.ts')).href
 const SIDECAR_TEST_SUPPORT_MODULE_URL = pathToFileURL(path.join(__dirname, 'governance-validation-sidecar.test-support.ts')).href
 const BETTER_SQLITE3_MODULE_URL = pathToFileURL(require.resolve('better-sqlite3')).href
-const TSX_CLI = path.join(REPOSITORY_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs')
+const TSX_CLI = path.join(SOURCE_REPOSITORY_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs')
 const ENVIRONMENT_KEYS = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TMP', 'TEMP'] as const
+const REQUIRED_GOVERNED_REPOSITORY_FILES = [
+  'package.json',
+  'forge-ui/package.json',
+  'scripts/forge-validation-baseline.ts',
+  'scripts/governance-validation-sidecar.ts',
+  'scripts/governance-validation-sidecar-internal.ts',
+  'scripts/verify-td-gov-baseline-001.test.ts',
+] as const
 const activeChildren = new Set<ChildProcess>()
+let governedCheckoutSha = ''
 
 interface InvocationMarker {
   readonly label: string
   readonly root: string
   readonly marker: string
   readonly environment: Record<(typeof ENVIRONMENT_KEYS)[number], string>
+  readonly commandExecutable: string
+  readonly commandArgs: string[]
+  readonly commandCwd: string
+  readonly repositoryRoot: string
+  readonly packageJsonResolved: boolean
   readonly gitChild: {
+    readonly executable: string
+    readonly args: string[]
+    readonly cwd: string
     readonly environment: Record<(typeof ENVIRONMENT_KEYS)[number], string>
     readonly observedConfig: string
   }
@@ -100,6 +117,30 @@ function sha256(bytes: Buffer): string {
 
 function sidecarPath(label: string): string {
   return path.join(TEST_ROOT, `${label}.db`)
+}
+
+function assertGovernedRepositoryRoot(repositoryRoot: string): void {
+  for (const relativePath of REQUIRED_GOVERNED_REPOSITORY_FILES) {
+    const requiredPath = path.join(repositoryRoot, ...relativePath.split('/'))
+    assert.equal(
+      fs.statSync(requiredPath).isFile(),
+      true,
+      `Governed repository is missing tracked file ${relativePath}: ${repositoryRoot}`,
+    )
+  }
+}
+
+function gitOutput(args: string[], cwd: string, environment: NodeJS.ProcessEnv): string {
+  const result = spawnSync('git', args, {
+    cwd,
+    env: environment,
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed in ${cwd}: ${result.stderr}`)
+  }
+  return String(result.stdout).trim()
 }
 
 function expectation(invocation: AcceptedGovernedInvocation): GovernedInvocationExpectation {
@@ -243,10 +284,11 @@ function launchRun(options: {
     GOV_FAIL_EXPORT: options.failExport ? '1' : '0',
     GOV_EXPORT_PATH: exportPath,
     GOV_RUN_ARGS: JSON.stringify(args),
+    GOV_REPOSITORY_ROOT: GOVERNED_REPOSITORY_ROOT,
     NODE_OPTIONS: `--require=${PRELOAD_PATH}`,
   }
   const child = spawn(process.execPath, [TSX_CLI, RUNNER_PATH], {
-    cwd: REPOSITORY_ROOT,
+    cwd: GOVERNED_REPOSITORY_ROOT,
     env: environment,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -298,6 +340,14 @@ function assertInvocationEnvironment(marker: InvocationMarker): void {
   }
   assert.deepEqual(marker.gitChild.environment, marker.environment)
   assert.equal(marker.gitChild.observedConfig, `${marker.label}-isolated`)
+  assert.match(path.basename(marker.gitChild.executable), /^git(?:\.exe)?$/i)
+  assert.deepEqual(marker.gitChild.args, ['status', '--short'])
+  assert.equal(path.resolve(marker.gitChild.cwd), path.resolve(GOVERNED_REPOSITORY_ROOT))
+  assert.equal(path.resolve(marker.repositoryRoot), path.resolve(GOVERNED_REPOSITORY_ROOT))
+  assert.equal(path.resolve(marker.commandCwd), path.resolve(GOVERNED_REPOSITORY_ROOT))
+  assert.equal(marker.packageJsonResolved, true)
+  assert.equal(marker.commandArgs.includes('run'), true)
+  assert.equal(marker.commandArgs.includes('check'), true)
 }
 
 function removeKnownRoot(root: string): void {
@@ -322,9 +372,9 @@ function directChild(environment: NodeJS.ProcessEnv): Promise<CompletedRun> {
     ...process.env,
     ...environment,
   }
-  delete childEnvironment.NODE_OPTIONS
+  if (childEnvironment.NODE_OPTIONS?.includes(PRELOAD_PATH)) delete childEnvironment.NODE_OPTIONS
   const child = spawn(process.execPath, [TSX_CLI, DIRECT_CHILD_PATH], {
-    cwd: REPOSITORY_ROOT,
+    cwd: SOURCE_REPOSITORY_ROOT,
     env: childEnvironment,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -346,24 +396,29 @@ function directChild(environment: NodeJS.ProcessEnv): Promise<CompletedRun> {
 before(async () => {
   fs.mkdirSync(BARRIER_ROOT, { recursive: true })
   fs.mkdirSync(AMBIENT_PROFILE, { recursive: true })
-  fs.mkdirSync(path.dirname(SHARED_SIDECAR), { recursive: true })
-  fs.mkdirSync(path.join(TEST_REPOSITORY, 'scripts'), { recursive: true })
-  fs.copyFileSync(path.join(__dirname, 'forge-validation-baseline.ts'), path.join(TEST_REPOSITORY, 'scripts', 'forge-validation-baseline.ts'))
-  fs.copyFileSync(path.join(__dirname, 'governance-validation-sidecar.ts'), path.join(TEST_REPOSITORY, 'scripts', 'governance-validation-sidecar.ts'))
-  fs.copyFileSync(path.join(__dirname, 'governance-validation-sidecar-internal.ts'), path.join(TEST_REPOSITORY, 'scripts', 'governance-validation-sidecar-internal.ts'))
-  fs.symlinkSync(path.join(REPOSITORY_ROOT, 'src'), path.join(TEST_REPOSITORY, 'src'), 'junction')
-  fs.symlinkSync(path.join(REPOSITORY_ROOT, 'node_modules'), path.join(TEST_REPOSITORY, 'node_modules'), 'junction')
-  fs.writeFileSync(path.join(TEST_REPOSITORY, 'certification-marker.txt'), 'governed sidecar test repository\n', 'utf8')
+  assertGovernedRepositoryRoot(SOURCE_REPOSITORY_ROOT)
+  fs.writeFileSync(
+    path.join(AMBIENT_PROFILE, '.gitconfig'),
+    `[safe]\n\tdirectory = ${SOURCE_REPOSITORY_ROOT.replace(/\\/g, '/')}\n\tdirectory = ${path.join(SOURCE_REPOSITORY_ROOT, '.git').replace(/\\/g, '/')}\n[forge]\n\tgovernedProbe = ambient\n`,
+    'utf8',
+  )
   const gitEnvironment = { ...process.env, HOME: AMBIENT_PROFILE, USERPROFILE: AMBIENT_PROFILE }
-  for (const args of [
-    ['init'],
-    ['add', 'certification-marker.txt'],
-    ['-c', 'user.name=FORGE Certification', '-c', 'user.email=certification@forge.invalid', 'commit', '-m', 'test fixture'],
-  ]) {
-    const result = spawnSync('git', args, { cwd: TEST_REPOSITORY, env: gitEnvironment, encoding: 'utf8', windowsHide: true })
-    if (result.status !== 0) throw new Error(`Could not initialize governed test repository: ${result.stderr}`)
-  }
-  fs.writeFileSync(path.join(AMBIENT_PROFILE, '.gitconfig'), '[forge]\n\tgovernedProbe = ambient\n', 'utf8')
+  const sourceSha = gitOutput(['rev-parse', 'HEAD'], SOURCE_REPOSITORY_ROOT, gitEnvironment)
+  gitOutput(
+    ['clone', '--quiet', '--no-hardlinks', '--no-tags', SOURCE_REPOSITORY_ROOT, GOVERNED_REPOSITORY_ROOT],
+    TEST_ROOT,
+    gitEnvironment,
+  )
+  governedCheckoutSha = gitOutput(['rev-parse', 'HEAD'], GOVERNED_REPOSITORY_ROOT, gitEnvironment)
+  assert.equal(governedCheckoutSha, sourceSha)
+  assert.equal(gitOutput(['status', '--porcelain=v1', '--untracked-files=all'], GOVERNED_REPOSITORY_ROOT, gitEnvironment), '')
+  assertGovernedRepositoryRoot(GOVERNED_REPOSITORY_ROOT)
+  fs.symlinkSync(
+    path.join(SOURCE_REPOSITORY_ROOT, 'node_modules'),
+    path.join(GOVERNED_REPOSITORY_ROOT, 'node_modules'),
+    'junction',
+  )
+  fs.mkdirSync(path.dirname(SHARED_SIDECAR), { recursive: true })
   initDb(CLEAN_DATABASE)
   await runMigrations()
   await closeDb()
@@ -386,29 +441,44 @@ childProcess.spawnSync = function governedSpawnSync(command, args, options) {
   const argv = Array.isArray(args) ? args.map(String) : []
   const environment = options && options.env ? options.env : process.env
   const commandName = path.basename(String(command)).toLowerCase()
+  const repositoryRoot = path.resolve(process.env.GOV_REPOSITORY_ROOT)
+  const commandCwd = path.resolve(options && options.cwd ? options.cwd : process.cwd())
   if (commandName === 'git' || commandName === 'git.exe') {
+    if (commandCwd !== repositoryRoot || !fs.existsSync(path.join(commandCwd, 'package.json'))) {
+      throw new Error('Governed Git child did not use the tracked repository root: ' + commandCwd)
+    }
     fs.writeFileSync(path.join(environment.HOME, '.gitconfig'), '[forge]\\n\\tgovernedProbe = ' + process.env.GOV_RUN_LABEL + '-isolated\\n', 'utf8')
     const probe = realSpawnSync.call(this, command, ['config', '--global', '--get', 'forge.governedProbe'], { ...options, env: environment })
     const result = realSpawnSync.apply(this, arguments)
     fs.writeFileSync(path.join(environment.HOME, 'git-child-environment.json'), JSON.stringify({
+      executable: String(command),
+      args: argv,
+      cwd: commandCwd,
       environment: Object.fromEntries(['HOME','USERPROFILE','HOMEDRIVE','HOMEPATH','TMP','TEMP'].map(key => [key, environment[key]])),
       observedConfig: String(probe.stdout || '').trim(),
     }), 'utf8')
     return result
   }
-  const governed = argv.some(value => value.includes('npm-cli.js')) && argv.includes('run')
+  const npmCommand = commandName === 'npm' || commandName === 'npm.cmd'
+    || argv.some(value => path.basename(value).toLowerCase() === 'npm-cli.js')
+  const governed = npmCommand && argv.includes('run')
     && (argv.includes('check') || argv.includes('test:unit') || argv.includes('build'))
   if (!governed) return realSpawnSync.apply(this, arguments)
+  const allowedCwds = [repositoryRoot, path.join(repositoryRoot, 'forge-ui')]
+  const packageJsonResolved = fs.existsSync(path.join(commandCwd, 'package.json'))
+  if (!allowedCwds.includes(commandCwd) || !packageJsonResolved) {
+    throw new Error('Governed npm child did not use a tracked package root: ' + commandCwd)
+  }
   commandCount += 1
   invocationRoot = environment.HOME
   if (commandCount === 1) {
     const captured = Object.fromEntries(['HOME','USERPROFILE','HOMEDRIVE','HOMEPATH','TMP','TEMP'].map(key => [key, environment[key]]))
     const gitChild = JSON.parse(fs.readFileSync(path.join(invocationRoot, 'git-child-environment.json'), 'utf8'))
-    const marker = JSON.stringify({ label: process.env.GOV_RUN_LABEL, root: invocationRoot, environment: captured, gitChild })
+    const marker = JSON.stringify({ label: process.env.GOV_RUN_LABEL, root: invocationRoot, environment: captured, commandExecutable: String(command), commandArgs: argv, commandCwd, repositoryRoot, packageJsonResolved, gitChild })
     fs.writeFileSync(path.join(invocationRoot, 'owned-marker.json'), marker, 'utf8')
     const finalPath = path.join(process.env.GOV_BARRIER_ROOT, process.env.GOV_RUN_LABEL + '.started.json')
     const temporaryPath = finalPath + '.' + process.pid + '.tmp'
-    fs.writeFileSync(temporaryPath, JSON.stringify({ label: process.env.GOV_RUN_LABEL, root: invocationRoot, marker, environment: captured, gitChild }), 'utf8')
+    fs.writeFileSync(temporaryPath, JSON.stringify({ label: process.env.GOV_RUN_LABEL, root: invocationRoot, marker, environment: captured, commandExecutable: String(command), commandArgs: argv, commandCwd, repositoryRoot, packageJsonResolved, gitChild }), 'utf8')
     fs.renameSync(temporaryPath, finalPath)
     if (process.env.GOV_WAIT_AT_FIRST_COMMAND !== '0') {
       const release = path.join(process.env.GOV_BARRIER_ROOT, process.env.GOV_RUN_LABEL + '.release')
@@ -575,14 +645,38 @@ store.close()
 after(async () => {
   for (const child of activeChildren) child.kill()
   await closeDb()
-  for (const name of ['src', 'node_modules']) {
-    const junction = path.join(TEST_REPOSITORY, name)
-    if (fs.existsSync(junction)) {
-      assert.equal(fs.lstatSync(junction).isSymbolicLink(), true)
-      fs.unlinkSync(junction)
-    }
+  const nodeModulesJunction = path.join(GOVERNED_REPOSITORY_ROOT, 'node_modules')
+  if (fs.existsSync(nodeModulesJunction)) {
+    assert.equal(fs.lstatSync(nodeModulesJunction).isSymbolicLink(), true)
+    fs.unlinkSync(nodeModulesJunction)
   }
   fs.rmSync(TEST_ROOT, { recursive: true, force: true })
+})
+
+test('governed commands use an exact clean tracked checkout with package entry points', () => {
+  const gitEnvironment = { ...process.env, HOME: AMBIENT_PROFILE, USERPROFILE: AMBIENT_PROFILE }
+  assertGovernedRepositoryRoot(GOVERNED_REPOSITORY_ROOT)
+  assert.equal(
+    governedCheckoutSha,
+    gitOutput(['rev-parse', 'HEAD'], SOURCE_REPOSITORY_ROOT, gitEnvironment),
+  )
+  const trackedFiles = new Set(
+    gitOutput(['ls-files'], GOVERNED_REPOSITORY_ROOT, gitEnvironment).split(/\r?\n/).filter(Boolean),
+  )
+  for (const requiredPath of REQUIRED_GOVERNED_REPOSITORY_FILES) {
+    assert.equal(trackedFiles.has(requiredPath), true, `${requiredPath} must come from the tracked checkout`)
+  }
+  const rootPackage = JSON.parse(fs.readFileSync(path.join(GOVERNED_REPOSITORY_ROOT, 'package.json'), 'utf8')) as {
+    scripts?: Record<string, string>
+  }
+  const uiPackage = JSON.parse(fs.readFileSync(path.join(GOVERNED_REPOSITORY_ROOT, 'forge-ui', 'package.json'), 'utf8')) as {
+    scripts?: Record<string, string>
+  }
+  assert.equal(typeof rootPackage.scripts?.check, 'string')
+  assert.equal(typeof rootPackage.scripts?.['test:unit'], 'string')
+  assert.equal(typeof uiPackage.scripts?.check, 'string')
+  assert.equal(typeof uiPackage.scripts?.build, 'string')
+  assert.equal(gitOutput(['diff', '--check'], GOVERNED_REPOSITORY_ROOT, gitEnvironment), '')
 })
 
 test('sidecar initializes strict schema, verified pragmas, and bigint authority', () => {
@@ -860,9 +954,9 @@ test('disposable test path rejects traversal, junction, and symlink aliases', as
   )
 
   const junction = path.join(TEST_ROOT, 'junction-escape')
-  fs.symlinkSync(REPOSITORY_ROOT, junction, 'junction')
+  fs.symlinkSync(SOURCE_REPOSITORY_ROOT, junction, 'junction')
   try {
-    const packageBytes = fs.readFileSync(path.join(REPOSITORY_ROOT, 'package.json'))
+    const packageBytes = fs.readFileSync(path.join(SOURCE_REPOSITORY_ROOT, 'package.json'))
     assert.throws(
       () => new GovernanceValidationSidecar(path.join(junction, 'attacker.db')),
       /symbolic links or junctions|resolve inside/,
@@ -871,8 +965,8 @@ test('disposable test path rejects traversal, junction, and symlink aliases', as
       () => new GovernanceValidationSidecar(path.join(junction, 'CON.db')),
       /reserved Windows device name|symbolic links or junctions|resolve inside/,
     )
-    assert.deepEqual(fs.readFileSync(path.join(REPOSITORY_ROOT, 'package.json')), packageBytes)
-    assert.equal(fs.existsSync(path.join(REPOSITORY_ROOT, 'attacker.db')), false)
+    assert.deepEqual(fs.readFileSync(path.join(SOURCE_REPOSITORY_ROOT, 'package.json')), packageBytes)
+    assert.equal(fs.existsSync(path.join(SOURCE_REPOSITORY_ROOT, 'attacker.db')), false)
   } finally {
     fs.unlinkSync(junction)
   }
@@ -905,10 +999,10 @@ test('disposable test path rejects traversal, junction, and symlink aliases', as
   })
 
   await t.test('hard-link alias cannot redirect a disposable database file', t2 => {
-    const outside = path.join(REPOSITORY_ROOT, 'package.json')
+    const outside = path.join(SOURCE_REPOSITORY_ROOT, 'package.json')
     const linked = path.join(TEST_ROOT, 'hard-link-attacker.db')
     const outsideBefore = fs.readFileSync(outside)
-    const productionSidecar = path.join(REPOSITORY_ROOT, '.forge', 'governance.db')
+    const productionSidecar = path.join(SOURCE_REPOSITORY_ROOT, '.forge', 'governance.db')
     const productionBefore = fs.existsSync(productionSidecar) ? fs.readFileSync(productionSidecar) : null
     try {
       fs.linkSync(outside, linked)
@@ -2273,14 +2367,14 @@ test('production governance authority is fixed-path and isolated from Product pe
   assert.doesNotMatch(runnerSource, /governance-validation-sidecar-(?:internal|test-support)/)
   assert.doesNotMatch(runnerSource, /GovernanceValidationSidecar\([^)]*databasePath/)
   assert.doesNotMatch(runnerSource, /FORGE_GOVERNANCE_TEST|GOVERNANCE_TEST_SIDECAR/)
-  assert.equal(productionGovernanceSidecarPath(), path.join(REPOSITORY_ROOT, '.forge', 'governance.db'))
-  assert.notEqual(productionGovernanceSidecarPath(), path.join(REPOSITORY_ROOT, '.forge', 'forge.db'))
+  assert.equal(productionGovernanceSidecarPath(), path.join(SOURCE_REPOSITORY_ROOT, '.forge', 'governance.db'))
+  assert.notEqual(productionGovernanceSidecarPath(), path.join(SOURCE_REPOSITORY_ROOT, '.forge', 'forge.db'))
   assert.equal(productionGovernanceSidecarPath.length, 0)
   assert.equal('GovernanceValidationSidecar' in sidecarModule, false)
   assert.equal(sidecarModule.openProductionGovernanceSidecar.length, 0)
   assert.equal(sidecarModule.readGovernedCurrent.length, 1)
   assert.throws(
-    () => new GovernanceValidationSidecar(path.join(REPOSITORY_ROOT, '.forge', 'attacker-selected.db')),
+    () => new GovernanceValidationSidecar(path.join(SOURCE_REPOSITORY_ROOT, '.forge', 'attacker-selected.db')),
     /test sidecars must be .*inside the operating-system temporary directory/,
   )
 })
