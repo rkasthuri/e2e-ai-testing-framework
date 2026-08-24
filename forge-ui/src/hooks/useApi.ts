@@ -30,6 +30,7 @@ import type {
   TestInventoryResponse, TestGenerationResponse, TestGenerationStatusResponse,
   GenerationManifest, TestFileContent,
 } from '../api/types'
+import { decodeTestInventoryResponse } from '../api/testInventoryContract'
 import type { RunIntentController } from '../pages/runIntentState'
 
 /** GET /api/v1/projects — the project switcher + lists consume this. */
@@ -208,7 +209,7 @@ export function useEvidenceBackedTests(appName: string | null, cursor: string | 
       const query = new URLSearchParams({ limit: '25' })
       if (cursor) query.set('cursor', cursor)
       if (testId) query.set('test', testId)
-      return apiClient.get<TestInventoryResponse>(`/api/v1/projects/${encodeURIComponent(appName!)}/test-definitions?${query}`)
+      return apiClient.get<unknown>(`/api/v1/projects/${encodeURIComponent(appName!)}/test-definitions?${query}`).then(decodeTestInventoryResponse)
     },
     enabled: !!appName,
     retry: false,

@@ -60,7 +60,7 @@ function readyPreflight(project: string, ids: readonly string[], revision: numbe
   return {
     project: { id: project, name: project },
     testSetRevision: { revision, testSetId: 'test-set-1', schemaVersion: 2, contentHash: HASH },
-    definitions: ids.map(definitionId => ({ definitionId, schemaVersion: 2, state: 'eligible', semanticPlanHash: HASH, modelRowId: 1, modelVersion: '1', supportSealHash: HASH, routeEvidence: { normalizedPath: `/${definitionId.toLowerCase()}`, normalizationPolicy: { id: 'forge.canonical-route-normalization', version: '1' } }, authenticationExpectation: { state: 'not_required', mechanism: null }, intrinsicCompatibility: 'compatible' })),
+    definitionResults: ids.map(definitionId => ({ definitionId, schemaVersion: 2, state: 'eligible', semanticPlanHash: HASH, modelRowId: 1, modelVersion: '1', supportSealHash: HASH, routeEvidence: { normalizedPath: `/${definitionId.toLowerCase()}`, normalizationPolicy: { id: 'forge.canonical-route-normalization', version: '1' } }, authenticationExpectation: { state: 'not_required', mechanism: null }, intrinsicCompatibility: 'compatible' })),
     aggregate: { state: 'ready', explanation: 'ready' },
     liveEligibility: { state: 'eligible', runner: 'available', credentials: 'not_required' },
     boundaries: { generationAuthority: 'established', executionEligibility: 'eligible', persisted: false },
@@ -272,12 +272,12 @@ for (const [label, dataUpdatedAt] of [['minimal', 1], ['extremely large', Number
 for (const [label, mutate] of [
   ['wrong project', (value: any) => ({ ...value, project: { ...value.project, id: 'project-b' } })],
   ['wrong revision', (value: any) => ({ ...value, testSetRevision: { ...value.testSetRevision, revision: 5 } })],
-  ['reordered definitions', (value: any) => ({ ...value, definitions: [...value.definitions].reverse() })],
-  ['missing definition', (value: any) => ({ ...value, definitions: value.definitions.slice(0, 1) })],
-  ['extra definition', (value: any) => ({ ...value, definitions: [...value.definitions, { ...value.definitions[0], definitionId: 'C' }] })],
-  ['duplicate definition', (value: any) => ({ ...value, definitions: [value.definitions[0], value.definitions[0]] })],
-  ['unsafe route', (value: any) => ({ ...value, definitions: value.definitions.map((d: any) => ({ ...d, routeEvidence: { ...d.routeEvidence, normalizedPath: '/../unsafe' } })) })],
-  ['contradictory authentication', (value: any) => ({ ...value, definitions: value.definitions.map((d: any) => ({ ...d, authenticationExpectation: { state: 'not_required', mechanism: 'form-login' } })) })],
+  ['reordered definitions', (value: any) => ({ ...value, definitionResults: [...value.definitionResults].reverse() })],
+  ['missing definition', (value: any) => ({ ...value, definitionResults: value.definitionResults.slice(0, 1) })],
+  ['extra definition', (value: any) => ({ ...value, definitionResults: [...value.definitionResults, { ...value.definitionResults[0], definitionId: 'C' }] })],
+  ['duplicate definition', (value: any) => ({ ...value, definitionResults: [value.definitionResults[0], value.definitionResults[0]] })],
+  ['unsafe route', (value: any) => ({ ...value, definitionResults: value.definitionResults.map((d: any) => ({ ...d, routeEvidence: { ...d.routeEvidence, normalizedPath: '/../unsafe' } })) })],
+  ['contradictory authentication', (value: any) => ({ ...value, definitionResults: value.definitionResults.map((d: any) => ({ ...d, authenticationExpectation: { state: 'not_required', mechanism: 'form-login' } })) })],
 ] as const) {
   test(`current preflight ${label} blocks Start before HTTP`, async () => {
     const { controller, queryClient } = makeController(); prepare(controller, queryClient); seedPreflight(queryClient, 'project-a', ['A', 'B'], 4, mutate(readyPreflight('project-a', ['A', 'B'], 4)))

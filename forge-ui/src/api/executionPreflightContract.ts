@@ -120,6 +120,7 @@ export function isCanonicalPreflightAuthentication(
 
 function decodeDefinition(value: unknown): ExecutionPreflightDefinitionResult {
   const input = record(value)
+  if (input.schemaVersion === 3) return decodeV3Definition(input)
   exactKeys(input, [
     'definitionId', 'schemaVersion', 'state', 'semanticPlanHash', 'modelRowId', 'modelVersion',
     'supportSealHash', 'routeEvidence', 'authenticationExpectation', 'intrinsicCompatibility',
@@ -159,6 +160,43 @@ function decodeDefinition(value: unknown): ExecutionPreflightDefinitionResult {
   }
 }
 
+function decodeV3Definition(input: Record<string, unknown>): ExecutionPreflightDefinitionResult {
+  exactKeys(input, [
+    'definitionId', 'schemaVersion', 'state', 'semanticPlanHash', 'appArea', 'modelRowId', 'modelVersion',
+    'supportSealHash', 'intentId', 'intentContentHash', 'routes', 'actions', 'oracle',
+    'authenticationExpectation', 'intrinsicCompatibility',
+  ])
+  if (input.schemaVersion !== 3 || input.state !== 'eligible' || input.intrinsicCompatibility !== 'compatible') fail()
+  if (!Array.isArray(input.routes) || input.routes.length !== 2) fail()
+  const routes = input.routes.map(item => {
+    const route = record(item)
+    exactKeys(route, ['subjectId', 'normalizedPath'])
+    if (!isCanonicalPreflightRoute(route.normalizedPath)) fail()
+    return { subjectId: id(route.subjectId), normalizedPath: route.normalizedPath }
+  }) as [{ subjectId: string; normalizedPath: string }, { subjectId: string; normalizedPath: string }]
+  if (!Array.isArray(input.actions) || input.actions.length !== 2
+    || input.actions[0] !== 'navigate_to_observed_route' || input.actions[1] !== 'click_observed_data_test') fail()
+  const oracle = record(input.oracle)
+  exactKeys(oracle, ['kind', 'subjectId', 'routePath'])
+  const oracleSubjectId = id(oracle.subjectId)
+  if (oracle.kind !== 'subject_observable' || oracleSubjectId !== routes[1].subjectId
+    || !isCanonicalPreflightRoute(oracle.routePath) || oracle.routePath !== routes[1].normalizedPath) fail()
+  const oracleRoutePath = oracle.routePath
+  const authentication = record(input.authenticationExpectation)
+  exactKeys(authentication, ['state', 'mechanism'])
+  if (!isCanonicalPreflightAuthentication(authentication.state, authentication.mechanism)) fail()
+  return {
+    definitionId: id(input.definitionId), schemaVersion: 3, state: 'eligible',
+    semanticPlanHash: sha(input.semanticPlanHash), appArea: id(input.appArea),
+    modelRowId: positiveInteger(input.modelRowId), modelVersion: text(input.modelVersion, 255),
+    supportSealHash: sha(input.supportSealHash), intentId: id(input.intentId), intentContentHash: sha(input.intentContentHash),
+    routes, actions: ['navigate_to_observed_route', 'click_observed_data_test'],
+    oracle: { kind: 'subject_observable', subjectId: oracleSubjectId, routePath: oracleRoutePath },
+    authenticationExpectation: { state: authentication.state, mechanism: authentication.mechanism as string | null },
+    intrinsicCompatibility: 'compatible',
+  }
+}
+
 function exactOrderedIds(actual: readonly string[], expected: readonly string[]): boolean {
   return actual.length === expected.length && actual.every((value, index) => value === expected[index])
 }
@@ -174,16 +212,16 @@ export function decodeCanonicalExecutionPreflight(
     || new Set(expected.definitionIds).size !== expected.definitionIds.length) fail()
 
   const input = record(value)
-  exactKeys(input, ['project', 'testSetRevision', 'definitions', 'aggregate', 'liveEligibility', 'boundaries'])
+  exactKeys(input, ['project', 'testSetRevision', 'definitionResults', 'aggregate', 'liveEligibility', 'boundaries'])
 
   const project = record(input.project)
   exactKeys(project, ['id', 'name'])
   const projectId = id(project.id)
   if (projectId !== expected.projectId) fail()
 
-  if (!Array.isArray(input.definitions) || input.definitions.length > 50) fail()
-  const definitions = input.definitions.map(decodeDefinition)
-  const responseIds = definitions.map(definition => definition.definitionId)
+  if (!Array.isArray(input.definitionResults) || input.definitionResults.length > 50) fail()
+  const definitionResults = input.definitionResults.map(decodeDefinition)
+  const responseIds = definitionResults.map(definition => definition.definitionId)
   if (new Set(responseIds).size !== responseIds.length) fail()
 
   const aggregate = record(input.aggregate)
@@ -212,10 +250,12 @@ export function decodeCanonicalExecutionPreflight(
   if (revisionNumber !== expected.revision) fail()
 
   if (aggregateState === 'ready') {
-    const expectedCredentialState = definitions.some(definition => definition.authenticationExpectation.state === 'required')
+    const expectedCredentialState = definitionResults.some(definition => definition.authenticationExpectation.state === 'required')
       ? 'available'
       : 'not_required'
-    if (!fullRevision || revision.schemaVersion !== 2
+    const schemaVersions = new Set(definitionResults.map(definition => definition.schemaVersion))
+    if (!fullRevision || ![2, 3].includes(Number(revision.schemaVersion)) || schemaVersions.size !== 1
+      || !schemaVersions.has(revision.schemaVersion as 2 | 3)
       || !exactOrderedIds(responseIds, expected.definitionIds)
       || live.state !== 'eligible' || live.runner !== 'available'
       || live.credentials !== expectedCredentialState
@@ -223,7 +263,7 @@ export function decodeCanonicalExecutionPreflight(
       || boundaries.executionEligibility !== 'eligible') fail()
     id(revision.testSetId)
     sha(revision.contentHash)
-  } else if (definitions.length !== 0
+  } else if (definitionResults.length !== 0
     || live.state !== 'blocked'
     || boundaries.generationAuthority !== 'not_established'
     || boundaries.executionEligibility !== 'blocked') fail()
@@ -231,9 +271,9 @@ export function decodeCanonicalExecutionPreflight(
   return {
     project: { id: projectId, name: text(project.name, 255) },
     testSetRevision: fullRevision
-      ? { revision: revisionNumber, testSetId: id(revision.testSetId), schemaVersion: 2, contentHash: sha(revision.contentHash) }
+      ? { revision: revisionNumber, testSetId: id(revision.testSetId), schemaVersion: revision.schemaVersion as 2 | 3, contentHash: sha(revision.contentHash) }
       : { revision: revisionNumber },
-    definitions,
+    definitionResults,
     aggregate: { state: aggregateState, explanation: text(aggregate.explanation, 2000) },
     liveEligibility: {
       state: live.state as 'eligible' | 'blocked',
