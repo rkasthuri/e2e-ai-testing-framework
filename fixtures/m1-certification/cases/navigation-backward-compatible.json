@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-07-existing-v2-navigation",
+  "matrixItem": 7,
+  "title": "Existing v2 navigation remains executable without silent upgrade",
+  "input": {
+    "projectId": "project-legacy-navigation",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-legacy-navigation",
+      "modelVersion": 1,
+      "classifier": "ModuleClassifier",
+      "pages": [{ "pageId": "page-dashboard", "module": "dashboard" }],
+      "supportObservationIds": ["obs-dashboard-route"]
+    },
+    "flow": {
+      "flowId": "existing-v2-definition",
+      "title": "Open dashboard",
+      "objective": "Execute the existing navigation-only Definition",
+      "pageIds": ["page-dashboard"],
+      "preconditions": [],
+      "steps": [{ "stepId": "legacy-step-1", "kind": "navigate_to_observed_route", "subjectId": "page-dashboard", "routePath": "/dashboard", "observationIds": ["obs-dashboard-route"] }],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "page-dashboard", "routePath": "/dashboard", "observationIds": ["obs-dashboard-route"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "accepted",
+    "refusalCode": null,
+    "definitionSchemaVersion": 2,
+    "resultOutcome": "passed",
+    "businessAssertion": "passed",
+    "uiState": "generated_review",
+    "canRun": true
+  },
+  "attacks": [],
+  "tags": ["backward_compatibility", "v2", "v1_quarantine"]
+}

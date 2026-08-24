@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-06-provenance-retention",
+  "matrixItem": 6,
+  "title": "Definition, plan, and UI retain evidence support",
+  "input": {
+    "projectId": "project-search",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-search",
+      "modelVersion": 5,
+      "classifier": "ModuleClassifier",
+      "pages": [{ "pageId": "page-search", "module": "catalog" }],
+      "supportObservationIds": ["obs-search-route", "obs-query", "obs-result"]
+    },
+    "flow": {
+      "flowId": "flow-search",
+      "title": "Search the catalog",
+      "objective": "Find an observed catalog item",
+      "pageIds": ["page-search"],
+      "preconditions": ["The observed search query is established by governed setup"],
+      "steps": [
+        { "stepId": "step-1", "kind": "navigate_to_observed_route", "subjectId": "subject-search", "routePath": "/search.html", "observationIds": ["obs-search-route"] },
+        { "stepId": "step-2", "kind": "click_observed_data_test", "subjectId": "subject-search-submit", "dataTest": "search", "cardinality": "single", "observationIds": ["obs-query"] }
+      ],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-search-result", "routePath": "/search/results.html", "observationIds": ["obs-result"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "accepted",
+    "refusalCode": null,
+    "definitionSchemaVersion": 3,
+    "resultOutcome": "passed",
+    "businessAssertion": "passed",
+    "uiState": "generated_review",
+    "canRun": true
+  },
+  "attacks": ["provenance_dropped"],
+  "tags": ["provenance", "support", "ui"]
+}

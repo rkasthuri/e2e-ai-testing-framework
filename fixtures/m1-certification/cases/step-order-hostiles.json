@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-05-step-integrity",
+  "matrixItem": 5,
+  "title": "Frozen plan step order, completeness, and uniqueness are contractual",
+  "input": {
+    "projectId": "project-profile",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-profile",
+      "modelVersion": 4,
+      "classifier": "ModuleClassifier",
+      "pages": [{ "pageId": "page-profile", "module": "account" }],
+      "supportObservationIds": ["obs-profile-route", "obs-name-field", "obs-save", "obs-success"]
+    },
+    "flow": {
+      "flowId": "flow-update-name",
+      "title": "Submit an observed profile state",
+      "objective": "Preserve navigation before the directly observed save control",
+      "pageIds": ["page-profile"],
+      "preconditions": ["Authentication is established and profile form state is governed by setup"],
+      "steps": [
+        { "stepId": "step-1", "kind": "navigate_to_observed_route", "subjectId": "subject-profile", "routePath": "/profile.html", "observationIds": ["obs-profile-route"] },
+        { "stepId": "step-2", "kind": "click_observed_data_test", "subjectId": "subject-save-profile", "dataTest": "save-profile", "cardinality": "single", "observationIds": ["obs-save"] }
+      ],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-profile-saved", "routePath": "/profile/saved.html", "observationIds": ["obs-success"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "accepted",
+    "refusalCode": null,
+    "definitionSchemaVersion": 3,
+    "resultOutcome": "passed",
+    "businessAssertion": "passed",
+    "uiState": "generated_review",
+    "canRun": true
+  },
+  "attacks": ["reordered_steps", "missing_step", "duplicate_step"],
+  "tags": ["step_order", "hostile", "v3"]
+}
