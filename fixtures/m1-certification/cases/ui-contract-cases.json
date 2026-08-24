@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-UI-generated-review",
+  "matrixItem": 10,
+  "title": "UI generated review is a projection of the backend v3 contract",
+  "input": {
+    "projectId": "project-billing",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-billing",
+      "modelVersion": 5,
+      "classifier": "ModuleClassifier",
+      "pages": [{ "pageId": "page-billing", "module": "billing" }],
+      "supportObservationIds": ["obs-billing", "obs-plan", "obs-summary"]
+    },
+    "flow": {
+      "flowId": "flow-review-plan",
+      "title": "Review billing plan",
+      "objective": "Select and review an observed billing plan",
+      "pageIds": ["page-billing"],
+      "preconditions": ["Authentication is established and the observed plan choice is staged by governed setup"],
+      "steps": [
+        { "stepId": "step-1", "kind": "navigate_to_observed_route", "subjectId": "subject-billing", "routePath": "/billing.html", "observationIds": ["obs-billing"] },
+        { "stepId": "step-2", "kind": "click_observed_data_test", "subjectId": "subject-review-plan", "dataTest": "review-plan", "cardinality": "single", "observationIds": ["obs-plan"] }
+      ],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-plan-summary", "routePath": "/billing/review.html", "observationIds": ["obs-summary"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "accepted",
+    "refusalCode": null,
+    "definitionSchemaVersion": 3,
+    "resultOutcome": "passed",
+    "businessAssertion": "passed",
+    "uiState": "generated_review",
+    "canRun": true
+  },
+  "attacks": ["ui_backend_shape_drift"],
+  "tags": ["ui", "generated_review", "backend_contract"]
+}

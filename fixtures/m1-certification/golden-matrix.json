@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "forge-m1-golden-matrix/v1",
+  "certificationAuthority": "product_driver_required",
+  "referenceHarnessAuthority": "mechanics_only",
+  "items": [
+    { "item": 1, "name": "happy_path", "fixtures": ["happy-path.json"], "requiredTruth": "established authentication, observed /cart.html navigation, one directly observed single-cardinality data-test=checkout click, and the /checkout-step-one.html subject-observable oracle reach immutable Product Result through the canonical v3 path" },
+    { "item": 2, "name": "insufficient_evidence", "fixtures": ["insufficient-evidence.json"], "requiredTruth": "missing grounding refuses without runnable fiction" },
+    { "item": 3, "name": "unsupported_action", "fixtures": ["unsupported-action.json"], "requiredTruth": "fill, select, assert_text, drag, and other semantics outside the frozen M1 navigation/click/final-oracle scope refuse closed" },
+    { "item": 4, "name": "app_area_correctness", "fixtures": ["app-area-correctness.json", "app-area-mismatch.json", "app-area-unknown.json"], "requiredTruth": "persisted PageDefinition.module is carried exactly; mixed and unknown areas refuse" },
+    { "item": 5, "name": "step_order", "fixtures": ["step-order-hostiles.json"], "requiredTruth": "reordered, missing, and duplicate steps are detected" },
+    { "item": 6, "name": "support_provenance", "fixtures": ["provenance-hostiles.json"], "requiredTruth": "intent, Definition, plan, and UI retain evidence support" },
+    { "item": 7, "name": "backward_compatibility", "fixtures": ["navigation-backward-compatible.json"], "requiredTruth": "v2 remains executable navigation-only; v1 remains readable quarantined and is never upgraded" },
+    { "item": 8, "name": "execution_failure_truth", "fixtures": ["assertion-failure.json"], "requiredTruth": "final subject-observable oracle failure remains failed despite completed infrastructure" },
+    { "item": 9, "name": "immutability", "fixtures": ["immutability-hostiles.json"], "requiredTruth": "Definition, plan, and Result reject in-place mutation" },
+    { "item": 10, "name": "end_to_end_contract", "fixtures": ["end-to-end-case.json"], "requiredTruth": "the exact observed cart-to-checkout fixture can later bind to a Product driver and prove observation through Result" }
+  ],
+  "uiFixtures": [
+    "happy-path.json",
+    "insufficient-evidence.json",
+    "unsupported-action.json",
+    "app-area-correctness.json",
+    "step-order-hostiles.json",
+    "provenance-hostiles.json",
+    "ui-contract-cases.json"
+  ]
+}

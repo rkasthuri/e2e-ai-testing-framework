@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-04-unknown-app-area",
+  "matrixItem": 4,
+  "title": "Unknown persisted module refuses with app_area_unknown",
+  "input": {
+    "projectId": "project-unknown",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-unknown",
+      "modelVersion": 1,
+      "classifier": "ModuleClassifier",
+      "pages": [{ "pageId": "page-unclassified", "module": null }],
+      "supportObservationIds": ["obs-unclassified-route"]
+    },
+    "flow": {
+      "flowId": "flow-unclassified",
+      "title": "Use unclassified page",
+      "objective": "Generate from a page without a canonical module",
+      "pageIds": ["page-unclassified"],
+      "preconditions": [],
+      "steps": [{ "stepId": "step-1", "kind": "navigate_to_observed_route", "subjectId": "page-unclassified", "routePath": "/unknown.html", "observationIds": ["obs-unclassified-route"] }],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "page-unclassified", "routePath": "/unknown.html", "observationIds": ["obs-unclassified-route"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "refused",
+    "refusalCode": "app_area_unknown",
+    "definitionSchemaVersion": null,
+    "resultOutcome": null,
+    "businessAssertion": null,
+    "uiState": "refused",
+    "canRun": false
+  },
+  "attacks": [],
+  "tags": ["app_area_unknown", "refusal", "fail_closed"]
+}
