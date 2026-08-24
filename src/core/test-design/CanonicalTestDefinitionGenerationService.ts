@@ -14,10 +14,16 @@ import * as crypto from 'crypto'
 import { assertProductDatabaseAuthority } from '../storage/db'
 import { runMigrations } from '../storage/migrate'
 import { TestSetRepository } from '../storage/repositories/TestSetRepository'
-import { TestDefinitionContractError } from './TestDefinitionContract'
+import { canonicalDefinitionSaveResultV3, TestDefinitionContractError } from './TestDefinitionContract'
 import { TestDefinitionAuthorityProjectionService } from './TestDefinitionAuthorityProjectionService'
 import { CanonicalRouteEvidenceProjection } from './CanonicalRouteEvidenceProjection'
 import { AuthenticationExpectationProjectionService } from './AuthenticationExpectationProjection'
+import { AppModelRepository } from '../storage/repositories/AppModelRepository'
+import {
+  normalizeDiscoveredIntentV1,
+  refusedNormalizedTestIntentV1,
+  type DiscoveredIntentSelectionV1,
+} from './NormalizedTestIntentContract'
 
 const PROCESS_INSTANCE_ID = crypto.randomUUID()
 
@@ -34,6 +40,7 @@ export class CanonicalTestDefinitionGenerationService {
     private readonly authProjection = new AuthenticationExpectationProjectionService(),
     private readonly now = () => new Date().toISOString(),
     private readonly prepare = async () => { assertProductDatabaseAuthority(); await runMigrations() },
+    private readonly appModels = new AppModelRepository(),
   ) {}
 
   async readAdmission(projectId: string, workspaceRoot: string) {
@@ -71,6 +78,89 @@ export class CanonicalTestDefinitionGenerationService {
       const message = cause instanceof TestDefinitionContractError
         ? cause.message
         : 'Canonical v2 Test Definition generation failed before a revision was committed.'
+      await this.repository.failGeneration(projectId, generationId, PROCESS_INSTANCE_ID, this.now(), code, message)
+      throw cause
+    }
+  }
+
+  async readDiscoveredFlowAdmission(
+    projectId: string,
+    workspaceRoot: string,
+    selection: DiscoveredIntentSelectionV1,
+  ) {
+    const admitted = await this.readAdmission(projectId, workspaceRoot)
+    if (admitted.kind !== 'ok') {
+      return {
+        kind: 'refused' as const,
+        stage: admitted.stage,
+        intent: refusedNormalizedTestIntentV1(projectId, selection, 'insufficient_evidence'),
+      }
+    }
+    const model = await this.appModels.getModel(projectId)
+    if (!model) {
+      return {
+        kind: 'refused' as const,
+        stage: 'app_model' as const,
+        intent: refusedNormalizedTestIntentV1(projectId, selection, 'insufficient_evidence'),
+      }
+    }
+    const normalized = normalizeDiscoveredIntentV1({
+      projectId,
+      model,
+      authority: admitted.authority,
+      routeEvidence: admitted.routeEvidence,
+      authenticationExpectation: admitted.authenticationExpectation,
+      selection,
+    })
+    return normalized.kind === 'refused'
+      ? { kind: 'refused' as const, stage: 'normalized_intent' as const, intent: normalized.intent }
+      : {
+          kind: 'ok' as const,
+          authority: admitted.authority,
+          routeEvidence: admitted.routeEvidence,
+          authenticationExpectation: admitted.authenticationExpectation,
+          normalizedIntent: normalized.materialized,
+        }
+  }
+
+  async generateDiscoveredFlow(
+    projectId: string,
+    workspaceRoot: string,
+    selection: DiscoveredIntentSelectionV1,
+    generationId = crypto.randomUUID(),
+  ) {
+    await this.prepare()
+    const admitted = await this.readDiscoveredFlowAdmission(projectId, workspaceRoot, selection)
+    if (admitted.kind !== 'ok') return admitted
+    const startedAt = this.now()
+    await this.repository.beginGeneration(projectId, generationId, PROCESS_INSTANCE_ID, startedAt)
+    try {
+      const current = await this.readDiscoveredFlowAdmission(projectId, workspaceRoot, selection)
+      if (current.kind !== 'ok'
+        || !sameIdentity(current.authority, admitted.authority)
+        || current.routeEvidence.identityHash !== admitted.routeEvidence.identityHash
+        || current.authenticationExpectation.identityHash !== admitted.authenticationExpectation.identityHash
+        || current.normalizedIntent.fingerprint !== admitted.normalizedIntent.fingerprint) {
+        throw new TestDefinitionContractError('STALE_AUTHORITY')
+      }
+      const committed = await this.repository.commitCanonicalV3Generation({
+        projectId,
+        generatedAt: startedAt,
+        authority: current.authority,
+        routeEvidence: current.routeEvidence,
+        authenticationExpectation: current.authenticationExpectation,
+        normalizedIntent: current.normalizedIntent,
+      }, generationId, PROCESS_INSTANCE_ID)
+      return {
+        kind: 'committed' as const,
+        ...committed,
+        save: canonicalDefinitionSaveResultV3(committed.testSet),
+      }
+    } catch (cause) {
+      const code = cause instanceof TestDefinitionContractError ? cause.code : 'PERSISTENCE_FAILED'
+      const message = cause instanceof TestDefinitionContractError
+        ? cause.message
+        : 'Canonical discovered-flow generation failed before a revision was committed.'
       await this.repository.failGeneration(projectId, generationId, PROCESS_INSTANCE_ID, this.now(), code, message)
       throw cause
     }

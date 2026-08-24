@@ -38,6 +38,7 @@ import { projectExecutablePlan, type CurrentProjectionAuthority, type CurrentV2P
 import { TestDefinitionAuthorityProjectionService } from '../test-design/TestDefinitionAuthorityProjectionService'
 import { CanonicalRouteEvidenceProjection } from '../test-design/CanonicalRouteEvidenceProjection'
 import { AuthenticationExpectationProjectionService } from '../test-design/AuthenticationExpectationProjection'
+import { AppModelRepository } from '../storage/repositories/AppModelRepository'
 import type { CredentialReference } from '../security/CredentialExecutionScope'
 import type { MaterializedExecutablePlan } from './ExecutablePlanContract'
 import {
@@ -89,8 +90,52 @@ export interface GovernedExecutionStartRequest {
 }
 
 export type ExecutionPreflightResult =
-  | { kind: 'ready'; plans: MaterializedExecutablePlan[]; current: Extract<TestInventoryRead['current'], object>; authority: CurrentV2ProjectionAuthority | CurrentProjectionAuthority }
+  | {
+      kind: 'ready'
+      plans: MaterializedExecutablePlan[]
+      definitionResults: ExecutionPreflightDefinitionResult[]
+      current: Extract<TestInventoryRead['current'], object>
+      authority: CurrentV2ProjectionAuthority | CurrentProjectionAuthority
+    }
   | { kind: 'rejected'; code: ExecutionStartRejectionCode; safeMessage: string }
+
+export interface ExecutionPreflightDefinitionResultV2 {
+  definitionId: string
+  schemaVersion: 2
+  state: 'eligible'
+  semanticPlanHash: string
+  modelRowId: number
+  modelVersion: string
+  supportSealHash: string
+  routeEvidence: { normalizedPath: string; normalizationPolicy: { id: string; version: string } }
+  authenticationExpectation: { state: 'required' | 'not_required'; mechanism: string | null }
+  intrinsicCompatibility: 'compatible'
+}
+
+export interface ExecutionPreflightDefinitionResultV3 {
+  definitionId: string
+  schemaVersion: 3
+  state: 'eligible'
+  semanticPlanHash: string
+  appArea: string
+  modelRowId: number
+  modelVersion: string
+  supportSealHash: string
+  intentId: string
+  intentContentHash: string
+  routes: readonly [
+    { subjectId: string; normalizedPath: string },
+    { subjectId: string; normalizedPath: string },
+  ]
+  actions: readonly ['navigate_to_observed_route', 'click_observed_data_test']
+  oracle: { kind: 'subject_observable'; subjectId: string; routePath: string }
+  authenticationExpectation: { state: 'required' | 'not_required'; mechanism: string | null }
+  intrinsicCompatibility: 'compatible'
+}
+
+export type ExecutionPreflightDefinitionResult =
+  | ExecutionPreflightDefinitionResultV2
+  | ExecutionPreflightDefinitionResultV3
 
 export type ExecutionStartResult =
   | {
@@ -160,6 +205,7 @@ interface Dependencies {
   authorityProjection?: TestDefinitionAuthorityProjectionService
   routeProjection?: CanonicalRouteEvidenceProjection
   authenticationProjection?: AuthenticationExpectationProjectionService
+  appModels?: Pick<AppModelRepository, 'getActiveCommitted'>
   /** Explicit non-Product compatibility harness. Production defaults to refuse. */
   v1ExecutionPolicy?: 'refuse' | 'historical_compatibility'
   now?: () => string
@@ -210,6 +256,70 @@ function routeSelectionIdentity(plans: MaterializedExecutablePlan[]): string {
   })).digest('hex')
 }
 
+export function productRunnerAdapterIdentity(
+  plans: MaterializedExecutablePlan[],
+): 'playwright-plan-executor/v1' | 'playwright-plan-executor/v2' {
+  return plans.some(plan => plan.value.schemaVersion === 2 && plan.value.category === 'observed_flow')
+    ? 'playwright-plan-executor/v2'
+    : 'playwright-plan-executor/v1'
+}
+
+export function executionPreflightDefinitionResult(
+  plan: MaterializedExecutablePlan,
+  definitionSchemaVersion: 2 | 3,
+): ExecutionPreflightDefinitionResult {
+  const value = plan.value
+  if (value.schemaVersion !== 2) throw new Error('Canonical preflight requires a v2 executable plan envelope.')
+  const provenance = value.provenance
+  if (definitionSchemaVersion === 2) {
+    if (value.category !== 'navigation' || value.steps.length !== 1
+      || value.steps[0].kind !== 'navigate_to_observed_route') {
+      throw new Error('A v2 definition produced non-v2 execution semantics.')
+    }
+    return {
+      definitionId: value.definitionId,
+      schemaVersion: 2,
+      state: 'eligible',
+      semanticPlanHash: plan.fingerprint,
+      modelRowId: provenance.modelRowId,
+      modelVersion: provenance.modelVersion,
+      supportSealHash: provenance.supportSealHash,
+      routeEvidence: {
+        normalizedPath: value.steps[0].routePath,
+        normalizationPolicy: { ...value.routeEvidence.normalizationPolicy },
+      },
+      authenticationExpectation: { ...value.authenticationExpectation },
+      intrinsicCompatibility: 'compatible',
+    }
+  }
+  const [navigate, click] = value.steps
+  if (value.category !== 'observed_flow' || !value.appArea || value.steps.length !== 2
+    || navigate.kind !== 'navigate_to_observed_route' || click.kind !== 'click_observed_data_test'
+    || !value.oracle.routePath || !provenance.intentId || !provenance.intentContentHash) {
+    throw new Error('A v3 definition produced malformed observed-flow execution semantics.')
+  }
+  return {
+    definitionId: value.definitionId,
+    schemaVersion: 3,
+    state: 'eligible',
+    semanticPlanHash: plan.fingerprint,
+    appArea: value.appArea,
+    modelRowId: provenance.modelRowId,
+    modelVersion: provenance.modelVersion,
+    supportSealHash: provenance.supportSealHash,
+    intentId: provenance.intentId,
+    intentContentHash: provenance.intentContentHash,
+    routes: [
+      { subjectId: navigate.subjectId, normalizedPath: navigate.routePath },
+      { subjectId: value.oracle.subjectId, normalizedPath: value.oracle.routePath },
+    ],
+    actions: ['navigate_to_observed_route', 'click_observed_data_test'],
+    oracle: { kind: value.oracle.kind, subjectId: value.oracle.subjectId, routePath: value.oracle.routePath },
+    authenticationExpectation: { ...value.authenticationExpectation },
+    intrinsicCompatibility: 'compatible',
+  }
+}
+
 /**
  * Sole Product execution owner. It re-reads current definitions, projects the
  * executable plans, checks runner/credentials, commits atomic acceptance, and
@@ -229,6 +339,7 @@ export class ExecutionService {
   private readonly authorityProjection: TestDefinitionAuthorityProjectionService
   private readonly routeProjection: CanonicalRouteEvidenceProjection
   private readonly authenticationProjection: AuthenticationExpectationProjectionService
+  private readonly appModels: Pick<AppModelRepository, 'getActiveCommitted'>
   private readonly v1ExecutionPolicy: 'refuse' | 'historical_compatibility'
   private readonly now: () => string
   private readonly mintExecutionId: () => string
@@ -250,6 +361,7 @@ export class ExecutionService {
     this.authorityProjection = dependencies.authorityProjection ?? new TestDefinitionAuthorityProjectionService()
     this.routeProjection = dependencies.routeProjection ?? new CanonicalRouteEvidenceProjection()
     this.authenticationProjection = dependencies.authenticationProjection ?? new AuthenticationExpectationProjectionService()
+    this.appModels = dependencies.appModels ?? new AppModelRepository()
     this.v1ExecutionPolicy = dependencies.v1ExecutionPolicy ?? 'refuse'
     this.now = dependencies.now ?? (() => new Date().toISOString())
     this.mintExecutionId = dependencies.mintExecutionId ?? (() => `execution-${crypto.randomUUID()}`)
@@ -313,9 +425,9 @@ export class ExecutionService {
     }
     const startedAt = this.now()
     const executionPlanHash = selectionHash(plans)
-    const v2 = current.testSet.schemaVersion === 2
-    const v2Authority = v2 ? currentAuthority as CurrentV2ProjectionAuthority : null
-    const v1Authority = v2 ? null : currentAuthority as CurrentProjectionAuthority
+    const canonical = current.testSet.schemaVersion !== 1
+    const canonicalAuthority = canonical ? currentAuthority as CurrentV2ProjectionAuthority : null
+    const v1Authority = canonical ? null : currentAuthority as CurrentProjectionAuthority
     try {
       const existing = await this.recovery.reconcileProject({
         projectId: request.projectId,
@@ -338,14 +450,14 @@ export class ExecutionService {
         executionPlanHash,
         expectedTestSetId: current.testSet.testSetId,
         expectedRevision: current.testSet.revision,
-        expectedTestSetContentHash: v2 ? current.contentHash : undefined,
-        definitionSchemaVersion: v2 ? 2 : 1,
-        expectedModelRowId: v2 ? v2Authority!.sealedAuthority.modelRowId : v1Authority!.model!.rowId,
-        expectedModelVersion: v2 ? v2Authority!.sealedAuthority.modelVersion : v1Authority!.model!.version,
-        sourceObservationId: v2 ? null : v1Authority!.sourceObservation!.id,
-        supportSealHash: v2 ? v2Authority!.sealedAuthority.supportSealHash : null,
-        routeEvidenceIdentityHash: v2 ? routeSelectionIdentity(plans) : null,
-        authenticationExpectationIdentityHash: v2 && plans[0].value.schemaVersion === 2 ? plans[0].value.provenance.authenticationExpectationIdentityHash : null,
+        expectedTestSetContentHash: canonical ? current.contentHash : undefined,
+        definitionSchemaVersion: current.testSet.schemaVersion,
+        expectedModelRowId: canonical ? canonicalAuthority!.sealedAuthority.modelRowId : v1Authority!.model!.rowId,
+        expectedModelVersion: canonical ? canonicalAuthority!.sealedAuthority.modelVersion : v1Authority!.model!.version,
+        sourceObservationId: canonical ? null : v1Authority!.sourceObservation!.id,
+        supportSealHash: canonical ? canonicalAuthority!.sealedAuthority.supportSealHash : null,
+        routeEvidenceIdentityHash: canonical ? routeSelectionIdentity(plans) : null,
+        authenticationExpectationIdentityHash: canonical && plans[0].value.schemaVersion === 2 ? plans[0].value.provenance.authenticationExpectationIdentityHash : null,
         manifestItems: plans.map((plan, index) => ({
           itemOrdinal: index + 1,
           definitionId: plan.value.definitionId,
@@ -400,7 +512,7 @@ export class ExecutionService {
         }
         plans.push(projection.plan)
       }
-      return { kind: 'ready', plans, current, authority }
+      return { kind: 'ready', plans, definitionResults: [], current, authority }
     }
     const readiness = this.runnerReadiness()
     if (!readiness.available) return { kind: 'rejected', code: 'runner_unavailable', safeMessage: readiness.safeMessage }
@@ -414,17 +526,37 @@ export class ExecutionService {
     if (authentication.state === 'required' && !this.credentials.isAvailable(request.credentialReference)) {
       return { kind: 'rejected', code: 'credentials_unavailable', safeMessage: 'The governed runtime credential binding does not currently resolve.' }
     }
+    let activeAppModel: CurrentV2ProjectionAuthority['activeAppModel']
+    if (current.testSet.schemaVersion === 3) {
+      try {
+        const active = await this.appModels.getActiveCommitted(request.projectId)
+        if (!active || active.status !== 'active' || active.appName !== request.projectId
+          || active.rowId !== authorityRead.authority.modelRowId
+          || active.snapshot.app.name !== request.projectId
+          || active.snapshot.app.modelVersion !== authorityRead.authority.modelVersion) {
+          return { kind: 'rejected', code: 'conflicting_evidence', safeMessage: 'The active App Model snapshot changed while canonical preflight authority was being resolved.' }
+        }
+        activeAppModel = {
+          rowId: active.rowId,
+          modelVersion: active.snapshot.app.modelVersion,
+          snapshot: active.snapshot,
+        }
+      } catch {
+        return { kind: 'rejected', code: 'conflicting_evidence', safeMessage: 'The active App Model snapshot could not be resolved as one coherent canonical revision.' }
+      }
+    }
     const authority: CurrentV2ProjectionAuthority = {
       currentRevision: { revision: current.testSet.revision, testSetId: current.testSet.testSetId, contentHash: current.contentHash },
       sealedAuthority: authorityRead.authority,
       routeEvidence: routeRead.evidence,
       authenticationExpectation: authentication,
+      ...(activeAppModel ? { activeAppModel } : {}),
     }
     const byId = new Map(current.testSet.definitions.map(definition => [definition.id, definition]))
     if (request.definitionIds.some(id => !byId.has(id))) return { kind: 'rejected', code: 'stale_definition', safeMessage: 'A selected definition is not part of the current revision.' }
     const plans: MaterializedExecutablePlan[] = []
     for (const definitionId of request.definitionIds) {
-      const projection = this.project({ definition: byId.get(definitionId)!, definitionSchemaVersion: 2,
+      const projection = this.project({ definition: byId.get(definitionId)!, definitionSchemaVersion: current.testSet.schemaVersion,
         definitionTestSetId: current.testSet.testSetId, definitionRevision: current.testSet.revision,
         testSetContentHash: current.contentHash }, authority, this.now())
       if (projection.kind === 'failed') {
@@ -433,7 +565,16 @@ export class ExecutionService {
       }
       plans.push(projection.plan)
     }
-    return { kind: 'ready', plans, current, authority }
+    let definitionResults: ExecutionPreflightDefinitionResult[]
+    try {
+      definitionResults = plans.map(plan => executionPreflightDefinitionResult(
+        plan,
+        current.testSet.schemaVersion as 2 | 3,
+      ))
+    } catch {
+      return { kind: 'rejected', code: 'preflight_source_invalid', safeMessage: 'Canonical Definition schema and projected execution semantics disagree.' }
+    }
+    return { kind: 'ready', plans, definitionResults, current, authority }
   }
 
   async readStatus(projectId: string, executionId: string): Promise<DurableExecutionRead | null> {
@@ -518,7 +659,7 @@ export class ExecutionService {
         projectId: request.projectId,
         processInstanceId: this.processInstanceId,
         expectedResultCount: plans.length,
-        runnerAdapter: 'playwright-plan-executor/v1',
+        runnerAdapter: productRunnerAdapterIdentity(plans),
         environmentSnapshot: { environment: 'local', browser: 'chromium', headless: true },
         startedAt: this.now(),
       })

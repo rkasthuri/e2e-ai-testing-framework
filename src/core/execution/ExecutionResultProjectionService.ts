@@ -73,7 +73,7 @@ export interface ExecutionResultProjection {
     terminalAt: string | null
     manifestCount: number
     definitionAuthority: {
-      schemaVersion: 1 | 2
+      schemaVersion: 1 | 2 | 3
       testSetId: string
       revision: number
       modelRowId: number
@@ -280,7 +280,7 @@ export class ExecutionResultProjectionService {
         terminalAt: aggregation.execution.terminalAt,
         manifestCount: aggregation.manifest.expectedResultCount,
         definitionAuthority: {
-          schemaVersion: Number(evidence.execution.definition_schema_version) as 1 | 2,
+          schemaVersion: Number(evidence.execution.definition_schema_version) as 1 | 2 | 3,
           testSetId: evidence.execution.test_set_id,
           revision: Number(evidence.execution.test_set_revision),
           modelRowId: Number(evidence.execution.model_row_id),

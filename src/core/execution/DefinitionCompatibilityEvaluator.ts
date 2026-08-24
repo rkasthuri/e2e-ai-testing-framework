@@ -62,7 +62,12 @@ export type CompatibilityResult =
   | { state: 'blocked'; reason: ProjectionFailureCode; explanation: string }
 
 export interface CompatibilityIntrinsicInput {
-  steps: Array<{ kind: string; subjectId: string }>
+  steps: Array<{
+    kind: string
+    subjectId: string
+    targetSubjectId?: string
+    dataTestValue?: string
+  }>
   oracle: { kind: string; subjectId: string }
   /** undefined = predates structured authentication-setup carrying (TD-UI-069C-C). */
   authenticationRequired: boolean | undefined
@@ -74,7 +79,7 @@ export interface CompatibilityIntrinsicInput {
   }
 }
 
-export const SUPPORTED_STEP_KINDS = new Set(['navigate_to_observed_route'])
+export const SUPPORTED_STEP_KINDS = new Set(['navigate_to_observed_route', 'click_observed_data_test'])
 export const SUPPORTED_ORACLE_KINDS = new Set(['subject_observable'])
 /**
  * The only authentication mechanism any part of FORGE actually implements
@@ -96,15 +101,29 @@ function blocked(reason: ProjectionFailureCode, explanation: string): Compatibil
  * independently re-implements this logic.
  */
 export function evaluateIntrinsicCompatibility(input: CompatibilityIntrinsicInput): CompatibilityResult {
-  if (!Array.isArray(input.steps) || input.steps.length !== 1) {
-    return blocked('unsupported_action', 'This definition does not have the exactly-one-step shape supported by the current executor mapping.')
+  if (!Array.isArray(input.steps) || ![1, 2].includes(input.steps.length)) {
+    return blocked('unsupported_action', 'This definition does not have a supported bounded navigation or navigation-plus-one-click shape.')
   }
-  const step = input.steps[0]
-  if (!step || !SUPPORTED_STEP_KINDS.has(step.kind)) {
-    return blocked('unsupported_action', `No executor mapping exists for step kind "${step?.kind ?? 'undefined'}".`)
+  if (input.steps.some(step => !step || !SUPPORTED_STEP_KINDS.has(step.kind))) {
+    const unsupported = input.steps.find(step => !step || !SUPPORTED_STEP_KINDS.has(step.kind))
+    return blocked('unsupported_action', `No executor mapping exists for step kind "${unsupported?.kind ?? 'undefined'}".`)
   }
-
-  if (!SUPPORTED_ORACLE_KINDS.has(input.oracle.kind) || input.oracle.subjectId !== step.subjectId) {
+  const first = input.steps[0]
+  if (first.kind !== 'navigate_to_observed_route') {
+    return blocked('unsupported_action', 'The bounded executor requires navigation to be the first action.')
+  }
+  const legacyNavigation = input.steps.length === 1
+  const click = input.steps[1]
+  if (!legacyNavigation && (click.kind !== 'click_observed_data_test'
+    || click.subjectId !== first.subjectId || click.targetSubjectId !== input.oracle.subjectId)) {
+    return blocked('unsupported_action', 'The bounded click must follow navigation on the same source subject and target the oracle subject.')
+  }
+  if (!legacyNavigation && (typeof click.dataTestValue !== 'string'
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/.test(click.dataTestValue))) {
+    return blocked('unresolved_selector', 'The bounded click has no resolved observed data-test locator.')
+  }
+  if (!SUPPORTED_ORACLE_KINDS.has(input.oracle.kind)
+    || legacyNavigation && input.oracle.subjectId !== first.subjectId) {
     return blocked('missing_oracle', `No executor mapping exists for oracle kind "${input.oracle.kind}", or the oracle does not resolve against this plan's step.`)
   }
 

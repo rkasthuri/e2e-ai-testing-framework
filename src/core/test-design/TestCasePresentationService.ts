@@ -19,8 +19,10 @@ import type {
   CanonicalRunnerCompatibility,
   CanonicalTestDefinitionV1,
   CanonicalTestDefinitionV2,
+  CanonicalTestDefinitionV3,
   CanonicalTestSetV1,
   CanonicalTestSetV2,
+  CanonicalTestSetV3,
   TestGenerationOutcome,
 } from './TestDefinitionContract'
 
@@ -29,11 +31,11 @@ export type PresentedIntrinsicCompatibility =
   | { state: 'blocked'; reason: string | null; explanation: string }
   | { state: 'not_evaluated'; reason: null; explanation: string }
 
-interface PresentedDefinitionBase {
+interface PresentedDefinitionBase<TCategory extends 'navigation' | 'observed_flow' = 'navigation'> {
   definitionId: string
   title: string
   intent: string
-  category: 'navigation'
+  category: TCategory
   subjects: readonly string[]
   generationMethod: 'deterministic' | 'heuristic' | 'ai_assisted' | 'manual'
   validation: { state: 'valid'; explanation: string }
@@ -67,7 +69,7 @@ export interface LegacyTestDefinitionPresentation extends PresentedDefinitionBas
   executionPolicy: 'legacy_provenance_unsupported'
 }
 
-export interface CanonicalV2TestDefinitionPresentation extends PresentedDefinitionBase {
+export interface CanonicalV2TestDefinitionPresentation extends PresentedDefinitionBase<'navigation'> {
   schemaVersion: 2
   authorityClass: 'canonical_v2'
   provenance: {
@@ -94,7 +96,39 @@ export interface CanonicalV2TestDefinitionPresentation extends PresentedDefiniti
   executionPolicy: 'canonical_v2_preflight_required'
 }
 
-export type TestDefinitionPresentation = LegacyTestDefinitionPresentation | CanonicalV2TestDefinitionPresentation
+export interface CanonicalV3TestDefinitionPresentation extends PresentedDefinitionBase<'observed_flow'> {
+  schemaVersion: 3
+  authorityClass: 'canonical_v3'
+  provenance: CanonicalV2TestDefinitionPresentation['provenance'] & {
+    intentId: string
+    intentContentHash: string
+  }
+  appArea: string
+  routeEvidence: {
+    state: 'available_flow'
+    normalizationPolicy: { id: string; version: string }
+    supportingObservationCount: number
+    supportingObservationIds: readonly string[]
+    routes: ReadonlyArray<{ subjectId: string; normalizedPath: string; supportingObservationIds: readonly string[] }>
+  }
+  authenticationExpectation: CanonicalV2TestDefinitionPresentation['authenticationExpectation']
+  actions: ReadonlyArray<
+    | { stepId: string; ordinal: 0; kind: 'navigate_to_observed_route'; subjectId: string; normalizedPath: string }
+    | { stepId: string; ordinal: 1; kind: 'click_observed_data_test'; subjectId: string; elementId: string; dataTestValue: string; targetSubjectId: string }
+  >
+  oracle: { kind: 'subject_observable'; subjectId: string; explanation: string }
+  normalizedIntent: {
+    intentId: string
+    source: 'discovered' | 'manual' | 'natural-language'
+    sourceFlowId: string
+    selectedFlowStepIndexes: readonly number[]
+    excludedFlowStepIndexes: readonly number[]
+    limitations: readonly string[]
+  }
+  executionPolicy: 'canonical_v3_preflight_required'
+}
+
+export type TestDefinitionPresentation = LegacyTestDefinitionPresentation | CanonicalV2TestDefinitionPresentation | CanonicalV3TestDefinitionPresentation
 
 interface PresentedTestSetBase {
   testSetId: string
@@ -142,11 +176,18 @@ export interface CanonicalV2TestSetPresentation extends PresentedTestSetBase {
   }
 }
 
-export type TestSetPresentation = LegacyTestSetPresentation | CanonicalV2TestSetPresentation
+export interface CanonicalV3TestSetPresentation extends Omit<CanonicalV2TestSetPresentation, 'schemaVersion' | 'authorityClass' | 'definitions'> {
+  schemaVersion: 3
+  authorityClass: 'canonical_v3'
+  definitions: readonly CanonicalV3TestDefinitionPresentation[]
+}
+
+export type TestSetPresentation = LegacyTestSetPresentation | CanonicalV2TestSetPresentation | CanonicalV3TestSetPresentation
 
 export type TestSetHistoryPresentation = Omit<TestSetHistoryItem, 'sourceObservationId' | 'observationRunId' | 'supportSealHash'> & (
   | { schemaVersion: 1; authorityClass: 'legacy_v1'; provenance: { label: 'LEGACY PROVENANCE'; sourceObservationId: string } }
   | { schemaVersion: 2; authorityClass: 'canonical_v2'; provenance: { label: 'SEALED CANONICAL SUPPORT'; observationRunId: string; supportSealHash: string } }
+  | { schemaVersion: 3; authorityClass: 'canonical_v3'; provenance: { label: 'SEALED CANONICAL SUPPORT'; observationRunId: string; supportSealHash: string } }
 )
 
 export interface TestInventoryPresentation {
@@ -163,7 +204,7 @@ export interface TestInventoryPresentation {
   history: TestSetHistoryPresentation[]
   total: number
   nextCursor: string | null
-  requestedDefinition: { definition: TestDefinitionPresentation; revision: number; rowId: number } | null
+  requestedDefinition: { definition: TestDefinitionPresentation; schemaVersion: 1 | 2 | 3; revision: number; rowId: number } | null
 }
 
 function compatibility(value: CanonicalRunnerCompatibility | undefined): PresentedIntrinsicCompatibility {
@@ -263,7 +304,73 @@ function presentV2Definition(value: CanonicalTestDefinitionV2): CanonicalV2TestD
   }
 }
 
-function presentTestSet(value: CanonicalTestSetV1 | CanonicalTestSetV2): TestSetPresentation {
+function presentV3Definition(value: CanonicalTestDefinitionV3): CanonicalV3TestDefinitionPresentation {
+  const observationIds = Array.from(new Set(value.provenance.subjectSupport.flatMap(item => item.supportingObservationIds))).sort()
+  const gapIds = Array.from(new Set(value.provenance.subjectSupport.flatMap(item => item.supportingGapIds))).sort()
+  return {
+    schemaVersion: 3,
+    authorityClass: 'canonical_v3',
+    definitionId: value.id,
+    title: value.title,
+    intent: value.intent,
+    category: 'observed_flow',
+    subjects: [...value.canonicalSubjects],
+    generationMethod: value.generationMethod,
+    validation: { ...value.validation },
+    intrinsicCompatibility: compatibility(value.runnerCompatibility),
+    provenance: {
+      label: 'SEALED CANONICAL SUPPORT',
+      modelRowId: value.provenance.modelRowId,
+      modelVersion: value.provenance.modelVersion,
+      supportSealHash: value.provenance.supportSealHash,
+      supportingObservationCount: observationIds.length,
+      supportingGapCount: gapIds.length,
+      subjectSupportCount: value.provenance.subjectSupport.length,
+      supportingObservationIds: observationIds,
+      supportingGapIds: gapIds,
+      intentId: value.provenance.intentId,
+      intentContentHash: value.provenance.intentContentHash,
+    },
+    appArea: value.appArea,
+    routeEvidence: {
+      state: 'available_flow',
+      normalizationPolicy: { ...value.flowRouteEvidence[0].normalizationPolicy },
+      supportingObservationCount: Array.from(new Set(value.flowRouteEvidence.flatMap(route => route.supportingObservationIds))).length,
+      supportingObservationIds: Array.from(new Set(value.flowRouteEvidence.flatMap(route => route.supportingObservationIds))).sort(),
+      routes: value.flowRouteEvidence.map(route => ({
+        subjectId: route.subjectId,
+        normalizedPath: route.normalizedPath,
+        supportingObservationIds: [...route.supportingObservationIds],
+      })),
+    },
+    authenticationExpectation: {
+      state: value.authenticationExpectation.state,
+      mechanism: value.authenticationExpectation.mechanism,
+      basis: value.authenticationExpectation.bases.map(item => ({
+        kind: item.kind, policyId: item.policyId, policyVersion: item.policyVersion,
+      })),
+    },
+    actions: value.actions.map(action => action.kind === 'navigate_to_observed_route'
+      ? { stepId: action.stepId, ordinal: action.ordinal, kind: action.kind, subjectId: action.subjectId, normalizedPath: action.routePath }
+      : { ...action }),
+    oracle: { kind: value.oracle.kind, subjectId: value.oracle.subjectId, explanation: value.oracle.explanation },
+    normalizedIntent: {
+      intentId: value.normalizedIntent.intentId,
+      source: value.normalizedIntent.source,
+      sourceFlowId: value.normalizedIntent.grounding.sourceFlowId,
+      selectedFlowStepIndexes: [...value.normalizedIntent.grounding.selectedFlowStepIndexes],
+      excludedFlowStepIndexes: [...value.normalizedIntent.grounding.excludedFlowStepIndexes],
+      limitations: [...value.normalizedIntent.evidenceAssessment.limitations],
+    },
+    executionPolicy: 'canonical_v3_preflight_required',
+    confidenceLimitations: [...value.confidenceLimitations],
+    materialUnknowns: [...value.materialUnknowns],
+    unobservedScope: [...value.unobservedScope],
+    preventedStrongerDefinition: value.preventedStrongerDefinition,
+  }
+}
+
+function presentTestSet(value: CanonicalTestSetV1 | CanonicalTestSetV2 | CanonicalTestSetV3): TestSetPresentation {
   const common = {
     testSetId: value.testSetId,
     revision: value.revision,
@@ -292,22 +399,30 @@ function presentTestSet(value: CanonicalTestSetV1 | CanonicalTestSetV2): TestSet
     },
   }
   const subjectSupportCount = value.definitions.reduce((count, item) => count + item.provenance.subjectSupport.length, 0)
-  return {
+  const canonicalProvenance = {
+    label: 'SEALED CANONICAL SUPPORT' as const,
+    modelRowId: value.canonicalSupport.modelRowId,
+    modelVersion: value.canonicalSupport.modelVersion,
+    observationRunId: value.canonicalSupport.observationRunId,
+    supportSealHash: value.canonicalSupport.supportSealHash,
+    characterizationPolicy: { ...value.canonicalSupport.characterizationPolicy },
+    supportingObservationCount: value.canonicalSupport.supportingObservationIds.length,
+    supportingGapCount: value.canonicalSupport.supportingGapIds.length,
+    subjectSupportCount,
+  }
+  if (value.schemaVersion === 2) return {
     ...common,
     schemaVersion: 2,
     authorityClass: 'canonical_v2',
     definitions: value.definitions.map(presentV2Definition),
-    provenance: {
-      label: 'SEALED CANONICAL SUPPORT',
-      modelRowId: value.canonicalSupport.modelRowId,
-      modelVersion: value.canonicalSupport.modelVersion,
-      observationRunId: value.canonicalSupport.observationRunId,
-      supportSealHash: value.canonicalSupport.supportSealHash,
-      characterizationPolicy: { ...value.canonicalSupport.characterizationPolicy },
-      supportingObservationCount: value.canonicalSupport.supportingObservationIds.length,
-      supportingGapCount: value.canonicalSupport.supportingGapIds.length,
-      subjectSupportCount,
-    },
+    provenance: canonicalProvenance,
+  }
+  return {
+    ...common,
+    schemaVersion: 3,
+    authorityClass: 'canonical_v3',
+    definitions: value.definitions.map(presentV3Definition),
+    provenance: canonicalProvenance,
   }
 }
 
@@ -335,10 +450,16 @@ function presentHistory(value: TestSetHistoryItem): TestSetHistoryPresentation {
     authorityClass: 'legacy_v1',
     provenance: { label: 'LEGACY PROVENANCE', sourceObservationId: value.sourceObservationId! },
   }
-  return {
+  if (value.schemaVersion === 2) return {
     ...common,
     schemaVersion: 2,
     authorityClass: 'canonical_v2',
+    provenance: { label: 'SEALED CANONICAL SUPPORT', observationRunId: value.observationRunId!, supportSealHash: value.supportSealHash! },
+  }
+  return {
+    ...common,
+    schemaVersion: 3,
+    authorityClass: 'canonical_v3',
     provenance: { label: 'SEALED CANONICAL SUPPORT', observationRunId: value.observationRunId!, supportSealHash: value.supportSealHash! },
   }
 }
@@ -360,12 +481,15 @@ export class TestCasePresentationService {
       total: inventory.total,
       nextCursor: inventory.nextCursor,
       requestedDefinition: inventory.requestedDefinition
-        ? {
+          ? {
             revision: inventory.requestedDefinition.revision,
             rowId: inventory.requestedDefinition.rowId,
-            definition: 'category' in inventory.requestedDefinition.definition
+            schemaVersion: inventory.requestedDefinition.schemaVersion,
+            definition: inventory.requestedDefinition.schemaVersion === 1
               ? presentV1Definition(inventory.requestedDefinition.definition as CanonicalTestDefinitionV1)
-              : presentV2Definition(inventory.requestedDefinition.definition as CanonicalTestDefinitionV2),
+              : inventory.requestedDefinition.schemaVersion === 2
+                ? presentV2Definition(inventory.requestedDefinition.definition as CanonicalTestDefinitionV2)
+                : presentV3Definition(inventory.requestedDefinition.definition as CanonicalTestDefinitionV3),
           }
         : null,
     }

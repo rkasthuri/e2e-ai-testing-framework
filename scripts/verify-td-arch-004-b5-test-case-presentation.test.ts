@@ -132,7 +132,7 @@ test('the Product API transports the governed v2 presentation without reconstruc
   const original = executionContext.readTestInventory
   executionContext.readTestInventory = async () => new TestCasePresentationService().present({
     ...inventory(v2Set()),
-    requestedDefinition: { definition: v2Definition(), revision: 2, rowId: 7 },
+    requestedDefinition: { definition: v2Definition(), schemaVersion: 2, revision: 2, rowId: 7 },
   })
   try {
     const response = await readTestDefinition('product', v2Definition().id, async () => ({ appName: 'product' }))
