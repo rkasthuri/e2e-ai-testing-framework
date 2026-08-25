@@ -13,18 +13,21 @@
 import { getProductDb } from '../db'
 import {
   generateCanonicalTestSetV2,
+  generateCanonicalFlowTestSetV3,
   generateEvidenceBackedTestSet,
   parseCanonicalTestSet,
   TestDefinitionContractError,
-  type CanonicalTestDefinition,
-  type CanonicalTestDefinitionV2,
+  type AnyCanonicalTestDefinition,
   type CanonicalTestSet,
   type CanonicalTestSetV1,
   type CanonicalTestSetV2,
+  type CanonicalTestSetV3,
   type CanonicalV2GenerationInput,
+  type CanonicalV3FlowGenerationInput,
   type TestDesignAuthorityInput,
   type TestGenerationOutcome,
 } from '../../test-design/TestDefinitionContract'
+import type { MaterializedNormalizedTestIntentV1 } from '../../test-design/NormalizedTestIntentContract'
 
 export const DEFAULT_TEST_SET_HISTORY_LIMIT = 25
 export const MAX_TEST_SET_HISTORY_LIMIT = 50
@@ -44,7 +47,7 @@ export interface TestSetHistoryItem {
   generationId: string
   generatedAt: string
   outcome: TestGenerationOutcome
-  schemaVersion: 1 | 2
+  schemaVersion: 1 | 2 | 3
   sourceObservationId: string | null
   modelRowId: number
   modelVersion: string
@@ -64,7 +67,7 @@ export interface TestInventoryRead {
   history: TestSetHistoryItem[]
   total: number
   nextCursor: string | null
-  requestedDefinition: { definition: CanonicalTestDefinition | CanonicalTestDefinitionV2; revision: number; rowId: number } | null
+  requestedDefinition: { definition: AnyCanonicalTestDefinition; schemaVersion: 1 | 2 | 3; revision: number; rowId: number } | null
 }
 
 type TemporalRead = Pick<TestSetHistoryItem, 'startedAt' | 'completedAt' | 'temporalIntegrity' | 'temporalCode' | 'temporalExplanation'>
@@ -109,6 +112,30 @@ function parseHistoryCursor(cursor: string | null, projectId: string, limit: num
  * intentionally separate. Only this repository may assemble their transaction.
  */
 export class TestSetRepository {
+  async findCanonicalV3Intent(
+    projectId: string,
+    reviewed: MaterializedNormalizedTestIntentV1,
+  ): Promise<{ kind: 'absent' } | { kind: 'exact'; testSet: CanonicalTestSetV3 } | { kind: 'conflict' }> {
+    const rows = await getProductDb().selectFrom('test_set_revisions').selectAll()
+      .where('project_id', '=', projectId).where('schema_version', '=', 3)
+      .orderBy('revision', 'desc').execute()
+    for (const row of rows) {
+      const parsed = parseCanonicalTestSet(row.payload_json)
+      if (parsed.fingerprint !== row.content_hash || parsed.value.schemaVersion !== 3
+        || parsed.value.projectId !== projectId || parsed.value.revision !== row.revision
+        || parsed.value.generationId !== row.generation_id || parsed.value.definitions.length !== row.definition_count) {
+        throw new MalformedTestSetError()
+      }
+      const definition = parsed.value.definitions.find(item => item.provenance.intentId === reviewed.value.intentId)
+      if (!definition) continue
+      return definition.provenance.intentContentHash === reviewed.fingerprint
+        && JSON.stringify(definition.normalizedIntent) === reviewed.json
+        ? { kind: 'exact', testSet: parsed.value }
+        : { kind: 'conflict' }
+    }
+    return { kind: 'absent' }
+  }
+
   async readInventory(projectId: string, options: { limit?: number; cursor?: string | null; definitionId?: string | null } = {}): Promise<TestInventoryRead | { kind: 'invalid_cursor' }> {
     const limit = Math.min(Math.max(options.limit ?? DEFAULT_TEST_SET_HISTORY_LIMIT, 1), MAX_TEST_SET_HISTORY_LIMIT)
     const after = parseHistoryCursor(options.cursor ?? null, projectId, limit)
@@ -134,7 +161,7 @@ export class TestSetRepository {
           }
         } else {
           const authority = parsed.value.canonicalSupport
-          if (Number(row.schema_version) !== 2 || row.source_observation_id !== null
+          if (Number(row.schema_version) !== parsed.value.schemaVersion || row.source_observation_id !== null
             || row.model_row_id !== authority.modelRowId || row.model_version !== authority.modelVersion
             || row.observation_run_id !== authority.observationRunId || row.support_seal_hash !== authority.supportSealHash
             || row.characterization_policy_id !== authority.characterizationPolicy.id
@@ -167,7 +194,10 @@ export class TestSetRepository {
         for (const row of allRows) {
           const value = parseRow(row as typeof pageRows[number])
           const definition = value.definitions.find(item => item.id === options.definitionId)
-          if (definition) { requestedDefinition = { definition, revision: value.revision, rowId: Number(row.id) }; break }
+          if (definition) {
+            requestedDefinition = { definition, schemaVersion: value.schemaVersion, revision: value.revision, rowId: Number(row.id) }
+            break
+          }
         }
       }
       return {
@@ -179,8 +209,8 @@ export class TestSetRepository {
           sourceObservationId: value.schemaVersion === 1 ? value.sourceObservationId : null,
           modelRowId: value.schemaVersion === 1 ? value.modelRowId : value.canonicalSupport.modelRowId,
           modelVersion: value.schemaVersion === 1 ? value.modelVersion : value.canonicalSupport.modelVersion,
-          observationRunId: value.schemaVersion === 2 ? value.canonicalSupport.observationRunId : null,
-          supportSealHash: value.schemaVersion === 2 ? value.canonicalSupport.supportSealHash : null,
+          observationRunId: value.schemaVersion !== 1 ? value.canonicalSupport.observationRunId : null,
+          supportSealHash: value.schemaVersion !== 1 ? value.canonicalSupport.supportSealHash : null,
           definitionCount: value.definitions.length,
           contentHash: row.content_hash,
           ...temporal,
@@ -244,6 +274,27 @@ export class TestSetRepository {
     generationId: string,
     processInstanceId: string,
   ): Promise<{ rowId: number; testSet: CanonicalTestSetV2; contentHash: string }> {
+    return this.commitCanonicalGeneration(input, generationId, processInstanceId, 2) as Promise<{
+      rowId: number; testSet: CanonicalTestSetV2; contentHash: string
+    }>
+  }
+
+  async commitCanonicalV3Generation(
+    input: CanonicalV3FlowGenerationInput,
+    generationId: string,
+    processInstanceId: string,
+  ): Promise<{ rowId: number; testSet: CanonicalTestSetV3; contentHash: string }> {
+    return this.commitCanonicalGeneration(input, generationId, processInstanceId, 3) as Promise<{
+      rowId: number; testSet: CanonicalTestSetV3; contentHash: string
+    }>
+  }
+
+  private async commitCanonicalGeneration(
+    input: CanonicalV2GenerationInput | CanonicalV3FlowGenerationInput,
+    generationId: string,
+    processInstanceId: string,
+    schemaVersion: 2 | 3,
+  ): Promise<{ rowId: number; testSet: CanonicalTestSetV2 | CanonicalTestSetV3; contentHash: string }> {
     const db = getProductDb()
     return db.transaction().execute(async trx => {
       const lock = await trx.selectFrom('test_generation_locks').selectAll()
@@ -267,13 +318,17 @@ export class TestSetRepository {
         || seal.characterization_policy_version !== input.authority.characterizationPolicy.version) {
         throw new TestDefinitionContractError('STALE_AUTHORITY')
       }
-      const materialized = generateCanonicalTestSetV2(input, generationId, (latest?.revision ?? 0) + 1)
+      const materialized = schemaVersion === 3 && 'normalizedIntent' in input
+        ? generateCanonicalFlowTestSetV3(input, generationId, (latest?.revision ?? 0) + 1)
+        : schemaVersion === 2 && !('normalizedIntent' in input)
+          ? generateCanonicalTestSetV2(input, generationId, (latest?.revision ?? 0) + 1)
+          : (() => { throw new TestDefinitionContractError('INVALID_DEFINITION') })()
       const inserted = await trx.insertInto('test_set_revisions').values({
         test_set_id: materialized.value.testSetId,
         revision: materialized.value.revision,
         project_id: input.projectId,
         generation_id: generationId,
-        schema_version: 2,
+        schema_version: schemaVersion,
         source_observation_id: null,
         model_row_id: materialized.value.canonicalSupport.modelRowId,
         model_version: materialized.value.canonicalSupport.modelVersion,
@@ -299,7 +354,9 @@ export class TestSetRepository {
         safe_code: null,
         safe_message: materialized.value.outcome === 'blocked'
           ? 'Canonical v2 definitions were persisted with unresolved authentication semantics preserved as blocked.'
-          : 'Canonical v2 definitions were persisted from sealed support, governed routes, and declared authentication expectation.',
+          : schemaVersion === 3
+            ? 'Canonical v3 observed-flow definition was persisted from an immutable normalized intent and sealed support.'
+            : 'Canonical v2 definitions were persisted from sealed support, governed routes, and declared authentication expectation.',
       }).execute()
       await trx.deleteFrom('test_generation_locks').where('project_id', '=', input.projectId)
         .where('generation_id', '=', generationId).execute()

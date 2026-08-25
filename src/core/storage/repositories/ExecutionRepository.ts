@@ -55,7 +55,7 @@ export interface BeginExecutionInput {
   expectedTestSetId: string
   expectedRevision: number
   expectedTestSetContentHash?: string
-  definitionSchemaVersion?: 1 | 2
+  definitionSchemaVersion?: 1 | 2 | 3
   expectedModelRowId: number
   expectedModelVersion: string
   sourceObservationId?: string | null
@@ -159,6 +159,7 @@ function safeInput(input: BeginExecutionInput): boolean {
     && SHA256.test(input.executionIntentFingerprint)
     && SAFE_ID.test(input.processInstanceId) && SAFE_ID.test(input.expectedTestSetId)
     && Number.isSafeInteger(input.expectedRevision) && input.expectedRevision > 0
+    && [1, 2, 3].includes(schemaVersion)
     && Number.isSafeInteger(input.expectedModelRowId) && input.expectedModelRowId > 0
     && typeof input.expectedModelVersion === 'string' && input.expectedModelVersion.length > 0
     && provenanceValid
@@ -248,7 +249,8 @@ export class ExecutionRepository {
         if (!current || current.test_set_id !== input.expectedTestSetId
           || Number(current.revision) !== input.expectedRevision
           || Number(current.schema_version) !== (input.definitionSchemaVersion ?? 1)
-          || input.definitionSchemaVersion === 2 && (current.content_hash !== input.expectedTestSetContentHash
+          || input.definitionSchemaVersion !== undefined && input.definitionSchemaVersion !== 1
+            && (current.content_hash !== input.expectedTestSetContentHash
             || current.support_seal_hash !== input.supportSealHash)) {
           throw new StaleExecutionAuthorityError('stale_definition')
         }

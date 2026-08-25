@@ -229,6 +229,16 @@ test('row columns and model_json come from the same validated snapshot', async (
   assert.equal(row.evidence_state, parsed.app.evidenceState)
 })
 
+test('active execution-authority read returns identity and snapshot from one canonical row', async () => {
+  const row = await repo.upsert(snapshot('execution-authority-app', '4.1.0'))
+  const active = await repo.getActiveCommitted('execution-authority-app')
+  assert.equal(active?.rowId, Number(row.id))
+  assert.equal(active?.appName, 'execution-authority-app')
+  assert.equal(active?.status, 'active')
+  assert.equal(active?.snapshot.app.name, active?.appName)
+  assert.equal(active?.snapshot.app.modelVersion, row.version)
+})
+
 test('forced insert failure rolls back supersede and preserves the previous active row', async () => {
   await repo.upsert(snapshot('rollback-app', '1.0.0'))
   await sql.raw(`

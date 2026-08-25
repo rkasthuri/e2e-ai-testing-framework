@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-04-mixed-app-area",
+  "matrixItem": 4,
+  "title": "A mixed-area flow refuses as ambiguous evidence",
+  "input": {
+    "projectId": "project-operations",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-operations",
+      "modelVersion": 2,
+      "classifier": "ModuleClassifier",
+      "pages": [
+        { "pageId": "page-orders", "module": "orders" },
+        { "pageId": "page-inventory", "module": "inventory" }
+      ],
+      "supportObservationIds": ["obs-orders", "obs-inventory"]
+    },
+    "flow": {
+      "flowId": "flow-cross-area",
+      "title": "Cross-area inferred flow",
+      "objective": "Join unrelated observed areas into one test",
+      "pageIds": ["page-orders", "page-inventory"],
+      "preconditions": [],
+      "steps": [
+        { "stepId": "step-1", "ordinal": 0, "kind": "navigate_to_observed_route", "subjectId": "page-orders", "routePath": "/orders.html", "evidenceObservationIds": ["obs-orders"] },
+        { "stepId": "step-2", "ordinal": 0, "kind": "navigate_to_observed_route", "subjectId": "page-inventory", "routePath": "/inventory.html", "evidenceObservationIds": ["obs-inventory"] }
+      ],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "page-inventory", "routePath": "/inventory.html", "evidenceObservationIds": ["obs-inventory"] }
+    },
+    "evidenceSufficiency": "ambiguous",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "refused",
+    "refusalCode": "ambiguous_evidence",
+    "definitionSchemaVersion": null,
+    "resultOutcome": null,
+    "businessAssertion": null,
+    "uiState": "refused",
+    "canRun": false
+  },
+  "attacks": [],
+  "tags": ["app_area", "refusal", "single_area"]
+}

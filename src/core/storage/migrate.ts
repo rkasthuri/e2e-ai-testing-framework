@@ -99,6 +99,7 @@ const CANONICAL_V2_EXECUTION_AUTHORITY_MIGRATION = '027_canonical_v2_execution_a
 const OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION = '028_observation_gap_artifact_sealing'
 const CANONICAL_RESULT_DETAIL_MIGRATION = '029_canonical_result_detail_evidence'
 const CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION = '030_canonical_execution_start_idempotency'
+const CANONICAL_TEST_DEFINITION_V3_MIGRATION = '031_canonical_test_definition_v3'
 const LEGACY_JSON_IMPORT_MIGRATION = '004_json_import'
 const MIGRATION_TABLE = 'kysely_migration'
 const MIGRATION_LOCK_TABLE = 'kysely_migration_lock'
@@ -1020,6 +1021,29 @@ async function inspectCanonicalTestDefinitionV2Schema(db: Kysely<any>): Promise<
   }
 }
 
+async function inspectCanonicalTestDefinitionV3Schema(db: Kysely<any>): Promise<TableContract> {
+  const rows = await sql<{ name: string; sql: string | null }>`
+    SELECT name, sql FROM sqlite_master
+    WHERE type = 'table' AND name IN ('test_set_revisions', 'executions')
+    ORDER BY name
+  `.execute(db)
+  const byName = new Map(rows.rows.map(row => [row.name, (row.sql ?? '').toLowerCase().replace(/\s+/g, ' ')]))
+  const testSets = byName.get('test_set_revisions') ?? ''
+  const executions = byName.get('executions') ?? ''
+  const testSetV3 = /schema_version in\s*\(1,\s*2,\s*3\)/.test(testSets)
+    && /schema_version in\s*\(2,\s*3\)/.test(testSets)
+  const executionV3 = /definition_schema_version in\s*\(1,\s*2,\s*3\)/.test(executions)
+    && /definition_schema_version in\s*\(2,\s*3\)/.test(executions)
+  const present = testSetV3 || executionV3
+  return {
+    present,
+    valid: testSetV3 && executionV3,
+    detail: testSetV3 && executionV3
+      ? 'immutable Test Set revisions and Execution roots both discriminate canonical v3 authority'
+      : 'v3 Test Set revision and Execution-root schema discrimination is incomplete',
+  }
+}
+
 async function appModelColumns(db: Kysely<any>): Promise<Set<string>> {
   if (!await tableExists(db, 'app_models')) return new Set()
   return new Set((await sql<{ name: string }>`PRAGMA table_info(app_models)`.execute(db)).rows.map(row => row.name))
@@ -1096,6 +1120,7 @@ async function assertManagedSchemaHistoryConsistency(
   const observationGapArtifactSealing = await inspectObservationGapArtifactSealingSchema(db)
   const canonicalResultDetail = await inspectCanonicalResultDetailSchema(db)
   const canonicalExecutionIntent = await inspectCanonicalExecutionIntentSchema(db)
+  const canonicalTestDefinitionV3 = await inspectCanonicalTestDefinitionV3Schema(db)
   const discrepancies: string[] = []
   if (migration016Applied && !activeIndex.valid) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is applied, but ${activeIndex.detail}`)
   else if (!migration016Applied && activeIndex.present) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is pending, but ${activeIndex.detail}`)
@@ -1182,6 +1207,13 @@ async function assertManagedSchemaHistoryConsistency(
   } else if (canonicalExecutionIntent.present) {
     discrepancies.push(`history says ${CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION} is pending, but ${canonicalExecutionIntent.detail}`)
   }
+  if (appliedNames.has(CANONICAL_TEST_DEFINITION_V3_MIGRATION)) {
+    if (!canonicalTestDefinitionV3.valid) {
+      discrepancies.push(`history says ${CANONICAL_TEST_DEFINITION_V3_MIGRATION} is applied, but ${canonicalTestDefinitionV3.detail}`)
+    }
+  } else if (canonicalTestDefinitionV3.present) {
+    discrepancies.push(`history says ${CANONICAL_TEST_DEFINITION_V3_MIGRATION} is pending, but ${canonicalTestDefinitionV3.detail}`)
+  }
   if (discrepancies.length > 0) throw new MigrationStateMismatchError(discrepancies)
 }
 
@@ -1246,6 +1278,10 @@ async function assertMigrationPostconditions(db: Kysely<any>, migrationName: str
   if (migrationName === CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION) {
     const intent = await inspectCanonicalExecutionIntentSchema(db, true)
     if (!intent.valid) throw new Error(intent.detail)
+  }
+  if (migrationName === CANONICAL_TEST_DEFINITION_V3_MIGRATION) {
+    const v3 = await inspectCanonicalTestDefinitionV3Schema(db)
+    if (!v3.valid) throw new Error(v3.detail)
   }
 }
 

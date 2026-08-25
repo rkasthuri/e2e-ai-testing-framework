@@ -157,6 +157,22 @@ test('detail preserves Execution, Run, and Result identity and exposes only spar
   assert.doesNotMatch(html, /screenshot|video|stack trace/i)
 })
 
+test('detail renders valid v3 Definition authority without treating Results as malformed', () => {
+  const base = detail()
+  const html = renderToStaticMarkup(React.createElement(ExecutionResultsDetail, {
+    detail: detail({
+      execution: {
+        ...base.execution,
+        definitionAuthority: { ...base.execution.definitionAuthority, schemaVersion: 3 },
+      },
+    }),
+  }))
+  assert.match(html, /Execution authority and provenance/)
+  assert.match(html, /Support seal/)
+  assert.match(html, /Current evidence: Could not verify/)
+  assert.doesNotMatch(html, /Canonical Results response was invalid/)
+})
+
 test('detail truthfully presents absent Run and cancellation without synthetic Result rows', () => {
   const base = detail()
   const absentRun = detail({

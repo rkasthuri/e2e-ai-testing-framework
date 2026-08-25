@@ -45,6 +45,9 @@ import {
 import type {
   CanonicalV2TestDefinitionPresentation,
   CanonicalV2TestSetPresentation,
+  CanonicalV3TestDefinitionPresentation,
+  CanonicalV3TestSetPresentation,
+  ExecutionPreflightDefinitionResultV3,
   ExecutionPreflightResponse,
   ExecutionPreflightState,
 } from '../api/types'
@@ -69,6 +72,7 @@ import {
   type RunIntentState,
   type RunIntentStorage,
 } from './runIntentState'
+import { M1RunHandoffSession } from '../utils/M1RunHandoffSession'
 
 const STATE_LABEL: Record<ExecutionPreflightState, string> = {
   empty_selection: 'Empty selection',
@@ -96,6 +100,44 @@ function readable(value: string): string {
 
 function BoundedState({ title, explanation, alert = false }: { title: string; explanation: string; alert?: boolean }) {
   return <section className="rounded-lg border border-border bg-surface p-8 text-center" role={alert ? 'alert' : 'status'}><h2 className="text-lg font-semibold text-primary">{title}</h2><p className="mx-auto mt-2 max-w-xl text-sm text-secondary">{explanation}</p></section>
+}
+
+export type M1RunHandoffState =
+  | { state: 'absent' }
+  | { state: 'invalid'; explanation: string }
+  | { state: 'pending'; testSetId: string; definitionId: string; revision: number }
+  | { state: 'blocked'; testSetId: string; definitionId: string; revision: number; explanation: string }
+  | { state: 'ready'; testSetId: string; definitionId: string; revision: number }
+
+export function resolveM1RunHandoffState(
+  project: string,
+  definitionParam: string | null,
+  revisionParam: string | null,
+  stored: ReturnType<typeof M1RunHandoffSession.load>,
+  current: { testSetId: string; revision: number; schemaVersion: number; definitions: readonly { definitionId: string; schemaVersion: number }[] } | null,
+  inventorySettled: boolean,
+): M1RunHandoffState {
+  if (definitionParam === null && revisionParam === null) return { state: 'absent' }
+  if (!definitionParam || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/.test(definitionParam)
+    || !revisionParam || !/^[1-9]\d{0,9}$/.test(revisionParam)) {
+    return { state: 'invalid', explanation: 'The requested saved-definition handoff is malformed. URL state is not execution authority.' }
+  }
+  const revision = Number(revisionParam)
+  if (!stored || stored.projectId !== project || stored.definitionId !== definitionParam || stored.revision !== revision) {
+    return { state: 'invalid', explanation: 'The requested saved-definition handoff does not match this session’s exact promotion response.' }
+  }
+  if (!inventorySettled) return { state: 'pending', testSetId: stored.testSetId, definitionId: definitionParam, revision }
+  if (!current || current.testSetId !== stored.testSetId || current.revision !== revision || current.schemaVersion !== 3
+    || !current.definitions.some(item => item.definitionId === definitionParam && item.schemaVersion === 3)) {
+    return { state: 'blocked', testSetId: stored.testSetId, definitionId: definitionParam, revision, explanation: 'The promoted v3 definition is not present in the exact current canonical Test Set identity and revision. Run remains unavailable.' }
+  }
+  return { state: 'ready', testSetId: stored.testSetId, definitionId: definitionParam, revision }
+}
+
+function M1RunHandoffNotice({ handoff }: { handoff: Exclude<M1RunHandoffState, { state: 'absent' }> }) {
+  if (handoff.state === 'pending') return <div role="status" className="flex items-center gap-2 text-secondary"><Loader2 aria-hidden="true" className="animate-spin" size={18} /> Revalidating the saved v3 definition against current canonical inventory…</div>
+  if (handoff.state === 'ready') return <section role="status" className="rounded-lg border border-brand/40 bg-surface p-4"><h2 className="font-semibold text-primary">Canonical v3 definition selected</h2><p className="mt-1 text-sm text-secondary">Current inventory contains the exact saved definition at revision {handoff.revision}. Authoritative v3 preflight now determines whether Start is exposed.</p></section>
+  return <section role="alert" className="rounded-lg border border-flaky/50 bg-surface p-5"><div className="flex gap-3"><ShieldAlert aria-hidden="true" className="mt-0.5 shrink-0 text-flaky" size={20} /><div><h2 className="font-semibold text-primary">Saved v3 test is not runnable</h2><p className="mt-1 text-sm text-secondary">{handoff.explanation}</p><p className="mt-2 text-xs text-muted">No canonical preflight or Start action is exposed for this handoff.</p></div></div></section>
 }
 
 export function shouldPollExecution(status: CanonicalExecutionStatus | null | undefined): boolean {
@@ -239,12 +281,97 @@ export function resolveFreshPreflightAuthority(
     return null
   }
   if (data.aggregate.state === 'ready') {
-    const responseIds = data.definitions.map(definition => definition.definitionId)
+    const responseIds = data.definitionResults.map(definition => definition.definitionId)
     if (new Set(responseIds).size !== responseIds.length
       || responseIds.length !== definitionIds.length
       || responseIds.some((definitionId, index) => definitionId !== definitionIds[index])) return null
   }
   return data
+}
+
+export interface V3RunAuthorityExpectation {
+  current: { contentHash: string; testSet: CanonicalV3TestSetPresentation }
+  handoff: { testSetId: string; definitionId: string; revision: number } | null
+}
+
+export interface V3RunPreflightBinding {
+  readonly testSetId: string
+  readonly revision: number
+  readonly definitionResults: readonly ExecutionPreflightDefinitionResultV3[]
+}
+
+export type RunInventoryAuthorityExpectation =
+  | { schemaVersion: 2 }
+  | { schemaVersion: 3; authority: V3RunAuthorityExpectation }
+
+/**
+ * Sole v3 Start-presentation gate. It binds the current inventory identity and
+ * selected Definition authorities to the exact eligible Core preflight results.
+ */
+export function resolveV3RunPreflightBinding(
+  project: string,
+  selection: Pick<VisibleRunSelection, 'definitionIds' | 'revision'>,
+  expectation: V3RunAuthorityExpectation,
+  preflight: ExecutionPreflightResponse | null,
+): V3RunPreflightBinding | null {
+  const current = expectation.current.testSet
+  if (!preflight || preflight.aggregate.state !== 'ready'
+    || current.schemaVersion !== 3 || current.projectId !== project
+    || current.revision !== selection.revision || selection.definitionIds.length < 1
+    || new Set(selection.definitionIds).size !== selection.definitionIds.length) return null
+  if (expectation.handoff && (expectation.handoff.testSetId !== current.testSetId
+    || expectation.handoff.revision !== current.revision
+    || selection.definitionIds.length !== 1
+    || selection.definitionIds[0] !== expectation.handoff.definitionId)) return null
+
+  const revision = preflight.testSetRevision
+  if (!revision || revision.schemaVersion !== 3 || revision.testSetId !== current.testSetId
+    || revision.revision !== current.revision || revision.contentHash !== expectation.current.contentHash
+    || preflight.definitionResults.length !== selection.definitionIds.length) return null
+
+  const bound: ExecutionPreflightDefinitionResultV3[] = []
+  for (const definitionId of selection.definitionIds) {
+    const inventoryMatches = current.definitions.filter(definition => definition.definitionId === definitionId)
+    const resultMatches = preflight.definitionResults.filter(result => result.definitionId === definitionId)
+    if (inventoryMatches.length !== 1 || resultMatches.length !== 1) return null
+    const definition = inventoryMatches[0]
+    const result = resultMatches[0]
+    if (definition.schemaVersion !== 3 || result.schemaVersion !== 3 || result.state !== 'eligible'
+      || definition.category !== 'observed_flow' || definition.executionPolicy !== 'canonical_v3_preflight_required'
+      || definition.intrinsicCompatibility.state !== 'compatible'
+      || result.appArea !== definition.appArea
+      || result.modelRowId !== definition.provenance.modelRowId
+      || result.modelVersion !== definition.provenance.modelVersion
+      || result.supportSealHash !== definition.provenance.supportSealHash
+      || result.intentId !== definition.provenance.intentId
+      || result.intentContentHash !== definition.provenance.intentContentHash
+      || result.modelRowId !== current.provenance.modelRowId
+      || result.modelVersion !== current.provenance.modelVersion
+      || result.supportSealHash !== current.provenance.supportSealHash
+      || result.intentId !== definition.normalizedIntent.intentId
+      || definition.routeEvidence.routes.length !== 2
+      || definition.actions.length !== 2
+      || definition.actions[0].kind !== 'navigate_to_observed_route'
+      || definition.actions[1].kind !== 'click_observed_data_test'
+      || result.actions[0] !== definition.actions[0].kind
+      || result.actions[1] !== definition.actions[1].kind
+      || result.routes[0].subjectId !== definition.routeEvidence.routes[0].subjectId
+      || result.routes[0].normalizedPath !== definition.routeEvidence.routes[0].normalizedPath
+      || result.routes[1].subjectId !== definition.routeEvidence.routes[1].subjectId
+      || result.routes[1].normalizedPath !== definition.routeEvidence.routes[1].normalizedPath
+      || result.oracle.kind !== definition.oracle.kind
+      || result.oracle.subjectId !== definition.oracle.subjectId
+      || result.oracle.routePath !== definition.routeEvidence.routes[1].normalizedPath
+      || result.authenticationExpectation.state !== definition.authenticationExpectation.state
+      || result.authenticationExpectation.mechanism !== definition.authenticationExpectation.mechanism) return null
+    bound.push(result)
+  }
+  if (bound.length !== preflight.definitionResults.length) return null
+  return Object.freeze({
+    testSetId: current.testSetId,
+    revision: current.revision,
+    definitionResults: Object.freeze([...bound]),
+  })
 }
 
 export interface CurrentStartAuthority {
@@ -265,6 +392,7 @@ export interface CanonicalStartActionContext {
   queryClient: QueryClient
   readActiveExecutionId(): string | null
   readVisibleSelection(): Pick<VisibleRunSelection, 'definitionIds' | 'revision'>
+  readInventoryAuthorityExpectation(): RunInventoryAuthorityExpectation
   createIntentKey(): string
   sendStart(): Promise<CanonicalExecutionStartAccepted>
   onIntentStateChange(state: RunIntentState): void
@@ -298,6 +426,7 @@ export function resolveCurrentStartAuthority(
   activeExecutionId: string | null,
   visibleSelection: Pick<VisibleRunSelection, 'definitionIds' | 'revision'>,
   query: PreflightQueryAuthoritySnapshot,
+  inventoryExpectation: RunInventoryAuthorityExpectation,
 ): CurrentStartAuthority | null {
   const state = controller.snapshot()
   if (controller.authorityProject() !== project
@@ -325,6 +454,8 @@ export function resolveCurrentStartAuthority(
     query,
   )
   if (preflight?.aggregate.state !== 'ready') return null
+  if (inventoryExpectation.schemaVersion === 3
+    && !resolveV3RunPreflightBinding(project, displayed, inventoryExpectation.authority, preflight)) return null
 
   return Object.freeze({
     project,
@@ -358,6 +489,7 @@ export async function executeCanonicalStartAction(
       isFetching: false,
       dataUpdatedAt: 0,
     },
+    context.readInventoryAuthorityExpectation(),
   )
   if (!authority) {
     const state = context.controller.snapshot()
@@ -440,7 +572,7 @@ function DefinitionRow({
   disabled,
   onToggle,
 }: {
-  definition: CanonicalV2TestDefinitionPresentation
+  definition: CanonicalV2TestDefinitionPresentation | CanonicalV3TestDefinitionPresentation
   selected: boolean
   eligible: boolean
   disabled: boolean
@@ -448,13 +580,14 @@ function DefinitionRow({
 }) {
   const compatibility = definition.intrinsicCompatibility.state === 'compatible' ? 'Compatible' : definition.intrinsicCompatibility.state === 'blocked' ? 'Blocked' : 'Not evaluated'
   return <article className="rounded-lg border border-border bg-surface p-4">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><input aria-label={`Select ${definition.title}`} type="checkbox" checked={selected} disabled={disabled} onChange={onToggle} className="mt-1 h-4 w-4 accent-brand" /><div><p className="text-xs uppercase tracking-[0.16em] text-brand">Canonical v2 Definition</p><h3 className="mt-1 font-semibold text-primary">{definition.title}</h3><p className="break-all font-mono text-xs text-muted">{definition.definitionId}</p></div></div><span className={`rounded-full border border-border px-3 py-1 text-sm font-semibold ${selected && eligible ? 'text-pass' : 'text-muted'}`}>{selected ? eligible ? 'Execution eligible' : 'Eligibility not established' : 'Not selected'}</span></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><input aria-label={`Select ${definition.title}`} type="checkbox" checked={selected} disabled={disabled} onChange={onToggle} className="mt-1 h-4 w-4 accent-brand" /><div><p className="text-xs uppercase tracking-[0.16em] text-brand">Canonical v{definition.schemaVersion} Definition</p><h3 className="mt-1 font-semibold text-primary">{definition.title}</h3><p className="break-all font-mono text-xs text-muted">{definition.definitionId}</p></div></div><span className={`rounded-full border border-border px-3 py-1 text-sm font-semibold ${selected && eligible ? 'text-pass' : 'text-muted'}`}>{selected ? eligible ? 'Execution eligible' : 'Eligibility not established' : 'Not selected'}</span></div>
     <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
       <div><dt className="text-xs uppercase text-muted">Intrinsic compatibility</dt><dd className="text-secondary">{compatibility}</dd></div>
-      <div><dt className="text-xs uppercase text-muted">Route evidence</dt><dd className="text-secondary">{definition.routeEvidence.state === 'available' ? <code>{definition.routeEvidence.normalizedPath}</code> : definition.routeEvidence.state}</dd></div>
+      <div><dt className="text-xs uppercase text-muted">Route evidence</dt><dd className="text-secondary">{definition.schemaVersion === 3 ? `${definition.routeEvidence.routes.length} governed flow routes` : definition.routeEvidence.state === 'available' ? <code>{definition.routeEvidence.normalizedPath}</code> : definition.routeEvidence.state}</dd></div>
       <div><dt className="text-xs uppercase text-muted">Authentication expectation</dt><dd className="text-secondary">{definition.authenticationExpectation.state.replaceAll('_', ' ')}{definition.authenticationExpectation.mechanism ? ` — ${definition.authenticationExpectation.mechanism}` : ''}</dd></div>
       <div><dt className="text-xs uppercase text-muted">Support seal</dt><dd className="break-all font-mono text-xs text-secondary">{definition.provenance.supportSealHash}</dd></div>
     </dl>
+    {definition.schemaVersion === 3 && <p className="mt-3 text-sm text-secondary"><strong className="text-primary">App area:</strong> {definition.appArea} · navigate then observed data-test click · final subject-observable oracle.</p>}
     <p className="mt-3 text-xs text-muted">Compatibility is immutable Definition truth. Eligibility is a live preflight result. Credential availability and authentication execution outcome are not Definition fields.</p>
   </article>
 }
@@ -634,6 +767,9 @@ function RunIntentAuthoritySummary({ project, state, viewedExecutionId }: { proj
 function RunWorkspace({
   project,
   canonical,
+  canonicalContentHash,
+  v3Handoff,
+  initialDefinitionIds,
   activeExecutionId,
   intentController,
   intentState,
@@ -641,7 +777,10 @@ function RunWorkspace({
   onAccepted,
 }: {
   project: string
-  canonical: CanonicalV2TestSetPresentation
+  canonical: CanonicalV2TestSetPresentation | CanonicalV3TestSetPresentation
+  canonicalContentHash: string
+  v3Handoff?: { testSetId: string; definitionId: string; revision: number }
+  initialDefinitionIds?: readonly string[]
   activeExecutionId: string | null
   intentController: RunIntentController
   intentState: RunIntentState
@@ -649,7 +788,7 @@ function RunWorkspace({
   onAccepted: (accepted: CanonicalExecutionStartAccepted) => void
 }) {
   const initialSelection = intentSelection(intentState)
-  const [selectedIds, setSelectedIds] = useState<string[]>(() => initialSelection?.definitionIds ?? canonical.definitions.map(item => item.definitionId))
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => initialSelection?.definitionIds ?? [...(initialDefinitionIds ?? canonical.definitions.map(item => item.definitionId))])
   const [startAuthorityError, setStartAuthorityError] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const start = useStartCanonicalExecution(intentController)
@@ -680,7 +819,19 @@ function RunWorkspace({
     visibleSelection.revision,
     preflightQueryAuthority,
   )
-  const ready = freshPreflight?.aggregate.state === 'ready'
+  const v3Expectation: V3RunAuthorityExpectation | null = canonical.schemaVersion === 3
+    ? { current: { contentHash: canonicalContentHash, testSet: canonical }, handoff: v3Handoff ?? null }
+    : null
+  const v3Binding = v3Expectation
+    ? resolveV3RunPreflightBinding(project, visibleSelection, v3Expectation, freshPreflight)
+    : null
+  const inventoryExpectation: RunInventoryAuthorityExpectation = canonical.schemaVersion === 3
+    ? { schemaVersion: 3, authority: v3Expectation! }
+    : { schemaVersion: 2 }
+  const ready = canonical.schemaVersion === 3
+    ? v3Binding !== null
+    : freshPreflight?.aggregate.state === 'ready'
+  const exposeStart = canonical.schemaVersion === 2 || ready
   const retryAuthorityPending = retryable && preflight.isFetching
 
   useEffect(() => {
@@ -707,6 +858,7 @@ function RunWorkspace({
         definitionIds: [...visibleSelection.definitionIds],
         revision: visibleSelection.revision,
       }),
+      readInventoryAuthorityExpectation: () => inventoryExpectation,
       createIntentKey: createExecutionIntentKey,
       sendStart: () => intentController.start(),
       onIntentStateChange,
@@ -725,15 +877,16 @@ function RunWorkspace({
   }
 
   return <>
-    {visibleSelection.definitionIds.length === 0 && showStartWorkspace && <BoundedState alert title="No Definitions selected" explanation="Select at least one canonical v2 Definition before execution preflight can establish eligibility." />}
+    {visibleSelection.definitionIds.length === 0 && showStartWorkspace && <BoundedState alert title="No Definitions selected" explanation={`Select at least one canonical v${canonical.schemaVersion} Definition before execution preflight can establish eligibility.`} />}
     {visibleSelection.definitionIds.length > 0 && showStartWorkspace && preflight.isFetching && <div role="status" className="flex items-center gap-2 text-secondary"><Loader2 className="animate-spin" size={18} /> {visibleSelection.source === 'active_intent' ? 'Revalidating recovered Run intent selection and revision…' : 'Revalidating live execution eligibility…'}</div>}
     {visibleSelection.definitionIds.length > 0 && showStartWorkspace && preflight.isError && <PreflightError error={preflight.error} />}
     {showStartWorkspace && freshPreflight && <>
-      <aside className="flex gap-3 rounded-lg border border-flaky/40 bg-elevated p-4 text-sm text-secondary"><AlertTriangle className="shrink-0 text-flaky" size={18} /><p><strong className="text-primary">Preflight is not execution.</strong> It re-read immutable v2 Definition authority and live prerequisites; no Execution, Run, or Result was created.</p></aside>
+      <aside className="flex gap-3 rounded-lg border border-flaky/40 bg-elevated p-4 text-sm text-secondary"><AlertTriangle className="shrink-0 text-flaky" size={18} /><p><strong className="text-primary">Preflight is not execution.</strong> It re-read immutable v{canonical.schemaVersion} Definition authority and live prerequisites; no Execution, Run, or Result was created.</p></aside>
       <section className="rounded-lg border border-border bg-surface p-4">
         <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-[0.18em] text-brand">Live execution eligibility</p><h2 className="mt-1 text-xl font-semibold text-primary">{ready ? 'Eligible' : 'Blocked'}</h2><p className="mt-1 text-sm text-secondary">{freshPreflight.aggregate.explanation}</p></div><span className={`rounded-full border border-border px-3 py-1 text-sm font-semibold ${ready ? 'text-pass' : 'text-flaky'}`}>{STATE_LABEL[freshPreflight.aggregate.state]}</span></div>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><div className="rounded border border-border bg-elevated p-3"><dt className="text-muted">Intrinsic generation authority</dt><dd className="mt-1 text-secondary">{freshPreflight.boundaries.generationAuthority.replaceAll('_', ' ')}</dd></div><div className="rounded border border-border bg-elevated p-3"><dt className="text-muted">Runner availability</dt><dd className="mt-1 text-secondary">{freshPreflight.liveEligibility.runner}</dd></div><div className="rounded border border-border bg-elevated p-3"><dt className="text-muted">Credential availability</dt><dd className="mt-1 text-secondary">{freshPreflight.liveEligibility.credentials.replaceAll('_', ' ')}</dd></div></dl>
-        {intentState.phase !== 'storage_blocked' && <div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" disabled={!ready || retryAuthorityPending || start.isPending || intentState.phase === 'accepted'} onClick={() => { void submitStart() }} className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-medium text-white outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50">{start.isPending ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}{start.isPending ? 'Submitting canonical intent…' : retryable ? 'Retry acceptance with same intent' : 'Run selected Definitions'}</button>{!ready && <p className="text-xs text-muted">Start remains disabled until current canonical preflight is eligible.</p>}{retryable && <p className="text-xs text-secondary">This retry reuses the unresolved durable intent key and the exact displayed ordered selection at revision {visibleSelection.revision}; it cannot create a second Execution.</p>}</div>}
+        {intentState.phase !== 'storage_blocked' && exposeStart && <div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" disabled={!ready || retryAuthorityPending || start.isPending || intentState.phase === 'accepted'} onClick={() => { void submitStart() }} className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-medium text-white outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50">{start.isPending ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}{start.isPending ? 'Submitting canonical intent…' : retryable ? 'Retry acceptance with same intent' : 'Run selected Definitions'}</button>{!ready && <p className="text-xs text-muted">Start remains disabled until current canonical preflight is eligible.</p>}{retryable && <p className="text-xs text-secondary">This retry reuses the unresolved durable intent key and the exact displayed ordered selection at revision {visibleSelection.revision}; it cannot create a second Execution.</p>}</div>}
+        {intentState.phase !== 'storage_blocked' && canonical.schemaVersion === 3 && !ready && <p className="mt-4 text-xs text-muted">Start is not exposed because the selected v3 Definition is not bound to one exact eligible v3 preflight result for the current Test Set authority.</p>}
         {start.isError && <div className="mt-4"><StartError error={start.error} retryable={retryable} /></div>}
         {startAuthorityError && <p role="alert" className="mt-4 text-sm text-flaky">{startAuthorityError}</p>}
         {intentState.phase === 'retired' && intentState.cleanupIncomplete && <p role="status" className="mt-4 text-sm text-secondary">The prior intent was safely retired with an unusable tombstone. A new intent will replace it only after durable storage succeeds.</p>}
@@ -741,7 +894,7 @@ function RunWorkspace({
       <section className="rounded-lg border border-border bg-surface p-4" aria-labelledby="authority-snapshot"><div className="flex items-center gap-2"><ShieldQuestion size={18} className="text-brand" /><h2 id="authority-snapshot" className="text-lg font-semibold text-primary">Sealed authority snapshot</h2></div><dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-muted">Test Set</dt><dd className="font-mono text-secondary">{canonical.testSetId} · revision {canonical.revision}</dd></div><div><dt className="text-muted">Support seal</dt><dd className="break-all font-mono text-xs text-secondary">{canonical.provenance.supportSealHash}</dd></div><div><dt className="text-muted">Model</dt><dd className="text-secondary">{canonical.provenance.modelVersion} (row {canonical.provenance.modelRowId})</dd></div><div><dt className="text-muted">Canonical support</dt><dd className="text-secondary">{canonical.provenance.supportingObservationCount} Observations · {canonical.provenance.supportingGapCount} Gaps · {canonical.provenance.subjectSupportCount} subject-support entries</dd></div></dl></section>
     </>}
     {showStartWorkspace && retryable && !freshPreflight && <section className="rounded-lg border border-flaky/50 bg-surface p-4"><h2 className="font-semibold text-primary">Execution acceptance is unresolved</h2><p className="mt-1 text-sm text-secondary">The recovered ordered selection at revision {visibleSelection.revision} is being revalidated. Acceptance retry remains blocked until current canonical preflight authority is established; the same durable intent key is retained.</p><button type="button" disabled={preflight.isFetching} onClick={() => { void preflight.refetch() }} className="mt-3 inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm font-medium text-primary disabled:opacity-50"><RefreshCw className={preflight.isFetching ? 'animate-spin' : ''} size={16} /> Retry preflight validation</button>{startAuthorityError && <p role="alert" className="mt-4 text-sm text-flaky">{startAuthorityError}</p>}</section>}
-    {showStartWorkspace && <section aria-labelledby="preflight-definitions"><div className="mb-3 flex flex-wrap items-end justify-between gap-3"><div><h2 id="preflight-definitions" className="text-xl font-semibold text-primary">Canonical v2 Definitions</h2><p className="text-sm text-secondary">{visibleSelection.definitionIds.length} selected for displayed revision {visibleSelection.revision}{visibleSelection.revision !== canonical.revision ? `; current inventory revision is ${canonical.revision}` : ''}</p></div><div className="flex gap-2"><button type="button" disabled={selectionLocked} onClick={() => setSelectedIds(canonical.definitions.map(item => item.definitionId))} className="rounded border border-border px-3 py-1.5 text-xs text-primary disabled:opacity-50">Select all</button><button type="button" disabled={selectionLocked} onClick={() => setSelectedIds([])} className="rounded border border-border px-3 py-1.5 text-xs text-primary disabled:opacity-50">Clear</button></div></div><div className="grid gap-4">{canonical.definitions.map(definition => <DefinitionRow key={definition.definitionId} definition={definition} selected={visibleSelection.definitionIds.includes(definition.definitionId)} eligible={freshPreflight?.definitions.some(item => item.definitionId === definition.definitionId && item.state === 'eligible') ?? false} disabled={selectionLocked} onToggle={() => toggleDefinition(definition.definitionId)} />)}</div></section>}
+    {showStartWorkspace && <section aria-labelledby="preflight-definitions"><div className="mb-3 flex flex-wrap items-end justify-between gap-3"><div><h2 id="preflight-definitions" className="text-xl font-semibold text-primary">Canonical v{canonical.schemaVersion} Definitions</h2><p className="text-sm text-secondary">{visibleSelection.definitionIds.length} selected for displayed revision {visibleSelection.revision}{visibleSelection.revision !== canonical.revision ? `; current inventory revision is ${canonical.revision}` : ''}</p></div><div className="flex gap-2"><button type="button" disabled={selectionLocked} onClick={() => setSelectedIds(canonical.definitions.map(item => item.definitionId))} className="rounded border border-border px-3 py-1.5 text-xs text-primary disabled:opacity-50">Select all</button><button type="button" disabled={selectionLocked} onClick={() => setSelectedIds([])} className="rounded border border-border px-3 py-1.5 text-xs text-primary disabled:opacity-50">Clear</button></div></div><div className="grid gap-4">{canonical.definitions.map(definition => <DefinitionRow key={definition.definitionId} definition={definition} selected={visibleSelection.definitionIds.includes(definition.definitionId)} eligible={canonical.schemaVersion === 3 ? v3Binding?.definitionResults.some(item => item.definitionId === definition.definitionId) ?? false : freshPreflight?.definitionResults.some(item => item.definitionId === definition.definitionId && item.state === 'eligible' && item.schemaVersion === definition.schemaVersion) ?? false} disabled={selectionLocked} onToggle={() => toggleDefinition(definition.definitionId)} />)}</div></section>}
   </>
 }
 
@@ -758,14 +911,31 @@ function ProjectRunExperience({ project }: { project: string }) {
   const activeExecutionId = requestedExecutionId ?? restoredAcceptance?.executionId ?? null
   const displayedAcceptance = restoredAcceptance?.executionId === activeExecutionId ? restoredAcceptance : null
   const inventory = useEvidenceBackedTests(project, null, null)
-  const current = inventory.data?.current?.testSet ?? null
-  const canonical = current?.schemaVersion === 2 ? current : null
+  const currentRecord = inventory.data?.current ?? null
+  const current = currentRecord?.testSet ?? null
+  const canonical = current?.schemaVersion === 2 || current?.schemaVersion === 3 ? current : null
+  const definitionParam = params.get('definition')
+  const revisionParam = params.get('revision')
+  const m1Handoff = resolveM1RunHandoffState(
+    project,
+    definitionParam,
+    revisionParam,
+    M1RunHandoffSession.load(project),
+    current as { testSetId: string; revision: number; schemaVersion: number; definitions: readonly { definitionId: string; schemaVersion: number }[] } | null,
+    inventory.isSuccess || inventory.isError,
+  )
+  const m1HandoffRequested = m1Handoff.state !== 'absent'
+  const m1HandoffReady = m1Handoff.state === 'ready'
+  const m1HandoffBlocked = m1HandoffRequested && !m1HandoffReady
   const activeIntentSelection = intentSelection(intentState)
   const intentOwnsSelection = !!activeIntentSelection && isRunIntentSelectionLocked(intentState)
 
   function setExecution(accepted: CanonicalExecutionStartAccepted) {
     const next = new URLSearchParams(params)
     next.set('execution', accepted.executionId)
+    next.delete('definition')
+    next.delete('revision')
+    M1RunHandoffSession.clear(project)
     setParams(next)
   }
 
@@ -782,15 +952,16 @@ function ProjectRunExperience({ project }: { project: string }) {
     <div><h1 className="text-2xl font-semibold text-primary">Run</h1><p className="mt-1 max-w-3xl text-sm text-secondary">Start and observe canonical Product execution while lifecycle, current evidence, and persisted terminal outcome remain separate truths.</p></div>
     {intentState.phase === 'storage_blocked' && <BlockedIntentRecovery state={intentState} onRetry={() => { intentController.reconcileBlockedIntentStorage(); setIntentState(intentController.snapshot()) }} />}
     <RunIntentAuthoritySummary project={project} state={intentState} viewedExecutionId={activeExecutionId} />
+    {m1HandoffRequested && <M1RunHandoffNotice handoff={m1Handoff} />}
     {!project && <section className="rounded-lg border border-border bg-surface"><ProjectSelector title="Run" subtitle="Select a project to evaluate and execute its current canonical v2 Test Set." basePath="/run" /></section>}
     {project && activeExecutionId && <ExecutionMonitor project={project} executionId={activeExecutionId} acceptance={displayedAcceptance} intentController={intentController} onNewIntent={prepareNewIntent} />}
     {project && inventory.isLoading && <div role="status" className="flex items-center gap-2 text-secondary"><Loader2 className="animate-spin" size={18} /> Loading canonical Test Definitions…</div>}
     {project && inventory.isError && <PreflightError error={inventory.error} />}
-    {project && inventory.isSuccess && !current && !activeExecutionId && <BoundedState title="No current Test Set revision" explanation="No Test Definition revision has been persisted for this project." />}
-    {project && current?.schemaVersion === 1 && !activeExecutionId && <section className="rounded-lg border border-flaky/50 bg-surface p-6"><h2 className="font-semibold text-flaky">LEGACY PROVENANCE — execution unsupported</h2><p className="mt-2 text-sm text-secondary">The current revision is historical v1 compatibility evidence. It remains readable on Test Cases but cannot enter new Product execution.</p><Link className="mt-3 inline-block text-brand underline-offset-2 hover:underline" to={`/tests?project=${encodeURIComponent(project)}`}>Open legacy Test Case quarantine</Link></section>}
-    {project && canonical && canonical.definitions.length === 0 && !activeExecutionId && !intentOwnsSelection && <BoundedState title="No canonical definitions" explanation="The current v2 revision contains no Definitions eligible for execution preflight." />}
-    {project && canonical && (canonical.definitions.length > 0 || intentOwnsSelection) && <RunWorkspace key={`${project}-${canonical.testSetId}-${canonical.revision}`} project={project} canonical={canonical} activeExecutionId={activeExecutionId} intentController={intentController} intentState={intentState} onIntentStateChange={setIntentState} onAccepted={setExecution} />}
-    {project && activeExecutionId && !canonical && inventory.isSuccess && <aside className="flex gap-3 rounded-lg border border-border bg-elevated p-4 text-sm text-secondary"><Ban className="shrink-0 text-muted" size={18} /><p>The selected Execution remains monitorable, but no current canonical v2 Test Set is available for a new Run.</p></aside>}
+    {project && inventory.isSuccess && !current && !activeExecutionId && !m1HandoffRequested && <BoundedState title="No current Test Set revision" explanation="No Test Definition revision has been persisted for this project." />}
+    {project && current?.schemaVersion === 1 && !activeExecutionId && !m1HandoffRequested && <section className="rounded-lg border border-flaky/50 bg-surface p-6"><h2 className="font-semibold text-flaky">LEGACY PROVENANCE — execution unsupported</h2><p className="mt-2 text-sm text-secondary">The current revision is historical v1 compatibility evidence. It remains readable on Test Cases but cannot enter new Product execution.</p><Link className="mt-3 inline-block text-brand underline-offset-2 hover:underline" to={`/tests?project=${encodeURIComponent(project)}`}>Open legacy Test Case quarantine</Link></section>}
+    {project && canonical && canonical.definitions.length === 0 && !activeExecutionId && !intentOwnsSelection && !m1HandoffRequested && <BoundedState title="No canonical definitions" explanation={`The current v${canonical.schemaVersion} revision contains no Definitions eligible for execution preflight.`} />}
+    {project && canonical && currentRecord && (canonical.definitions.length > 0 || intentOwnsSelection) && !m1HandoffBlocked && <RunWorkspace key={`${project}-${canonical.testSetId}-${canonical.revision}-${m1HandoffReady ? m1Handoff.definitionId : 'default'}`} project={project} canonical={canonical} canonicalContentHash={currentRecord.contentHash} v3Handoff={m1HandoffReady ? { testSetId: m1Handoff.testSetId, definitionId: m1Handoff.definitionId, revision: m1Handoff.revision } : undefined} initialDefinitionIds={m1HandoffReady ? [m1Handoff.definitionId] : undefined} activeExecutionId={activeExecutionId} intentController={intentController} intentState={intentState} onIntentStateChange={setIntentState} onAccepted={setExecution} />}
+    {project && activeExecutionId && !canonical && inventory.isSuccess && <aside className="flex gap-3 rounded-lg border border-border bg-elevated p-4 text-sm text-secondary"><Ban className="shrink-0 text-muted" size={18} /><p>The selected Execution remains monitorable, but no current canonical v2 or v3 Test Set is available for a new Run.</p></aside>}
   </div>
 }
 

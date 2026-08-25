@@ -19,10 +19,29 @@ export interface ExecutablePlanStep {
   routePath: string
 }
 
+export type ExecutablePlanStepV2 =
+  | {
+      stepId: string
+      ordinal: 0
+      kind: 'navigate_to_observed_route'
+      subjectId: string
+      routePath: string
+    }
+  | {
+      stepId: string
+      ordinal: 1
+      kind: 'click_observed_data_test'
+      subjectId: string
+      elementId: string
+      dataTestValue: string
+      targetSubjectId: string
+    }
+
 export interface ExecutablePlanOracle {
   kind: 'subject_observable'
   subjectId: string
   assertion: 'final_url_matches_route_no_navigation_error'
+  routePath?: string
 }
 
 export interface CanonicalExecutablePlanV1 {
@@ -56,8 +75,9 @@ export interface CanonicalExecutablePlanV2 {
   planId: string
   definitionId: string
   title: string
-  category: 'navigation'
-  steps: ExecutablePlanStep[]
+  category: 'navigation' | 'observed_flow'
+  appArea?: string
+  steps: ExecutablePlanStep[] | ExecutablePlanStepV2[]
   oracle: ExecutablePlanOracle
   provenance: {
     definitionId: string
@@ -69,6 +89,8 @@ export interface CanonicalExecutablePlanV2 {
     supportSealHash: string
     routeEvidenceIdentityHash: string
     authenticationExpectationIdentityHash: string
+    intentId?: string
+    intentContentHash?: string
   }
   routeEvidence: {
     normalizationPolicy: { id: string; version: string }
@@ -109,16 +131,18 @@ function assertText(value: unknown, max = 500): asserts value is string {
 function validateCommon(value: CanonicalExecutablePlan): void {
   if (!ID.test(value.planId) || !ID.test(value.definitionId)) throw new ExecutablePlanContractError('INVALID_PLAN')
   assertText(value.title)
-  if (value.category !== 'navigation' || !ISO.test(value.projectedAt) || Number.isNaN(Date.parse(value.projectedAt))) {
+  if (!['navigation', 'observed_flow'].includes(value.category) || !ISO.test(value.projectedAt) || Number.isNaN(Date.parse(value.projectedAt))) {
     throw new ExecutablePlanContractError('INVALID_PLAN')
   }
-  if (!Array.isArray(value.steps) || value.steps.length !== 1) throw new ExecutablePlanContractError('INVALID_PLAN')
+  if (!Array.isArray(value.steps) || value.steps.length < 1 || value.steps.length > 2) throw new ExecutablePlanContractError('INVALID_PLAN')
   const step = value.steps[0]
   if (step.kind !== 'navigate_to_observed_route' || !ID.test(step.subjectId) || !ROUTE.test(step.routePath)
-    || value.oracle.kind !== 'subject_observable' || value.oracle.subjectId !== step.subjectId
     || value.oracle.assertion !== 'final_url_matches_route_no_navigation_error') {
     throw new ExecutablePlanContractError('INVALID_PLAN')
   }
+  if (value.schemaVersion === 1 && (value.steps.length !== 1 || value.category !== 'navigation'
+    || value.oracle.kind !== 'subject_observable' || value.oracle.subjectId !== step.subjectId
+    || value.oracle.routePath !== undefined)) throw new ExecutablePlanContractError('INVALID_PLAN')
 }
 
 export function validateCanonicalExecutablePlan(value: CanonicalExecutablePlan): void {
@@ -159,6 +183,27 @@ export function validateCanonicalExecutablePlan(value: CanonicalExecutablePlan):
   if (!auth || !['required', 'not_required'].includes(auth.state)
     || auth.state === 'required' && (!auth.mechanism || !ID.test(auth.mechanism))
     || auth.state === 'not_required' && auth.mechanism !== null) throw new ExecutablePlanContractError('INVALID_PLAN')
+  if (value.steps.length === 1) {
+    if (value.category !== 'navigation' || value.appArea !== undefined
+      || value.oracle.kind !== 'subject_observable' || value.oracle.subjectId !== value.steps[0].subjectId
+      || value.oracle.routePath !== undefined
+      || value.provenance.intentId !== undefined || value.provenance.intentContentHash !== undefined) {
+      throw new ExecutablePlanContractError('INVALID_PLAN')
+    }
+    return
+  }
+  const [navigate, click] = value.steps as ExecutablePlanStepV2[]
+  if (value.category !== 'observed_flow' || !value.appArea || !ID.test(value.appArea)
+    || navigate.kind !== 'navigate_to_observed_route' || navigate.ordinal !== 0 || !ID.test(navigate.stepId)
+    || click.kind !== 'click_observed_data_test' || click.ordinal !== 1 || !ID.test(click.stepId)
+    || navigate.stepId === click.stepId || click.subjectId !== navigate.subjectId
+    || !ID.test(click.elementId) || !ID.test(click.dataTestValue) || !ID.test(click.targetSubjectId)
+    || value.oracle.kind !== 'subject_observable' || value.oracle.subjectId !== click.targetSubjectId
+    || !value.oracle.routePath || !ROUTE.test(value.oracle.routePath)
+    || !value.provenance.intentId || !ID.test(value.provenance.intentId)
+    || !value.provenance.intentContentHash || !SHA256.test(value.provenance.intentContentHash)) {
+    throw new ExecutablePlanContractError('INVALID_PLAN')
+  }
 }
 
 function semanticContent(value: CanonicalExecutablePlan): SemanticExecutablePlanContent {

@@ -488,6 +488,33 @@ export class ExecutionContext {
     })
   }
 
+  listM1DiscoveredAreas(appName: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.canonicalTestDefinitionGeneration)
+      return new mod.CanonicalTestDefinitionGenerationService()
+        .listDiscoveredAreas(appName, this.workspaces.resolve(appName).root)
+    })
+  }
+
+  generateM1Intent(appName: string, appArea: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.canonicalTestDefinitionGeneration)
+      return new mod.CanonicalTestDefinitionGenerationService()
+        .generateDiscoveredIntent(appName, this.workspaces.resolve(appName).root, appArea)
+    })
+  }
+
+  saveM1Intent(appName: string, intent: Record<string, unknown>, generationId: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.canonicalTestDefinitionGeneration)
+      return new mod.CanonicalTestDefinitionGenerationService()
+        .saveReviewedDiscoveredIntent(appName, this.workspaces.resolve(appName).root, intent, generationId)
+    })
+  }
+
   /**
    * TD-UI-065A bounded App Model history read. SQLite remains authoritative;
    * compatibility JSON is read only to classify its projection relationship.

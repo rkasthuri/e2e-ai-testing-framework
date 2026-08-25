@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-05-step-integrity",
+  "matrixItem": 5,
+  "title": "Frozen plan step order, completeness, and uniqueness are contractual",
+  "input": {
+    "projectId": "project-profile",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-profile",
+      "modelVersion": 4,
+      "classifier": "ModuleClassifier",
+      "pages": [{ "pageId": "page-profile", "module": "account" }],
+      "supportObservationIds": ["obs-profile-route", "obs-name-field", "obs-save", "obs-success"]
+    },
+    "flow": {
+      "flowId": "flow-update-name",
+      "title": "Submit an observed profile state",
+      "objective": "Preserve navigation before the directly observed save control",
+      "pageIds": ["page-profile"],
+      "preconditions": [{ "kind": "authenticated_role", "roleId": "profile-user", "mechanism": "governed-setup" }],
+      "steps": [
+        { "stepId": "step-1", "ordinal": 0, "kind": "navigate_to_observed_route", "subjectId": "subject-profile", "routePath": "/profile.html", "evidenceObservationIds": ["obs-name-field", "obs-profile-route"] },
+        { "stepId": "step-2", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "subject-profile", "elementId": "subject-save-profile", "dataTestValue": "save-profile", "targetSubjectId": "subject-profile-saved", "evidenceObservationIds": ["obs-save"] }
+      ],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-profile-saved", "routePath": "/profile/saved.html", "evidenceObservationIds": ["obs-success"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "accepted",
+    "refusalCode": null,
+    "definitionSchemaVersion": 3,
+    "resultOutcome": "passed",
+    "businessAssertion": "passed",
+    "uiState": "generated_review",
+    "canRun": true
+  },
+  "attacks": ["reordered_steps", "missing_step", "duplicate_step"],
+  "tags": ["step_order", "hostile", "v3"]
+}

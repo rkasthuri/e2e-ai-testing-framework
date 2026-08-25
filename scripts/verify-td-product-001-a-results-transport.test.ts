@@ -36,6 +36,19 @@ const HASH_A = 'a'.repeat(64)
 const HASH_B = 'b'.repeat(64)
 const HASH_C = 'c'.repeat(64)
 
+function definitionAuthority(schemaVersion: 1 | 2 | 3) {
+  return {
+    schemaVersion,
+    testSetId: 'test-set-alpha',
+    revision: 2,
+    modelRowId: 7,
+    modelVersion: '1.0.6',
+    supportSealHash: schemaVersion === 1 ? null : HASH_A,
+    routeEvidenceIdentityHash: schemaVersion === 1 ? null : HASH_B,
+    authenticationExpectationIdentityHash: schemaVersion === 1 ? null : HASH_C,
+  }
+}
+
 function listItem(overrides: Record<string, unknown> = {}) {
   return {
     executionId: 'execution-alpha', lifecycle: 'completed', evidenceHeadlineOutcome: 'passed',
@@ -61,10 +74,7 @@ function detail(overrides: Record<string, unknown> = {}) {
     execution: {
       executionId: 'execution-alpha', lifecycle: 'completed', terminalOutcome: 'passed',
       authorityReasonCode: 'completed', acceptedAt: TIME, terminalAt: LATER, expectedResultCount: 1,
-      definitionAuthority: {
-        schemaVersion: 2, testSetId: 'test-set-alpha', revision: 2, modelRowId: 7, modelVersion: '1.0.6',
-        supportSealHash: HASH_A, routeEvidenceIdentityHash: HASH_B, authenticationExpectationIdentityHash: HASH_C,
-      },
+      definitionAuthority: definitionAuthority(2),
     },
     run: {
       runId: 'run-alpha', lifecycle: 'completed', evidenceOutcome: 'passed', evidenceReasonCode: 'completed',
@@ -123,10 +133,7 @@ function coreRead(projectionOverrides: Record<string, unknown> = {}) {
       execution: {
         executionId: 'execution-alpha', lifecycle: 'completed', outcome: 'passed', reasonCode: 'completed',
         acceptedAt: TIME, terminalAt: LATER, manifestCount: 1,
-        definitionAuthority: {
-          schemaVersion: 2, testSetId: 'test-set-alpha', revision: 2, modelRowId: 7, modelVersion: '1.0.6',
-          supportSealHash: HASH_A, routeEvidenceIdentityHash: HASH_B, authenticationExpectationIdentityHash: HASH_C,
-        },
+        definitionAuthority: definitionAuthority(2),
       },
       run: {
         runId: 'run-alpha', lifecycle: 'completed', outcome: 'passed', reasonCode: 'completed',
@@ -172,6 +179,112 @@ test('TD-PRODUCT-001-A-2 observed outcomes and Execution, Run, Result identities
     assert.notEqual(read.execution.executionId, read.run?.runId)
     assert.notEqual(read.run?.runId, read.items[0].evidence.resultId)
     assert.equal(read.items[0].evidence.outcome, outcome)
+  }
+})
+
+test('M1-R1 v1, v2, and v3 Definition authority remains explicitly discriminated at the Results boundary', () => {
+  for (const schemaVersion of [1, 2, 3] as const) {
+    const value = detail({
+      execution: {
+        ...(detail().execution as object),
+        definitionAuthority: definitionAuthority(schemaVersion),
+      },
+    })
+    const read = decodeCanonicalExecutionResultsDetail(value)
+    assert.equal(read.execution.definitionAuthority.schemaVersion, schemaVersion)
+    assert.equal(read.execution.lifecycle, 'completed')
+    assert.equal(read.execution.terminalOutcome, 'passed')
+    assert.equal(read.execution.authorityReasonCode, 'completed')
+    assert.equal(read.run?.evidenceReasonCode, 'completed')
+    assert.equal(read.items[0].evidence.kind, 'observed_result')
+  }
+
+  const v1ShapedAuthorityMislabeledV2 = {
+    ...definitionAuthority(1),
+    schemaVersion: 2,
+  }
+  assert.throws(
+    () => decodeCanonicalExecutionResultsDetail(detail({
+      execution: {
+        ...(detail().execution as object),
+        definitionAuthority: v1ShapedAuthorityMislabeledV2,
+      },
+    })),
+    error => error instanceof CanonicalResultsContractError
+      && /v2 requires complete canonical support authority/.test(error.message),
+  )
+
+  assert.throws(
+    () => decodeCanonicalExecutionResultsDetail(detail({
+      execution: {
+        ...(detail().execution as object),
+        definitionAuthority: { ...definitionAuthority(3), routeEvidenceIdentityHash: null },
+      },
+    })),
+    error => error instanceof CanonicalResultsContractError
+      && /v3 requires complete canonical support authority/.test(error.message),
+  )
+})
+
+test('M1-R1 Core v3 projection serializes through the API adapter without changing Result truth', () => {
+  const source = coreRead()
+  const projection = source.projection
+  const v3Source = {
+    ...source,
+    projection: {
+      ...projection,
+      execution: {
+        ...projection.execution,
+        definitionAuthority: definitionAuthority(3),
+      },
+    },
+  }
+  const read = serializeCanonicalExecutionResultsRead(v3Source)
+  assert.equal(read.kind, 'ok')
+  if (read.kind !== 'ok') throw new Error('expected v3 projection')
+  assert.equal(read.projection.execution.definitionAuthority.schemaVersion, 3)
+  assert.deepEqual(
+    {
+      headline: read.projection.evidenceHeadlineOutcome,
+      lifecycle: read.projection.execution.lifecycle,
+      terminalOutcome: read.projection.execution.terminalOutcome,
+      authorityReasonCode: read.projection.execution.authorityReasonCode,
+      runOutcome: read.projection.run?.evidenceOutcome,
+      runReason: read.projection.run?.evidenceReasonCode,
+      evidence: read.projection.items[0].evidence,
+    },
+    {
+      headline: 'passed',
+      lifecycle: 'completed',
+      terminalOutcome: 'passed',
+      authorityReasonCode: 'completed',
+      runOutcome: 'passed',
+      runReason: 'completed',
+      evidence: {
+        kind: 'observed_result', resultId: 'result-alpha', outcome: 'passed', reasonCode: 'completed',
+        safeMessage: null, durationMs: 1_000, oracleKind: null, observedSubjectId: null,
+      },
+    },
+  )
+})
+
+test('M1-R1 Results client accepts a valid terminal v3 payload through its production decoder', async () => {
+  const original = globalThis.fetch
+  try {
+    const v3 = detail({
+      execution: {
+        ...(detail().execution as object),
+        definitionAuthority: definitionAuthority(3),
+      },
+    })
+    globalThis.fetch = async () => response(200, { data: v3, error: null, timestamp: TIME })
+    const read = await fetchCanonicalExecutionResultsDetail('alpha', 'execution-alpha')
+    assert.equal(read.execution.definitionAuthority.schemaVersion, 3)
+    assert.equal(read.execution.lifecycle, 'completed')
+    assert.equal(read.execution.terminalOutcome, 'passed')
+    assert.equal(read.items[0].evidence.kind, 'observed_result')
+  } finally {
+    globalThis.fetch = original
   }
 })
 

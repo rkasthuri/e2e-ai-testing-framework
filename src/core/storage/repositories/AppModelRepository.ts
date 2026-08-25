@@ -1649,4 +1649,14 @@ export class AppModelRepository {
     const row = await this.findActive(appName)
     return row ? parseCommittedRow(row, 'getModel').snapshot : null
   }
+
+  /**
+   * Execution-authority read for one coherent active App Model row. Identity
+   * and parsed snapshot come from the same SELECT result; callers must still
+   * bind that identity to current sealed support before trusting the snapshot.
+   */
+  async getActiveCommitted(appName: string): Promise<CommittedAppModel | null> {
+    const row = await this.findActive(appName)
+    return row ? parseCommittedRow(row, 'getActiveCommitted') : null
+  }
 }

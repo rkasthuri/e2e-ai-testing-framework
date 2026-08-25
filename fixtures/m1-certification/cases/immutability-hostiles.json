@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-09-immutable-authorities",
+  "matrixItem": 9,
+  "title": "Definition, plan, and Result reject silent in-place mutation",
+  "input": {
+    "projectId": "project-settings",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-settings",
+      "modelVersion": 9,
+      "classifier": "ModuleClassifier",
+      "pages": [{ "pageId": "page-settings", "module": "settings" }],
+      "supportObservationIds": ["obs-settings", "obs-toggle", "obs-saved"]
+    },
+    "flow": {
+      "flowId": "flow-save-setting",
+      "title": "Save an observed setting",
+      "objective": "Persist an observed preference",
+      "pageIds": ["page-settings"],
+      "preconditions": [{ "kind": "authenticated_role", "roleId": "administrator", "mechanism": "governed-setup" }],
+      "steps": [
+        { "stepId": "step-1", "ordinal": 0, "kind": "navigate_to_observed_route", "subjectId": "subject-settings", "routePath": "/settings.html", "evidenceObservationIds": ["obs-settings"] },
+        { "stepId": "step-2", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "subject-settings", "elementId": "subject-save-settings", "dataTestValue": "save-settings", "targetSubjectId": "subject-saved-settings", "evidenceObservationIds": ["obs-toggle"] }
+      ],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-saved-settings", "routePath": "/settings/saved.html", "evidenceObservationIds": ["obs-saved"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "accepted",
+    "refusalCode": null,
+    "definitionSchemaVersion": 3,
+    "resultOutcome": "passed",
+    "businessAssertion": "passed",
+    "uiState": "generated_review",
+    "canRun": true
+  },
+  "attacks": ["accept_definition_mutation", "accept_plan_mutation", "accept_result_mutation"],
+  "tags": ["immutability", "identity", "revision"]
+}

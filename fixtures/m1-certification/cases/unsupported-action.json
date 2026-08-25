@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-03-unsupported-drag",
+  "matrixItem": 3,
+  "title": "Unsupported drag semantics refuse closed",
+  "input": {
+    "projectId": "project-kanban",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-kanban",
+      "modelVersion": 3,
+      "classifier": "ModuleClassifier",
+      "pages": [{ "pageId": "page-board", "module": "work_management" }],
+      "supportObservationIds": ["obs-card", "obs-column"]
+    },
+    "flow": {
+      "flowId": "flow-drag-card",
+      "title": "Move a card",
+      "objective": "Drag a card between columns",
+      "pageIds": ["page-board"],
+      "preconditions": [{ "kind": "authenticated_role", "roleId": "board-user", "mechanism": "governed-setup" }],
+      "steps": [{ "stepId": "step-1", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "board", "elementId": "card", "dataTestValue": "card", "targetSubjectId": "column", "evidenceObservationIds": ["obs-card"] }],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "column", "routePath": "/board.html", "evidenceObservationIds": ["obs-column"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": "drag_and_drop"
+  },
+  "expected": {
+    "disposition": "refused",
+    "refusalCode": "unsupported_semantics",
+    "definitionSchemaVersion": null,
+    "resultOutcome": null,
+    "businessAssertion": null,
+    "uiState": "refused",
+    "canRun": false
+  },
+  "attacks": ["ui_backend_shape_drift"],
+  "tags": ["refusal", "bounded_semantics", "ui"]
+}

@@ -688,11 +688,11 @@ export type IntrinsicCompatibilityPresentation =
   | { state: 'blocked'; reason: string | null; explanation: string }
   | { state: 'not_evaluated'; reason: null; explanation: string }
 
-interface TestDefinitionPresentationBase {
+interface TestDefinitionPresentationBase<TCategory extends 'navigation' | 'observed_flow' = 'navigation'> {
   definitionId: string
   title: string
   intent: string
-  category: 'navigation'
+  category: TCategory
   subjects: readonly string[]
   generationMethod: 'deterministic' | 'heuristic' | 'ai_assisted' | 'manual'
   validation: { state: 'valid'; explanation: string }
@@ -732,7 +732,36 @@ export interface CanonicalV2TestDefinitionPresentation extends TestDefinitionPre
   executionPolicy: 'canonical_v2_preflight_required'
 }
 
-export type TestDefinitionPresentation = LegacyTestDefinitionPresentation | CanonicalV2TestDefinitionPresentation
+export interface CanonicalV3TestDefinitionPresentation extends TestDefinitionPresentationBase<'observed_flow'> {
+  schemaVersion: 3
+  authorityClass: 'canonical_v3'
+  provenance: CanonicalV2TestDefinitionPresentation['provenance'] & { intentId: string; intentContentHash: string }
+  appArea: string
+  routeEvidence: {
+    state: 'available_flow'
+    normalizationPolicy: { id: string; version: string }
+    supportingObservationCount: number
+    supportingObservationIds: readonly string[]
+    routes: ReadonlyArray<{ subjectId: string; normalizedPath: string; supportingObservationIds: readonly string[] }>
+  }
+  authenticationExpectation: CanonicalV2TestDefinitionPresentation['authenticationExpectation']
+  actions: ReadonlyArray<
+    | { stepId: string; ordinal: 0; kind: 'navigate_to_observed_route'; subjectId: string; normalizedPath: string }
+    | { stepId: string; ordinal: 1; kind: 'click_observed_data_test'; subjectId: string; elementId: string; dataTestValue: string; targetSubjectId: string }
+  >
+  oracle: { kind: 'subject_observable'; subjectId: string; explanation: string }
+  normalizedIntent: {
+    intentId: string
+    source: 'discovered' | 'manual' | 'natural-language'
+    sourceFlowId: string
+    selectedFlowStepIndexes: readonly number[]
+    excludedFlowStepIndexes: readonly number[]
+    limitations: readonly string[]
+  }
+  executionPolicy: 'canonical_v3_preflight_required'
+}
+
+export type TestDefinitionPresentation = LegacyTestDefinitionPresentation | CanonicalV2TestDefinitionPresentation | CanonicalV3TestDefinitionPresentation
 
 interface TestSetPresentationBase {
   testSetId: string
@@ -767,7 +796,13 @@ export interface CanonicalV2TestSetPresentation extends TestSetPresentationBase 
   }
 }
 
-export type TestSetPresentation = LegacyTestSetPresentation | CanonicalV2TestSetPresentation
+export interface CanonicalV3TestSetPresentation extends Omit<CanonicalV2TestSetPresentation, 'schemaVersion' | 'authorityClass' | 'definitions'> {
+  schemaVersion: 3
+  authorityClass: 'canonical_v3'
+  definitions: readonly CanonicalV3TestDefinitionPresentation[]
+}
+
+export type TestSetPresentation = LegacyTestSetPresentation | CanonicalV2TestSetPresentation | CanonicalV3TestSetPresentation
 
 export type TestSetHistoryPresentation = {
   rowId: number; testSetId: string; revision: number; generationId: string; generatedAt: string; outcome: TestGenerationOutcome
@@ -776,6 +811,7 @@ export type TestSetHistoryPresentation = {
 } & (
   | { schemaVersion: 1; authorityClass: 'legacy_v1'; provenance: { label: 'LEGACY PROVENANCE'; sourceObservationId: string } }
   | { schemaVersion: 2; authorityClass: 'canonical_v2'; provenance: { label: 'SEALED CANONICAL SUPPORT'; observationRunId: string; supportSealHash: string } }
+  | { schemaVersion: 3; authorityClass: 'canonical_v3'; provenance: { label: 'SEALED CANONICAL SUPPORT'; observationRunId: string; supportSealHash: string } }
 )
 
 export interface TestInventoryResponse {
@@ -786,7 +822,7 @@ export interface TestInventoryResponse {
   history: TestSetHistoryPresentation[]
   total: number
   nextCursor: string | null
-  requestedDefinition: { definition: TestDefinitionPresentation; revision: number; rowId: number } | null
+  requestedDefinition: { definition: TestDefinitionPresentation; schemaVersion: 1 | 2 | 3; revision: number; rowId: number } | null
   boundaries: { execution: 'not_performed'; coverage: 'unknown'; freshness: 'not_evaluated'; explanation: string }
 }
 
@@ -830,7 +866,7 @@ export type ExecutionPreflightState =
   | 'conflicting_evidence' | 'preflight_source_invalid' | 'execution_already_active'
   | 'execution_persistence_unavailable' | 'ready'
 
-export interface ExecutionPreflightDefinitionResult {
+export interface ExecutionPreflightDefinitionResultV2 {
   definitionId: string
   schemaVersion: 2
   state: 'eligible'
@@ -843,10 +879,33 @@ export interface ExecutionPreflightDefinitionResult {
   intrinsicCompatibility: 'compatible'
 }
 
+export interface ExecutionPreflightDefinitionResultV3 {
+  definitionId: string
+  schemaVersion: 3
+  state: 'eligible'
+  semanticPlanHash: string
+  appArea: string
+  modelRowId: number
+  modelVersion: string
+  supportSealHash: string
+  intentId: string
+  intentContentHash: string
+  routes: readonly [
+    { subjectId: string; normalizedPath: string },
+    { subjectId: string; normalizedPath: string },
+  ]
+  actions: readonly ['navigate_to_observed_route', 'click_observed_data_test']
+  oracle: { kind: 'subject_observable'; subjectId: string; routePath: string }
+  authenticationExpectation: { state: 'required' | 'not_required'; mechanism: string | null }
+  intrinsicCompatibility: 'compatible'
+}
+
+export type ExecutionPreflightDefinitionResult = ExecutionPreflightDefinitionResultV2 | ExecutionPreflightDefinitionResultV3
+
 export interface ExecutionPreflightResponse {
   project: { id: string; name: string }
-  testSetRevision: { revision: number; testSetId?: string; schemaVersion?: 2; contentHash?: string } | null
-  definitions: ExecutionPreflightDefinitionResult[]
+  testSetRevision: { revision: number; testSetId?: string; schemaVersion?: 2 | 3; contentHash?: string } | null
+  definitionResults: ExecutionPreflightDefinitionResult[]
   aggregate: { state: ExecutionPreflightState; explanation: string }
   liveEligibility: {
     state: 'eligible' | 'blocked'

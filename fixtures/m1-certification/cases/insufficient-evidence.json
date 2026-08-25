@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-02-insufficient-grounding",
+  "matrixItem": 2,
+  "title": "Missing support cannot become runnable fiction",
+  "input": {
+    "projectId": "project-storefront",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-storefront",
+      "modelVersion": 7,
+      "classifier": "ModuleClassifier",
+      "pages": [{ "pageId": "page-checkout", "module": "checkout" }],
+      "supportObservationIds": []
+    },
+    "flow": {
+      "flowId": "flow-unseen-purchase",
+      "title": "Complete unseen purchase",
+      "objective": "Claim a purchase outcome without grounded controls",
+      "pageIds": ["page-checkout"],
+      "preconditions": [],
+      "steps": [{ "stepId": "step-1", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "unobserved-page", "elementId": "unobserved-purchase", "dataTestValue": "purchase", "targetSubjectId": "unobserved-result", "evidenceObservationIds": ["obs-missing"] }],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "unobserved-result", "routePath": "/unobserved.html", "evidenceObservationIds": ["obs-missing"] }
+    },
+    "evidenceSufficiency": "insufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "refused",
+    "refusalCode": "insufficient_evidence",
+    "definitionSchemaVersion": null,
+    "resultOutcome": null,
+    "businessAssertion": null,
+    "uiState": "refused",
+    "canRun": false
+  },
+  "attacks": ["ui_backend_shape_drift"],
+  "tags": ["refusal", "evidence_first", "ui"]
+}

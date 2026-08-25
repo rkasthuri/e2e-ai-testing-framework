@@ -1,0 +1,262 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "forge-m1-certification-case-v1",
+  "title": "FORGE M1 independent certification fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "caseId",
+    "matrixItem",
+    "title",
+    "input",
+    "expected",
+    "attacks",
+    "tags"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "forge-m1-certification-case/v1" },
+    "caseId": { "type": "string", "minLength": 1 },
+    "matrixItem": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "title": { "type": "string", "minLength": 1 },
+    "input": { "$ref": "#/definitions/input" },
+    "expected": { "$ref": "#/definitions/expected" },
+    "attacks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "accept_definition_mutation",
+          "accept_plan_mutation",
+          "accept_result_mutation",
+          "app_area_reclassified",
+          "duplicate_step",
+          "generated_source_as_definition",
+          "legacy_fallback",
+          "missing_step",
+          "provenance_dropped",
+          "reordered_steps",
+          "result_without_execution",
+          "rewrite_assertion_failure",
+          "ui_backend_shape_drift"
+        ]
+      }
+    },
+    "tags": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "definitions": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "source",
+        "appModel",
+        "flow",
+        "evidenceSufficiency",
+        "requestedUnsupportedSemantic"
+      ],
+      "properties": {
+        "projectId": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["discovered", "manual", "natural-language"] },
+        "appModel": { "$ref": "#/definitions/appModel" },
+        "flow": { "$ref": "#/definitions/flow" },
+        "evidenceSufficiency": { "enum": ["sufficient", "insufficient", "ambiguous"] },
+        "requestedUnsupportedSemantic": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "appModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelId",
+        "modelVersion",
+        "classifier",
+        "pages",
+        "supportObservationIds"
+      ],
+      "properties": {
+        "modelId": { "type": "string", "minLength": 1 },
+        "modelVersion": { "type": "integer", "minimum": 1 },
+        "classifier": { "const": "ModuleClassifier" },
+        "pages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["pageId", "module"],
+            "properties": {
+              "pageId": { "type": "string", "minLength": 1 },
+              "module": {
+                "anyOf": [
+                  { "type": "string", "minLength": 1 },
+                  { "type": "null" }
+                ]
+              }
+            }
+          }
+        },
+        "supportObservationIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flowId",
+        "title",
+        "objective",
+        "pageIds",
+        "preconditions",
+        "steps",
+        "finalOracle"
+      ],
+      "properties": {
+        "flowId": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "objective": { "type": "string", "minLength": 1 },
+        "pageIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "preconditions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/precondition" }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/step" }
+        },
+        "finalOracle": { "$ref": "#/definitions/finalOracle" }
+      }
+    },
+    "step": {
+      "oneOf": [
+        { "$ref": "#/definitions/navigateStep" },
+        { "$ref": "#/definitions/clickStep" }
+      ]
+    },
+    "navigateStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "ordinal", "kind", "subjectId", "routePath", "evidenceObservationIds"],
+      "properties": {
+        "stepId": { "type": "string", "minLength": 1 },
+        "ordinal": { "const": 0 },
+        "kind": { "const": "navigate_to_observed_route" },
+        "subjectId": { "type": "string", "minLength": 1 },
+        "routePath": { "type": "string", "pattern": "^/" },
+        "evidenceObservationIds": { "$ref": "#/definitions/observationIds" }
+      }
+    },
+    "clickStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "ordinal", "kind", "subjectId", "elementId", "dataTestValue", "targetSubjectId", "evidenceObservationIds"],
+      "properties": {
+        "stepId": { "type": "string", "minLength": 1 },
+        "ordinal": { "const": 1 },
+        "kind": { "const": "click_observed_data_test" },
+        "subjectId": { "type": "string", "minLength": 1 },
+        "elementId": { "type": "string", "minLength": 1 },
+        "dataTestValue": { "type": "string", "minLength": 1 },
+        "targetSubjectId": { "type": "string", "minLength": 1 },
+        "evidenceObservationIds": { "$ref": "#/definitions/observationIds" }
+      }
+    },
+    "finalOracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "subjectId", "routePath", "evidenceObservationIds"],
+      "properties": {
+        "kind": { "const": "subject_observable" },
+        "subjectId": { "type": "string", "minLength": 1 },
+        "routePath": { "type": "string", "pattern": "^/" },
+        "evidenceObservationIds": { "$ref": "#/definitions/observationIds" }
+      }
+    },
+    "precondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "roleId", "mechanism"],
+      "properties": {
+        "kind": { "const": "authenticated_role" },
+        "roleId": { "type": "string", "minLength": 1 },
+        "mechanism": { "type": "string", "minLength": 1 }
+      }
+    },
+    "observationIds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "disposition",
+        "refusalCode",
+        "definitionSchemaVersion",
+        "resultOutcome",
+        "businessAssertion",
+        "uiState",
+        "canRun"
+      ],
+      "properties": {
+        "disposition": { "enum": ["accepted", "refused"] },
+        "refusalCode": {
+          "anyOf": [
+            {
+              "enum": [
+                "insufficient_evidence",
+                "ambiguous_evidence",
+                "unsupported_semantics",
+                "app_area_unknown"
+              ]
+            },
+            { "type": "null" }
+          ]
+        },
+        "definitionSchemaVersion": {
+          "anyOf": [
+            { "enum": [2, 3] },
+            { "type": "null" }
+          ]
+        },
+        "resultOutcome": {
+          "anyOf": [
+            { "enum": ["passed", "failed", "could_not_verify"] },
+            { "type": "null" }
+          ]
+        },
+        "businessAssertion": {
+          "anyOf": [
+            { "enum": ["passed", "failed"] },
+            { "type": "null" }
+          ]
+        },
+        "uiState": { "enum": ["generated_review", "refused"] },
+        "canRun": { "type": "boolean" }
+      }
+    }
+  }
+}

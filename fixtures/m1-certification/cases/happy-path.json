@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-01-happy-checkout",
+  "matrixItem": 1,
+  "title": "Observed cart checkout transition becomes a canonical v3 run",
+  "input": {
+    "projectId": "project-storefront",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-storefront",
+      "modelVersion": 7,
+      "classifier": "ModuleClassifier",
+      "pages": [
+        { "pageId": "subject-cart", "module": "checkout" },
+        { "pageId": "subject-checkout-step-one", "module": "checkout" }
+      ],
+      "supportObservationIds": ["obs-cart-route", "obs-checkout-data-test", "obs-checkout-step-one-subject"]
+    },
+    "flow": {
+      "flowId": "flow-cart-checkout-step-one",
+      "title": "Open checkout from the observed cart control",
+      "objective": "Navigate to the observed cart, click its directly observed checkout control, and observe checkout step one",
+      "pageIds": ["subject-cart", "subject-checkout-step-one"],
+      "preconditions": [{ "kind": "authenticated_role", "roleId": "shopper", "mechanism": "form-login" }],
+      "steps": [
+        { "stepId": "step-1", "ordinal": 0, "kind": "navigate_to_observed_route", "subjectId": "subject-cart", "routePath": "/cart.html", "evidenceObservationIds": ["obs-cart-route"] },
+        { "stepId": "step-2", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "subject-cart", "elementId": "subject-checkout-control", "dataTestValue": "checkout", "targetSubjectId": "subject-checkout-step-one", "evidenceObservationIds": ["obs-checkout-data-test"] }
+      ],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-checkout-step-one", "routePath": "/checkout-step-one.html", "evidenceObservationIds": ["obs-checkout-step-one-subject"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "accepted",
+    "refusalCode": null,
+    "definitionSchemaVersion": 3,
+    "resultOutcome": "passed",
+    "businessAssertion": "passed",
+    "uiState": "generated_review",
+    "canRun": true
+  },
+  "attacks": [],
+  "tags": ["happy_path", "frozen_m1_scope", "v3"]
+}

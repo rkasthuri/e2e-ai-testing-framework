@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-04-canonical-app-area",
+  "matrixItem": 4,
+  "title": "Canonical checkout area is carried without reclassification",
+  "input": {
+    "projectId": "project-storefront",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-storefront",
+      "modelVersion": 8,
+      "classifier": "ModuleClassifier",
+      "pages": [
+        { "pageId": "page-cart", "module": "checkout" },
+        { "pageId": "page-checkout", "module": "checkout" }
+      ],
+      "supportObservationIds": ["obs-cart-checkout", "obs-checkout-route", "obs-checkout-heading"]
+    },
+    "flow": {
+      "flowId": "flow-cart-to-checkout",
+      "title": "Open checkout from cart",
+      "objective": "Reach the checkout form from an observed cart",
+      "pageIds": ["page-cart", "page-checkout"],
+      "preconditions": [{ "kind": "authenticated_role", "roleId": "shopper", "mechanism": "governed-setup" }],
+      "steps": [
+        { "stepId": "step-1", "ordinal": 0, "kind": "navigate_to_observed_route", "subjectId": "subject-cart", "routePath": "/cart.html", "evidenceObservationIds": ["obs-cart-checkout"] },
+        { "stepId": "step-2", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "subject-cart", "elementId": "subject-checkout-control", "dataTestValue": "checkout", "targetSubjectId": "subject-checkout", "evidenceObservationIds": ["obs-cart-checkout"] }
+      ],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-checkout", "routePath": "/checkout-step-one.html", "evidenceObservationIds": ["obs-checkout-heading", "obs-checkout-route"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "accepted",
+    "refusalCode": null,
+    "definitionSchemaVersion": 3,
+    "resultOutcome": "passed",
+    "businessAssertion": "passed",
+    "uiState": "generated_review",
+    "canRun": true
+  },
+  "attacks": ["app_area_reclassified"],
+  "tags": ["app_area", "provenance", "ui"]
+}

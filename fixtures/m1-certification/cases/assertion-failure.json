@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "forge-m1-certification-case/v1",
+  "caseId": "M1-08-business-assertion-failure",
+  "matrixItem": 8,
+  "title": "Failed business assertion remains Product truth",
+  "input": {
+    "projectId": "project-orders",
+    "source": "discovered",
+    "appModel": {
+      "modelId": "app-model-orders",
+      "modelVersion": 6,
+      "classifier": "ModuleClassifier",
+      "pages": [{ "pageId": "page-order", "module": "orders" }],
+      "supportObservationIds": ["obs-order-route", "obs-cancel", "obs-status"]
+    },
+    "flow": {
+      "flowId": "flow-cancel-order",
+      "title": "Cancel an order",
+      "objective": "Show a cancelled status after cancellation",
+      "pageIds": ["page-order"],
+      "preconditions": [{ "kind": "authenticated_role", "roleId": "operator", "mechanism": "governed-setup" }],
+      "steps": [
+        { "stepId": "step-1", "ordinal": 0, "kind": "navigate_to_observed_route", "subjectId": "subject-order", "routePath": "/orders/observed.html", "evidenceObservationIds": ["obs-order-route"] },
+        { "stepId": "step-2", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "subject-order", "elementId": "subject-cancel-order", "dataTestValue": "cancel-order", "targetSubjectId": "subject-cancelled-order", "evidenceObservationIds": ["obs-cancel"] }
+      ],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-cancelled-order", "routePath": "/orders/cancelled.html", "evidenceObservationIds": ["obs-status"] }
+    },
+    "evidenceSufficiency": "sufficient",
+    "requestedUnsupportedSemantic": null
+  },
+  "expected": {
+    "disposition": "accepted",
+    "refusalCode": null,
+    "definitionSchemaVersion": 3,
+    "resultOutcome": "failed",
+    "businessAssertion": "failed",
+    "uiState": "generated_review",
+    "canRun": true
+  },
+  "attacks": ["rewrite_assertion_failure"],
+  "tags": ["execution_truth", "assertion_failure", "result"]
+}
