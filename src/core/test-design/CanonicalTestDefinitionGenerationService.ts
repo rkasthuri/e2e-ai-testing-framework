@@ -20,9 +20,11 @@ import { CanonicalRouteEvidenceProjection } from './CanonicalRouteEvidenceProjec
 import { AuthenticationExpectationProjectionService } from './AuthenticationExpectationProjection'
 import { AppModelRepository } from '../storage/repositories/AppModelRepository'
 import {
+  materializeSupportedNormalizedTestIntentV1,
   normalizeDiscoveredIntentV1,
   refusedNormalizedTestIntentV1,
   type DiscoveredIntentSelectionV1,
+  type SupportedNormalizedTestIntentV1,
 } from './NormalizedTestIntentContract'
 
 const PROCESS_INSTANCE_ID = crypto.randomUUID()
@@ -121,6 +123,126 @@ export class CanonicalTestDefinitionGenerationService {
           authenticationExpectation: admitted.authenticationExpectation,
           normalizedIntent: normalized.materialized,
         }
+  }
+
+  async listDiscoveredAreas(projectId: string, workspaceRoot: string) {
+    await this.prepare()
+    const admitted = await this.readAdmission(projectId, workspaceRoot)
+    const model = await this.appModels.getModel(projectId)
+    if (admitted.kind !== 'ok' || !model) return []
+    const candidates = (model.flows ?? []).flatMap(flow => flow.steps.map(step => ({ flow, step })))
+      .filter(({ step }) => step.action === 'click' && step.grounding === 'observed')
+      .map(({ flow, step }) => ({ flowId: flow.id, selectedFlowStepIndexes: [step.stepIndex] as readonly number[] }))
+    const byArea = new Map<string, Array<{ selection: DiscoveredIntentSelectionV1; intent: SupportedNormalizedTestIntentV1 }>>()
+    for (const selection of candidates) {
+      const normalized = await this.readDiscoveredFlowAdmission(projectId, workspaceRoot, selection)
+      if (normalized.kind !== 'ok') continue
+      const area = normalized.normalizedIntent.value.appArea.id
+      const entries = byArea.get(area) ?? []
+      entries.push({ selection, intent: normalized.normalizedIntent.value })
+      byArea.set(area, entries)
+    }
+    return [...byArea.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([appArea, entries]) => {
+      const intent = entries[0].intent
+      const navigation = intent.steps.find(step => step.kind === 'navigate_to_observed_route')!
+      return entries.length === 1
+        ? {
+            appArea,
+            sourceSubjectId: intent.appArea.sourceSubjectId,
+            observedRoute: navigation.routePath,
+            evidenceSummary: 'Persisted App Model classification with one directly observed supported transition.',
+            confidence: intent.appArea.confidence,
+            availability: 'available' as const,
+            refusal: null,
+          }
+        : {
+            appArea,
+            sourceSubjectId: intent.appArea.sourceSubjectId,
+            observedRoute: navigation.routePath,
+            evidenceSummary: 'More than one supported observed transition belongs to this persisted application area.',
+            confidence: intent.appArea.confidence,
+            availability: 'app_area_unknown' as const,
+            refusal: refusedNormalizedTestIntentV1(projectId, entries[0].selection, 'ambiguous_evidence'),
+          }
+    })
+  }
+
+  async generateDiscoveredIntent(projectId: string, workspaceRoot: string, appArea: string) {
+    await this.prepare()
+    const areas = await this.listDiscoveredAreas(projectId, workspaceRoot)
+    const area = areas.find(item => item.appArea === appArea)
+    if (!area || area.availability !== 'available') {
+      return area?.refusal ?? refusedNormalizedTestIntentV1(
+        projectId,
+        { flowId: 'unavailable-flow', selectedFlowStepIndexes: [] },
+        'app_area_unknown',
+      )
+    }
+    const model = await this.appModels.getModel(projectId)
+    const matches = (model?.flows ?? []).flatMap(flow => flow.steps.map(step => ({ flow, step })))
+      .filter(({ step }) => step.action === 'click' && step.grounding === 'observed')
+    for (const { flow, step } of matches) {
+      const admitted = await this.readDiscoveredFlowAdmission(projectId, workspaceRoot, {
+        flowId: flow.id,
+        selectedFlowStepIndexes: [step.stepIndex],
+      })
+      if (admitted.kind === 'ok' && admitted.normalizedIntent.value.appArea.id === appArea) {
+        return admitted.normalizedIntent.value
+      }
+    }
+    return refusedNormalizedTestIntentV1(
+      projectId,
+      { flowId: 'unavailable-flow', selectedFlowStepIndexes: [] },
+      'insufficient_evidence',
+    )
+  }
+
+  async saveReviewedDiscoveredIntent(
+    projectId: string,
+    workspaceRoot: string,
+    reviewedIntent: SupportedNormalizedTestIntentV1,
+    generationId = crypto.randomUUID(),
+  ) {
+    await this.prepare()
+    const reviewed = materializeSupportedNormalizedTestIntentV1(reviewedIntent)
+    if (reviewed.value.projectId !== projectId || reviewed.value.source !== 'discovered') {
+      throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+    }
+    const replay = await this.repository.findCanonicalV3Intent(projectId, reviewed)
+    if (replay.kind === 'conflict') throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+    if (replay.kind === 'exact') return canonicalDefinitionSaveResultV3(replay.testSet)
+
+    const selection: DiscoveredIntentSelectionV1 = {
+      flowId: reviewed.value.grounding.sourceFlowId,
+      selectedFlowStepIndexes: reviewed.value.grounding.selectedFlowStepIndexes,
+    }
+    const admitted = await this.readDiscoveredFlowAdmission(projectId, workspaceRoot, selection)
+    if (admitted.kind !== 'ok' || admitted.normalizedIntent.fingerprint !== reviewed.fingerprint
+      || admitted.normalizedIntent.json !== reviewed.json) throw new TestDefinitionContractError('STALE_AUTHORITY')
+
+    const startedAt = this.now()
+    await this.repository.beginGeneration(projectId, generationId, PROCESS_INSTANCE_ID, startedAt)
+    try {
+      const current = await this.readDiscoveredFlowAdmission(projectId, workspaceRoot, selection)
+      if (current.kind !== 'ok' || current.normalizedIntent.fingerprint !== reviewed.fingerprint
+        || current.normalizedIntent.json !== reviewed.json) throw new TestDefinitionContractError('STALE_AUTHORITY')
+      const committed = await this.repository.commitCanonicalV3Generation({
+        projectId,
+        generatedAt: startedAt,
+        authority: current.authority,
+        routeEvidence: current.routeEvidence,
+        authenticationExpectation: current.authenticationExpectation,
+        normalizedIntent: current.normalizedIntent,
+      }, generationId, PROCESS_INSTANCE_ID)
+      return canonicalDefinitionSaveResultV3(committed.testSet)
+    } catch (cause) {
+      const code = cause instanceof TestDefinitionContractError ? cause.code : 'PERSISTENCE_FAILED'
+      const message = cause instanceof TestDefinitionContractError
+        ? cause.message
+        : 'Canonical reviewed-intent promotion failed before a revision was committed.'
+      await this.repository.failGeneration(projectId, generationId, PROCESS_INSTANCE_ID, this.now(), code, message)
+      throw cause
+    }
   }
 
   async generateDiscoveredFlow(

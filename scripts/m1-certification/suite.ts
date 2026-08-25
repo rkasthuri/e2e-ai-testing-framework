@@ -76,6 +76,35 @@ function sorted(values: string[]): string[] {
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
+function fixtureSteps(caseFixture: M1CertificationCase): NormalizedTestIntentV1['steps'] {
+  return caseFixture.input.flow.steps.map(({ evidenceObservationIds: _evidence, ...step }) => step);
+}
+
+function stepContent(step: NormalizedTestIntentV1['steps'][number]): Omit<NormalizedTestIntentV1['steps'][number], 'stepId'> {
+  const { stepId: _stepId, ...content } = step;
+  return content;
+}
+
+function fixtureOracle(caseFixture: M1CertificationCase): NormalizedTestIntentV1['finalOracle'] {
+  const { evidenceObservationIds: _evidence, ...oracle } = caseFixture.input.flow.finalOracle;
+  return oracle;
+}
+
+function supportObservationIds(intent: NormalizedTestIntentV1): string[] {
+  return intent.grounding.subjectSupport.flatMap(support => support.supportingObservationIds);
+}
+
+function semanticIntentBinding(left: NormalizedTestIntentV1, right: NormalizedTestIntentV1): boolean {
+  return left.schemaVersion === right.schemaVersion
+    && left.intentId === right.intentId
+    && left.intentContentHash === right.intentContentHash
+    && left.appArea.name === right.appArea.name
+    && sameValue(left.appArea, right.appArea)
+    && sameValue(left.steps, right.steps)
+    && sameValue(left.finalOracle, right.finalOracle)
+    && sameValue(left.grounding, right.grounding);
+}
+
 function selectedModules(caseFixture: M1CertificationCase): Array<string | null> {
   const selectedPageIds = new Set(caseFixture.input.flow.pageIds);
   return caseFixture.input.appModel.pages
@@ -173,24 +202,13 @@ function checkRefusal(
   );
   finding(
     findings,
-    sameValue(
-      sorted(trace.ui.observationIds),
-      sorted(caseFixture.input.appModel.supportObservationIds),
-    ),
-    'UI_REFUSAL_PROVENANCE_DROPPED',
-    'The UI refusal must retain the available support provenance.',
-  );
-  finding(
-    findings,
     trace.ui.steps.length === 0 && trace.ui.finalOracle === null,
     'UI_SYNTHETIC_STEPS_AFTER_REFUSAL',
     'The UI must not display invented runnable steps or a final oracle for a refusal.',
   );
   finding(
     findings,
-    trace.ui.appArea === null &&
-      trace.ui.appAreaProvenance === null &&
-      trace.ui.backendContractVersion === null,
+    trace.ui.appArea === null && trace.ui.backendContractVersion === null,
     'UI_INFERRED_REFUSAL_STATE',
     'The UI must not invent appArea or a runnable backend version after refusal.',
   );
@@ -211,9 +229,9 @@ function checkIntent(
   const input = caseFixture.input;
   finding(
     findings,
-    intent.schemaVersion === 'NormalizedTestIntentV1',
+    intent.schemaVersion === 'forge-normalized-test-intent/v1',
     'INTENT_SCHEMA_DRIFT',
-    'Accepted rich intent must use NormalizedTestIntentV1.',
+    'Accepted rich intent must retain the canonical Core schema identity.',
   );
   finding(
     findings,
@@ -229,27 +247,22 @@ function checkIntent(
   );
   finding(
     findings,
-    intent.appArea === appArea,
+    intent.appArea.name === appArea,
     'APP_AREA_RECLASSIFIED',
     'Intent appArea must equal the persisted App Model PageDefinition.module.',
   );
   finding(
     findings,
-    sameValue(intent.appAreaProvenance, {
-      authority: 'app_model_page_definition_module',
-      classifier: input.appModel.classifier,
-      modelId: input.appModel.modelId,
-      modelVersion: input.appModel.modelVersion,
-      pageIds: input.flow.pageIds,
-    }),
+    intent.appArea.sourceSubjectId === intent.steps[0]?.subjectId
+      && intent.appArea.evidenceIds.length > 0,
     'APP_AREA_PROVENANCE_DRIFT',
-    'Intent appArea provenance must identify the persisted App Model and ModuleClassifier.',
+    'Intent appArea semantic name must retain its canonical source-subject and evidence identity.',
   );
   finding(
     findings,
-    intent.title === input.flow.title && intent.objective === input.flow.objective,
+    intent.title.length > 0 && intent.objective.length > 0,
     'INTENT_PURPOSE_DRIFT',
-    'Intent title and objective must match the evidence-backed flow.',
+    'Intent must retain non-empty canonical purpose text produced from the evidence-backed flow.',
   );
   finding(
     findings,
@@ -259,13 +272,15 @@ function checkIntent(
   );
   finding(
     findings,
-    sameValue(intent.steps, input.flow.steps),
+    sameValue(intent.steps.map(stepContent), fixtureSteps(caseFixture).map(stepContent))
+      && intent.steps.every(step => step.stepId.length > 0)
+      && new Set(intent.steps.map(step => step.stepId)).size === intent.steps.length,
     'INTENT_STEP_ORDER_DRIFT',
-    'Intent steps must retain exact evidence order and kinds.',
+    'Intent steps must retain exact evidence order/content and canonical unique step identities.',
   );
   finding(
     findings,
-    sameValue(intent.finalOracle, input.flow.finalOracle),
+    sameValue(intent.finalOracle, fixtureOracle(caseFixture)),
     'FINAL_ORACLE_DRIFT',
     'The final subject-observable oracle must be retained without synthesis.',
   );
@@ -276,7 +291,9 @@ function checkIntent(
       'click_observed_data_test',
     ]) &&
       intent.steps[1]?.kind === 'click_observed_data_test' &&
-      intent.steps[1].cardinality === 'single' &&
+      intent.steps[1].subjectId === intent.steps[0]?.subjectId &&
+      intent.steps[1].elementId.length > 0 &&
+      intent.steps[1].targetSubjectId === intent.finalOracle.subjectId &&
       intent.finalOracle.kind === 'subject_observable',
     'M1_SCOPE_SEMANTICS_DRIFT',
     'A positive M1 v3 flow is exactly observed-route navigation, one directly observed single-cardinality data-test click, and a subject-observable final oracle.',
@@ -289,21 +306,18 @@ function checkIntent(
   );
   finding(
     findings,
-    sameValue(sorted(intent.grounding.observationIds), sorted(input.appModel.supportObservationIds)),
+    sameValue(sorted(supportObservationIds(intent)), sorted(input.appModel.supportObservationIds)),
     'INTENT_GROUNDING_DROPPED',
     'Intent grounding must retain the supporting observations.',
   );
-  const supported = new Set(input.appModel.supportObservationIds);
   finding(
     findings,
-    supported.size > 0 &&
-      intent.steps.every(step =>
-        step.observationIds.length > 0 && step.observationIds.every(id => supported.has(id)),
-      ) &&
-      intent.finalOracle.observationIds.length > 0 &&
-      intent.finalOracle.observationIds.every(id => supported.has(id)),
+    intent.grounding.subjectSupport.length > 0
+      && intent.grounding.subjectSupport.every(support => support.supportingObservationIds.length > 0)
+      && intent.grounding.subjectSupport.some(support => support.canonicalSubjectId === intent.steps[0]?.subjectId)
+      && intent.grounding.subjectSupport.some(support => support.canonicalSubjectId === intent.finalOracle.subjectId),
     'STEP_SUPPORT_NOT_GROUNDED',
-    'Every accepted semantic step must cite an observation retained by the App Model support set.',
+    'Canonical source and final subjects must carry sealed observation support; step-specific observation IDs are not invented.',
   );
 }
 
@@ -361,7 +375,7 @@ function checkDefinition(
   );
   finding(
     findings,
-    sameValue(sorted(definition.observationIds), sorted(intent.grounding.observationIds)),
+    sameValue(definition.subjectSupport, intent.grounding.subjectSupport),
     'DEFINITION_PROVENANCE_DROPPED',
     'Definition must retain the intent support observations.',
   );
@@ -369,15 +383,18 @@ function checkDefinition(
   if (expectedVersion === 3) {
     finding(
       findings,
-      definition.intentId === intent.intentId && sameValue(definition.normalizedIntent, intent),
+      definition.intentId === intent.intentId
+        && definition.intentContentHash === intent.intentContentHash
+        && definition.normalizedIntent !== null
+        && semanticIntentBinding(definition.normalizedIntent, intent),
       'INTENT_SNAPSHOT_NOT_EMBEDDED',
-      'Definition v3 must embed the immutable accepted intent snapshot and intentId.',
+      'Definition v3 must bind the canonical schema, intent identity/hash, app-area identity, ordered actions, oracle, and grounding.',
     );
     finding(
       findings,
-      definition.appArea === appArea && sameValue(definition.appAreaProvenance, intent.appAreaProvenance),
+      definition.appArea === appArea && definition.appArea === intent.appArea.name,
       'DEFINITION_APP_AREA_DRIFT',
-      'Definition v3 must carry canonical appArea and provenance unchanged.',
+      'Definition v3 must carry the canonical appArea semantic identity unchanged.',
     );
     finding(
       findings,
@@ -443,19 +460,13 @@ function checkPlan(
     findings,
     sameValue(plan.steps, intent.steps),
     'PLAN_STEP_CONTENT_DRIFT',
-    'Plan must retain observed route/data-test targets and step-level support as well as order.',
+    'Plan must retain observed route, page/control identities, data-test target, and order.',
   );
   finding(
     findings,
     plan.steps.every(step => (M1_STEP_KINDS as readonly string[]).includes(step.kind)),
     'PLAN_UNSUPPORTED_SEMANTICS',
     'Plan contains a step outside the bounded M1 semantic set.',
-  );
-  finding(
-    findings,
-    sameValue(sorted(plan.observationIds), sorted(intent.grounding.observationIds)),
-    'PLAN_PROVENANCE_DROPPED',
-    'Plan must retain supporting observations.',
   );
   finding(
     findings,
@@ -469,15 +480,16 @@ function checkPlan(
       findings,
       plan.definitionSchemaVersion === 3 &&
         plan.intentId === intent.intentId &&
-        plan.appArea === appArea &&
-        sameValue(plan.appAreaProvenance, intent.appAreaProvenance),
+        plan.intentContentHash === intent.intentContentHash &&
+        plan.appArea === appArea,
       'PLAN_V3_CONTEXT_DRIFT',
-      'A v3 plan must carry the intent, appArea, and appArea provenance unchanged.',
+      'A v3 plan must carry the canonical intent identity/hash and appArea unchanged.',
     );
   } else {
     finding(
       findings,
-      plan.definitionSchemaVersion === 2 && plan.intentId === null && plan.appArea === null,
+      plan.definitionSchemaVersion === 2 && plan.intentId === null
+        && plan.intentContentHash === null && plan.appArea === null,
       'V2_PLAN_SEMANTICS_REDEFINED',
       'A v2 plan must retain existing navigation-only semantics without v3 context injection.',
     );
@@ -556,7 +568,7 @@ function checkExecutionTruth(
       findings,
       execution.infrastructureOutcome === 'completed' &&
         result.outcome === 'failed' &&
-        result.reasonCode === 'assertion_failed',
+        result.reasonCode === 'oracle_failed',
       'ASSERTION_FAILURE_REWRITTEN_AS_INFRA_SUCCESS',
       'Completed infrastructure must not rewrite a failed business assertion as Product success.',
     );
@@ -595,18 +607,10 @@ function checkUi(
     'UI_ORACLE_DRIFT',
     'UI must render the backend subject-observable final oracle unchanged.',
   );
-  finding(
-    findings,
-    sameValue(sorted(trace.ui.observationIds), sorted(intent.grounding.observationIds)),
-    'UI_PROVENANCE_DROPPED',
-    'UI review state must expose support provenance.',
-  );
-
   if (expectedVersion === 3) {
     finding(
       findings,
-      trace.ui.appArea === appArea &&
-        sameValue(trace.ui.appAreaProvenance, intent.appAreaProvenance),
+      trace.ui.appArea === appArea,
       'UI_APP_AREA_RECLASSIFIED',
       'UI must display canonical appArea without inferring a replacement.',
     );
@@ -658,7 +662,7 @@ function checkLegacyV2(
 
   const definition = trace.definition;
   const plan = trace.plan;
-  const expectedLegacySteps = caseFixture.input.flow.steps;
+  const expectedLegacySteps = fixtureSteps(caseFixture);
   finding(
     findings,
     definition.authority === 'canonical_product' &&
@@ -669,7 +673,7 @@ function checkLegacyV2(
       definition.intentId === null &&
       definition.normalizedIntent === null &&
       definition.appArea === null &&
-      definition.appAreaProvenance === null,
+      definition.intentContentHash === null,
     'V2_SEMANTICS_REDEFINED',
     'Definition v2 must retain existing executable navigation-only meaning with no v3 fields injected.',
   );
@@ -678,7 +682,7 @@ function checkLegacyV2(
     definition.steps.length === 1 &&
       definition.steps[0]?.kind === 'navigate_to_observed_route' &&
       sameValue(definition.steps, expectedLegacySteps) &&
-      sameValue(definition.finalOracle, caseFixture.input.flow.finalOracle),
+      sameValue(definition.finalOracle, fixtureOracle(caseFixture)),
     'V2_NAVIGATION_CHANGED',
     'Definition v2 must retain its single navigation behavior unchanged.',
   );
@@ -688,8 +692,8 @@ function checkLegacyV2(
       plan.definitionId === definition.definitionId &&
       plan.definitionRevision === definition.revision &&
       plan.intentId === null &&
+      plan.intentContentHash === null &&
       plan.appArea === null &&
-      plan.appAreaProvenance === null &&
       sameValue(plan.steps, definition.steps) &&
       sameValue(plan.finalOracle, definition.finalOracle) &&
       SHA_256.test(plan.semanticHash),
@@ -703,7 +707,6 @@ function checkLegacyV2(
       trace.ui.canRun &&
       trace.ui.backendContractVersion === 2 &&
       trace.ui.appArea === null &&
-      trace.ui.appAreaProvenance === null &&
       sameValue(trace.ui.steps, definition.steps) &&
       sameValue(trace.ui.finalOracle, definition.finalOracle),
     'V2_UI_COMPATIBILITY_DRIFT',

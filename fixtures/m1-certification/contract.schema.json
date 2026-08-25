@@ -138,7 +138,7 @@
         },
         "preconditions": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "$ref": "#/definitions/precondition" }
         },
         "steps": {
           "type": "array",
@@ -157,37 +157,50 @@
     "navigateStep": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stepId", "kind", "subjectId", "routePath", "observationIds"],
+      "required": ["stepId", "ordinal", "kind", "subjectId", "routePath", "evidenceObservationIds"],
       "properties": {
         "stepId": { "type": "string", "minLength": 1 },
+        "ordinal": { "const": 0 },
         "kind": { "const": "navigate_to_observed_route" },
         "subjectId": { "type": "string", "minLength": 1 },
         "routePath": { "type": "string", "pattern": "^/" },
-        "observationIds": { "$ref": "#/definitions/observationIds" }
+        "evidenceObservationIds": { "$ref": "#/definitions/observationIds" }
       }
     },
     "clickStep": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stepId", "kind", "subjectId", "dataTest", "cardinality", "observationIds"],
+      "required": ["stepId", "ordinal", "kind", "subjectId", "elementId", "dataTestValue", "targetSubjectId", "evidenceObservationIds"],
       "properties": {
         "stepId": { "type": "string", "minLength": 1 },
+        "ordinal": { "const": 1 },
         "kind": { "const": "click_observed_data_test" },
         "subjectId": { "type": "string", "minLength": 1 },
-        "dataTest": { "type": "string", "minLength": 1 },
-        "cardinality": { "const": "single" },
-        "observationIds": { "$ref": "#/definitions/observationIds" }
+        "elementId": { "type": "string", "minLength": 1 },
+        "dataTestValue": { "type": "string", "minLength": 1 },
+        "targetSubjectId": { "type": "string", "minLength": 1 },
+        "evidenceObservationIds": { "$ref": "#/definitions/observationIds" }
       }
     },
     "finalOracle": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "subjectId", "routePath", "observationIds"],
+      "required": ["kind", "subjectId", "routePath", "evidenceObservationIds"],
       "properties": {
         "kind": { "const": "subject_observable" },
         "subjectId": { "type": "string", "minLength": 1 },
         "routePath": { "type": "string", "pattern": "^/" },
-        "observationIds": { "$ref": "#/definitions/observationIds" }
+        "evidenceObservationIds": { "$ref": "#/definitions/observationIds" }
+      }
+    },
+    "precondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "roleId", "mechanism"],
+      "properties": {
+        "kind": { "const": "authenticated_role" },
+        "roleId": { "type": "string", "minLength": 1 },
+        "mechanism": { "type": "string", "minLength": 1 }
       }
     },
     "observationIds": {

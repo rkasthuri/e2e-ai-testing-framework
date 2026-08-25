@@ -19,8 +19,8 @@
       "objective": "Claim a purchase outcome without grounded controls",
       "pageIds": ["page-checkout"],
       "preconditions": [],
-      "steps": [{ "stepId": "step-1", "kind": "click_observed_data_test", "subjectId": "unobserved-purchase", "dataTest": "purchase", "cardinality": "single", "observationIds": ["obs-missing"] }],
-      "finalOracle": { "kind": "subject_observable", "subjectId": "unobserved-result", "routePath": "/unobserved.html", "observationIds": ["obs-missing"] }
+      "steps": [{ "stepId": "step-1", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "unobserved-page", "elementId": "unobserved-purchase", "dataTestValue": "purchase", "targetSubjectId": "unobserved-result", "evidenceObservationIds": ["obs-missing"] }],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "unobserved-result", "routePath": "/unobserved.html", "evidenceObservationIds": ["obs-missing"] }
     },
     "evidenceSufficiency": "insufficient",
     "requestedUnsupportedSemantic": null

@@ -12,6 +12,8 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import type { AppModel } from '../src/core/onboarding/types'
 import type { CredentialExecutionScope, CredentialMaterial } from '../src/core/security/CredentialExecutionScope'
 import {
@@ -41,6 +43,7 @@ import { TestCasePresentationService } from '../src/core/test-design/TestCasePre
 import { ExecutionService, productRunnerAdapterIdentity } from '../src/core/execution/ExecutionService'
 
 const PROJECT = 'm1-cart-fixture'
+const WORKSPACE_ROOT = path.join(os.tmpdir(), 'forge-m1-observed-flow', process.pid.toString())
 const SEAL = 'a'.repeat(64)
 const ROUTE_HASH = 'b'.repeat(64)
 const AUTH_DIGEST = 'c'.repeat(64)
@@ -381,7 +384,7 @@ test('M1 generation service re-reads authority and commits the embedded intent t
   )
   const result = await service.generateDiscoveredFlow(
     PROJECT,
-    'C:\\m1-workspace',
+    WORKSPACE_ROOT,
     { flowId: 'direct-checkout', selectedFlowStepIndexes: [2] },
     'generation-service-m1',
   )
@@ -413,7 +416,7 @@ test('M1 generation service returns a refusal before starting persistence for st
   )
   const result = await service.generateDiscoveredFlow(
     PROJECT,
-    'C:\\m1-workspace',
+    WORKSPACE_ROOT,
     { flowId: 'direct-checkout', selectedFlowStepIndexes: [2] },
     'generation-refused-m1',
   )
@@ -454,7 +457,7 @@ test('M1 generation admission collapses unavailable authority, route, and model 
     ),
   ]
   for (const service of services) {
-    const result = await service.readDiscoveredFlowAdmission(PROJECT, 'C:\\m1-workspace', selection)
+    const result = await service.readDiscoveredFlowAdmission(PROJECT, WORKSPACE_ROOT, selection)
     assert.equal(result.kind, 'refused')
     assert.equal(result.intent.disposition.code, 'insufficient_evidence')
     assert.ok(NORMALIZED_TEST_INTENT_REFUSAL_CODES.includes(result.intent.disposition.code))
@@ -615,7 +618,7 @@ test('M1 existing Product execution preflight admits the current sealed observed
     executionIntentKey: 'm1-preflight',
     definitionIds: [testSet.value.definitions[0].id],
     revision: 1,
-    workspaceRoot: 'C:\\m1-workspace',
+    workspaceRoot: WORKSPACE_ROOT,
     credentialReference: { usernameEnv: 'M1_USER', passwordEnv: 'M1_PASSWORD' },
     runtime: { baseUrl: 'https://m1.example.test' },
     clientDefinitionPayload: { schemaVersion: 3, actions: [{ kind: 'fill' }] },
@@ -650,7 +653,7 @@ function preflightRequest(testSet: ReturnType<typeof generateCanonicalFlowTestSe
     executionIntentKey: 'm1-current-model-preflight',
     definitionIds: [testSet.value.definitions[0].id],
     revision: testSet.value.revision,
-    workspaceRoot: 'C:\\m1-workspace',
+    workspaceRoot: WORKSPACE_ROOT,
     credentialReference: { usernameEnv: 'M1_USER', passwordEnv: 'M1_PASSWORD' },
     runtime: { baseUrl: 'https://m1.example.test' },
   }
@@ -827,7 +830,7 @@ test('M1 v2 navigation preflight remains executable without reading active flow 
     executionIntentKey: 'm1-v2-regression',
     definitionIds: [v2.value.definitions[0].id],
     revision: 1,
-    workspaceRoot: 'C:\\m1-workspace',
+    workspaceRoot: WORKSPACE_ROOT,
     credentialReference: { usernameEnv: 'M1_USER', passwordEnv: 'M1_PASSWORD' },
     runtime: { baseUrl: 'https://m1.example.test' },
   })

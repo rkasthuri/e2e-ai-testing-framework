@@ -10,7 +10,7 @@
  * of this software is strictly prohibited.
  */
 
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { m1TestIntentAdapter } from '../api/m1TestIntentAdapter'
 import { decodeCanonicalDefinitionSaveResultV3, type M1TestIntentAdapter, type SupportedNormalizedTestIntentV1 } from '../api/m1TestIntentContract'
 
@@ -28,5 +28,9 @@ export function useM1GenerateIntent(adapter: M1TestIntentAdapter = m1TestIntentA
 }
 
 export function useM1SaveIntent(adapter: M1TestIntentAdapter = m1TestIntentAdapter) {
-  return useMutation({ mutationFn: async ({ projectId, intent }: { projectId: string; intent: SupportedNormalizedTestIntentV1 }) => decodeCanonicalDefinitionSaveResultV3(await adapter.save(projectId, intent)) })
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, intent }: { projectId: string; intent: SupportedNormalizedTestIntentV1 }) => decodeCanonicalDefinitionSaveResultV3(await adapter.save(projectId, intent)),
+    onSuccess: (_result, { projectId }) => queryClient.invalidateQueries({ queryKey: ['evidence-backed-tests', projectId] }),
+  })
 }

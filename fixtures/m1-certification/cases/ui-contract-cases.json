@@ -18,12 +18,12 @@
       "title": "Review billing plan",
       "objective": "Select and review an observed billing plan",
       "pageIds": ["page-billing"],
-      "preconditions": ["Authentication is established and the observed plan choice is staged by governed setup"],
+      "preconditions": [{ "kind": "authenticated_role", "roleId": "billing-user", "mechanism": "governed-setup" }],
       "steps": [
-        { "stepId": "step-1", "kind": "navigate_to_observed_route", "subjectId": "subject-billing", "routePath": "/billing.html", "observationIds": ["obs-billing"] },
-        { "stepId": "step-2", "kind": "click_observed_data_test", "subjectId": "subject-review-plan", "dataTest": "review-plan", "cardinality": "single", "observationIds": ["obs-plan"] }
+        { "stepId": "step-1", "ordinal": 0, "kind": "navigate_to_observed_route", "subjectId": "subject-billing", "routePath": "/billing.html", "evidenceObservationIds": ["obs-billing"] },
+        { "stepId": "step-2", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "subject-billing", "elementId": "subject-review-plan", "dataTestValue": "review-plan", "targetSubjectId": "subject-plan-summary", "evidenceObservationIds": ["obs-plan"] }
       ],
-      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-plan-summary", "routePath": "/billing/review.html", "observationIds": ["obs-summary"] }
+      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-plan-summary", "routePath": "/billing/review.html", "evidenceObservationIds": ["obs-summary"] }
     },
     "evidenceSufficiency": "sufficient",
     "requestedUnsupportedSemantic": null

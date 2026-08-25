@@ -18,12 +18,12 @@
       "title": "Search the catalog",
       "objective": "Find an observed catalog item",
       "pageIds": ["page-search"],
-      "preconditions": ["The observed search query is established by governed setup"],
+      "preconditions": [{ "kind": "authenticated_role", "roleId": "search-user", "mechanism": "governed-setup" }],
       "steps": [
-        { "stepId": "step-1", "kind": "navigate_to_observed_route", "subjectId": "subject-search", "routePath": "/search.html", "observationIds": ["obs-search-route"] },
-        { "stepId": "step-2", "kind": "click_observed_data_test", "subjectId": "subject-search-submit", "dataTest": "search", "cardinality": "single", "observationIds": ["obs-query"] }
+        { "stepId": "step-1", "ordinal": 0, "kind": "navigate_to_observed_route", "subjectId": "subject-search", "routePath": "/search.html", "evidenceObservationIds": ["obs-search-route"] },
+        { "stepId": "step-2", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "subject-search", "elementId": "subject-search-submit", "dataTestValue": "search", "targetSubjectId": "subject-search-result", "evidenceObservationIds": ["obs-query"] }
       ],
-      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-search-result", "routePath": "/search/results.html", "observationIds": ["obs-result"] }
+      "finalOracle": { "kind": "subject_observable", "subjectId": "subject-search-result", "routePath": "/search/results.html", "evidenceObservationIds": ["obs-result"] }
     },
     "evidenceSufficiency": "sufficient",
     "requestedUnsupportedSemantic": null

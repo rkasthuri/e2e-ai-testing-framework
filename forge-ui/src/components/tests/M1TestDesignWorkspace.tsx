@@ -43,6 +43,13 @@ const REFUSAL_REMEDY: Record<M1RefusalCode, string> = {
   app_area_unknown: 'Persist a canonical PageDefinition.module value in the App Model before generating.',
 }
 
+const AREA_UNAVAILABLE_EXPLANATION: Record<M1RefusalCode, string> = {
+  insufficient_evidence: 'Generation is unavailable because the canonical evidence is insufficient for this observed flow.',
+  ambiguous_evidence: 'Persisted canonical application-area evidence exists but conflicts, so FORGE refuses to choose an application area.',
+  unsupported_semantics: 'Generation is unavailable because the observed workflow is outside the bounded M1 semantics.',
+  app_area_unknown: 'Generation is unavailable because no usable canonical application-area classification is available.',
+}
+
 function confidenceLabel(value: DiscoveredAppArea['confidence']): string {
   return value === 'unknown' ? 'Confidence unknown' : `${value[0].toUpperCase()}${value.slice(1)} confidence`
 }
@@ -63,6 +70,9 @@ export function M1RefusalState({ refusal }: { refusal: RefusedNormalizedTestInte
 
 function AreaCard({ area, selected, onSelect, onRefusal }: { area: DiscoveredAppArea; selected: boolean; onSelect: () => void; onRefusal: () => void }) {
   const available = area.availability === 'available' && area.appArea !== null
+  const unavailableExplanation = area.refusal
+    ? AREA_UNAVAILABLE_EXPLANATION[area.refusal.disposition.code]
+    : AREA_UNAVAILABLE_EXPLANATION.app_area_unknown
   return <div className={`block rounded-lg border p-4 ${available ? selected ? 'border-brand bg-selected ring-1 ring-brand' : 'border-border bg-surface hover:bg-hover' : 'border-flaky/40 bg-elevated'}`}>
     <label className="flex items-start gap-3">
       <input type="radio" name="m1-app-area" checked={selected} disabled={!available} onChange={onSelect} className="mt-1 h-4 w-4 accent-brand" aria-label={available ? `Select ${area.appArea}` : 'Application area unavailable'} />
@@ -70,7 +80,7 @@ function AreaCard({ area, selected, onSelect, onRefusal }: { area: DiscoveredApp
         <div className="flex flex-wrap items-start justify-between gap-2"><h3 className="font-semibold text-primary">{area.appArea ?? 'App area unavailable'}</h3><span className="text-xs text-muted">{confidenceLabel(area.confidence)}</span></div>
         <p className="mt-1 break-all font-mono text-xs text-secondary">{area.observedRoute ?? 'Observed route unavailable'}</p>
         <p className="mt-2 text-sm text-secondary">{area.evidenceSummary}</p>
-        {!available && <p className="mt-2 text-xs font-medium text-flaky">app_area_unknown · Generation is unavailable because no persisted PageDefinition.module exists.</p>}
+        {!available && <p className="mt-2 text-xs font-medium text-flaky">{unavailableExplanation}</p>}
       </div>
     </label>
     {!available && area.refusal && <button type="button" onClick={onRefusal} className="mt-3 rounded border border-border px-3 py-1.5 text-xs text-primary outline-none focus-visible:ring-2 focus-visible:ring-brand">Why generation was refused</button>}

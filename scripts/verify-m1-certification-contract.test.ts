@@ -18,6 +18,8 @@ import { describe, test } from 'node:test';
 import {
   M1_REFUSAL_CODES,
   M1_STEP_KINDS,
+  certificationFingerprint,
+  normalizeProductIntentAuthority,
   ReferenceHarnessDriver,
 } from './m1-certification/driver';
 import {
@@ -72,8 +74,8 @@ describe('M1 certification contract fixtures', () => {
         new Set(caseFixture.input.flow.steps.map(step => step.stepId)).size,
         caseFixture.input.flow.steps.length,
       );
-      assert.ok(caseFixture.input.flow.steps.every(step => step.observationIds.length > 0));
-      assert.ok(caseFixture.input.flow.finalOracle.observationIds.length > 0);
+      assert.ok(caseFixture.input.flow.steps.every(step => step.evidenceObservationIds.length > 0));
+      assert.ok(caseFixture.input.flow.finalOracle.evidenceObservationIds.length > 0);
       if (caseFixture.expected.disposition === 'accepted') {
         assert.equal(caseFixture.expected.refusalCode, null);
         assert.ok(caseFixture.expected.definitionSchemaVersion === 2 || caseFixture.expected.definitionSchemaVersion === 3);
@@ -116,15 +118,16 @@ describe('M1 certification contract fixtures', () => {
       fixture.input.flow.steps.map(step => step.kind),
       ['navigate_to_observed_route', 'click_observed_data_test'],
     );
-    assert.ok(fixture.input.flow.preconditions.some(value => value.includes('Authentication is established')));
+    assert.ok(fixture.input.flow.preconditions.some(value => value.kind === 'authenticated_role'));
     assert.equal(fixture.input.flow.steps[0]?.kind === 'navigate_to_observed_route' ? fixture.input.flow.steps[0].routePath : null, '/cart.html');
-    assert.equal(fixture.input.flow.steps[1]?.kind === 'click_observed_data_test' ? fixture.input.flow.steps[1].dataTest : null, 'checkout');
-    assert.equal(fixture.input.flow.steps[1]?.kind === 'click_observed_data_test' ? fixture.input.flow.steps[1].cardinality : null, 'single');
+    assert.equal(fixture.input.flow.steps[1]?.kind === 'click_observed_data_test' ? fixture.input.flow.steps[1].subjectId : null, 'subject-cart');
+    assert.equal(fixture.input.flow.steps[1]?.kind === 'click_observed_data_test' ? fixture.input.flow.steps[1].elementId : null, 'subject-checkout-control');
+    assert.equal(fixture.input.flow.steps[1]?.kind === 'click_observed_data_test' ? fixture.input.flow.steps[1].dataTestValue : null, 'checkout');
     assert.deepEqual(fixture.input.flow.finalOracle, {
       kind: 'subject_observable',
       subjectId: 'subject-checkout-step-one',
       routePath: '/checkout-step-one.html',
-      observationIds: ['obs-checkout-step-one-subject'],
+      evidenceObservationIds: ['obs-checkout-step-one-subject'],
     });
     assert.equal(report.trace?.definition?.schemaVersion, 3);
     assert.deepEqual(
@@ -167,10 +170,77 @@ describe('M1 certification contract fixtures', () => {
         kind: unsupportedKind,
         subjectId: 'future-subject',
         value: 'future-value',
-        observationIds: ['obs-checkout-data-test'],
+        ordinal: 1,
+        evidenceObservationIds: ['obs-checkout-data-test'],
       };
       assert.equal(isValidM1CertificationFixture(candidate), false, unsupportedKind);
     }
+  });
+
+  test('certification independently normalizes canonical Product intent without inventing step provenance', () => {
+    const canonical = {
+      schemaVersion: 'forge-normalized-test-intent/v1', intentId: 'intent-product', projectId: 'project-storefront', source: 'discovered',
+      appArea: { id: 'checkout', sourceSubjectId: 'subject-cart', confidence: 'high', method: 'rule', evidenceIds: ['obs-cart-route'] },
+      title: 'Open checkout', objective: 'Observe checkout',
+      preconditions: [{ kind: 'authenticated_role', roleId: 'shopper', mechanism: 'form-login' }],
+      steps: [
+        { stepId: 'step-1', ordinal: 0, kind: 'navigate_to_observed_route', subjectId: 'subject-cart', routePath: '/cart.html' },
+        { stepId: 'step-2', ordinal: 1, kind: 'click_observed_data_test', subjectId: 'subject-cart', elementId: 'checkout-control', dataTestValue: 'checkout', targetSubjectId: 'subject-checkout' },
+      ],
+      expectedOutcomes: [{ outcomeId: 'outcome-1', kind: 'subject_observable', subjectId: 'subject-checkout', routePath: '/checkout.html' }],
+      grounding: {
+        modelRowId: 7, modelVersion: '7', observationRunId: 'observation-run-7', supportSealHash: 'a'.repeat(64), sourceFlowId: 'flow-checkout',
+        selectedFlowStepIndexes: [0], excludedFlowStepIndexes: [],
+        subjectSupport: [
+          { canonicalSubjectId: 'subject-cart', supportingObservationIds: ['obs-cart-route', 'obs-checkout-control'], supportingGapIds: [] },
+          { canonicalSubjectId: 'subject-checkout', supportingObservationIds: ['obs-checkout'], supportingGapIds: [] },
+        ],
+      },
+      evidenceAssessment: { state: 'sufficient', sourceFlowConfidence: 'observed', selectedStepGrounding: 'observed', limitations: [] },
+      disposition: { state: 'supported' },
+    };
+    const semantic = normalizeProductIntentAuthority(canonical);
+    assert.equal(semantic.schemaVersion, canonical.schemaVersion);
+    assert.equal(semantic.intentContentHash, certificationFingerprint(canonical));
+    assert.deepEqual(semantic.appArea, { name: 'checkout', sourceSubjectId: 'subject-cart', confidence: 'high', method: 'rule', evidenceIds: ['obs-cart-route'] });
+    assert.deepEqual(semantic.steps, canonical.steps);
+    assert.deepEqual(semantic.finalOracle, { kind: 'subject_observable', subjectId: 'subject-checkout', routePath: '/checkout.html' });
+    assert.deepEqual(semantic.grounding.subjectSupport, canonical.grounding.subjectSupport);
+    assert.equal('observationIds' in semantic.steps[0]!, false);
+    const withIndexes = (selectedFlowStepIndexes: unknown[], excludedFlowStepIndexes: unknown[] = []) => ({
+      ...canonical,
+      grounding: { ...canonical.grounding, selectedFlowStepIndexes, excludedFlowStepIndexes },
+    });
+    const invalidIndexes: Array<[string, unknown[], unknown[]?]> = [
+      ['numeric string', ['0']],
+      ['whitespace string', [' ']],
+      ['hex-like string', ['0x1']],
+      ['null', [null]],
+      ['undefined', [undefined]],
+      ['boolean', [true]],
+      ['fraction', [0.5]],
+      ['negative', [-1]],
+      ['NaN', [Number.NaN]],
+      ['positive infinity', [Number.POSITIVE_INFINITY]],
+      ['negative infinity', [Number.NEGATIVE_INFINITY]],
+      ['unsafe integer', [Number.MAX_SAFE_INTEGER + 1]],
+      ['duplicate selected indexes', [2, 2]],
+      ['duplicate excluded indexes', [3], [1, 1]],
+    ];
+    for (const [label, selected, excluded] of invalidIndexes) {
+      assert.throws(
+        () => normalizeProductIntentAuthority(withIndexes(selected, excluded)),
+        /Product intent (selected|excluded) flow step indexes is malformed/,
+        label,
+      );
+    }
+    assert.throws(
+      () => normalizeProductIntentAuthority(withIndexes([2], [1, 2])),
+      /Product intent grounding step indexes overlap/,
+    );
+    const ordered = normalizeProductIntentAuthority(withIndexes([3], [4, 2, 0]));
+    assert.deepEqual(ordered.grounding.selectedFlowStepIndexes, [3]);
+    assert.deepEqual(ordered.grounding.excludedFlowStepIndexes, [4, 2, 0]);
   });
 
   test('future E2E binding uses the same frozen cart flow as the golden happy path', () => {

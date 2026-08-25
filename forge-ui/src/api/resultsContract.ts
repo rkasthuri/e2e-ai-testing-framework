@@ -88,12 +88,40 @@ export interface CanonicalExecutionResultItem {
   evidence: CanonicalObservedResult | CanonicalMissingResult
 }
 
-export interface CanonicalDefinitionAuthoritySummary {
-  schemaVersion: 1 | 2
+interface CanonicalDefinitionAuthoritySummaryBase {
   testSetId: string
   revision: number
   modelRowId: number
   modelVersion: string
+}
+
+export interface CanonicalDefinitionAuthorityV1Summary extends CanonicalDefinitionAuthoritySummaryBase {
+  schemaVersion: 1
+  supportSealHash: null
+  routeEvidenceIdentityHash: null
+  authenticationExpectationIdentityHash: null
+}
+
+export interface CanonicalDefinitionAuthorityV2Summary extends CanonicalDefinitionAuthoritySummaryBase {
+  schemaVersion: 2
+  supportSealHash: string
+  routeEvidenceIdentityHash: string
+  authenticationExpectationIdentityHash: string
+}
+
+export interface CanonicalDefinitionAuthorityV3Summary extends CanonicalDefinitionAuthoritySummaryBase {
+  schemaVersion: 3
+  supportSealHash: string
+  routeEvidenceIdentityHash: string
+  authenticationExpectationIdentityHash: string
+}
+
+export type CanonicalDefinitionAuthoritySummary =
+  | CanonicalDefinitionAuthorityV1Summary
+  | CanonicalDefinitionAuthorityV2Summary
+  | CanonicalDefinitionAuthorityV3Summary
+
+interface DecodedDefinitionAuthorityBase extends CanonicalDefinitionAuthoritySummaryBase {
   supportSealHash: string | null
   routeEvidenceIdentityHash: string | null
   authenticationExpectationIdentityHash: string | null
@@ -310,9 +338,10 @@ function decodeAuthority(value: unknown): CanonicalDefinitionAuthoritySummary {
     'routeEvidenceIdentityHash', 'authenticationExpectationIdentityHash',
   ], 'definitionAuthority')
   const schemaVersion = integer(item.schemaVersion, 'definitionAuthority.schemaVersion', 1)
-  if (schemaVersion !== 1 && schemaVersion !== 2) throw new CanonicalResultsContractError('definitionAuthority.schemaVersion is unsupported.')
-  return {
-    schemaVersion,
+  if (schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== 3) {
+    throw new CanonicalResultsContractError('definitionAuthority.schemaVersion is unsupported.')
+  }
+  const authority: DecodedDefinitionAuthorityBase = {
     testSetId: id(item.testSetId, 'definitionAuthority.testSetId'),
     revision: integer(item.revision, 'definitionAuthority.revision', 1),
     modelRowId: integer(item.modelRowId, 'definitionAuthority.modelRowId', 1),
@@ -320,6 +349,32 @@ function decodeAuthority(value: unknown): CanonicalDefinitionAuthoritySummary {
     supportSealHash: nullable(item.supportSealHash, value => hash(value, 'definitionAuthority.supportSealHash')),
     routeEvidenceIdentityHash: nullable(item.routeEvidenceIdentityHash, value => hash(value, 'definitionAuthority.routeEvidenceIdentityHash')),
     authenticationExpectationIdentityHash: nullable(item.authenticationExpectationIdentityHash, value => hash(value, 'definitionAuthority.authenticationExpectationIdentityHash')),
+  }
+  const hashes = [authority.supportSealHash, authority.routeEvidenceIdentityHash, authority.authenticationExpectationIdentityHash]
+  if (schemaVersion === 1) {
+    if (hashes.some(hashValue => hashValue !== null)) {
+      throw new CanonicalResultsContractError('definitionAuthority v1 cannot claim canonical support authority.')
+    }
+    return {
+      schemaVersion,
+      testSetId: authority.testSetId,
+      revision: authority.revision,
+      modelRowId: authority.modelRowId,
+      modelVersion: authority.modelVersion,
+      supportSealHash: null,
+      routeEvidenceIdentityHash: null,
+      authenticationExpectationIdentityHash: null,
+    }
+  }
+  if (hashes.some(hashValue => hashValue === null)) {
+    throw new CanonicalResultsContractError(`definitionAuthority v${schemaVersion} requires complete canonical support authority.`)
+  }
+  return {
+    schemaVersion,
+    ...authority,
+    supportSealHash: authority.supportSealHash!,
+    routeEvidenceIdentityHash: authority.routeEvidenceIdentityHash!,
+    authenticationExpectationIdentityHash: authority.authenticationExpectationIdentityHash!,
   }
 }
 

@@ -34,6 +34,7 @@ import { generateTestInventory, readTestDefinition, readTestGenerationStatus, re
 import { readExecutionPreflight } from '../context/ExecutionPreflightController'
 import { cancelExecution, readExecutionStatus, startExecution } from '../context/ExecutionLifecycleController'
 import { listExecutionResults, readExecutionResults } from '../context/ExecutionResultsController'
+import { generateM1Intent, listM1DiscoveredAreas, saveM1Intent } from '../context/M1TestIntentController'
 
 // Known fixture apps — last-resort fallback (fixture-specific, intentional:
 // fixtures use .ts onboarding configs, not .forge/config.json, so they won't
@@ -248,6 +249,21 @@ router.get('/:appName/test-definitions', async (req, res) => {
 
 router.post('/:appName/test-definitions/generate', async (req, res) => {
   const result = await generateTestInventory(req.params.appName, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.get('/:appName/test-intents/areas', async (req, res) => {
+  const result = await listM1DiscoveredAreas(req.params.appName, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.post('/:appName/test-intents/generate', async (req, res) => {
+  const result = await generateM1Intent(req.params.appName, req.body, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.post('/:appName/test-intents/save', async (req, res) => {
+  const result = await saveM1Intent(req.params.appName, req.body, resolveKnownProject)
   res.status(result.status).json(result.body)
 })
 

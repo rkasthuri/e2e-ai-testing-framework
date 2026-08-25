@@ -11,12 +11,16 @@
  */
 
 import {
+  decodeCanonicalDefinitionSaveResultV3,
+  decodeDiscoveredAppAreas,
   exactIntentContent,
+  isNormalizedTestIntentV1,
   isSupportedNormalizedTestIntentV1,
   type CanonicalDefinitionSaveResultV3,
   type M1TestIntentAdapter,
 } from './m1TestIntentContract'
 import { m1MockAreas, m1MockGeneration } from './m1TestIntentMockFixtures'
+import { apiClient } from './client'
 
 export class M1IntentValidationError extends Error {
   constructor() {
@@ -70,5 +74,29 @@ export function createM1MockTestIntentAdapter(): M1TestIntentAdapter {
   }
 }
 
-/** Single replacement point for the eventual backend implementation. */
-export const m1TestIntentAdapter = createM1MockTestIntentAdapter()
+export function createM1BackendTestIntentAdapter(): M1TestIntentAdapter {
+  return {
+    mode: 'backend',
+    async listDiscoveredAreas(projectId) {
+      return decodeDiscoveredAppAreas(await apiClient.get<unknown>(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/test-intents/areas`,
+      ))
+    },
+    async generate(projectId, appArea) {
+      const value = await apiClient.post<unknown>(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/test-intents/generate`,
+        { appArea },
+      )
+      if (!isNormalizedTestIntentV1(value)) throw new M1IntentValidationError()
+      return value
+    },
+    async save(projectId, intent) {
+      return decodeCanonicalDefinitionSaveResultV3(await apiClient.post<unknown>(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/test-intents/save`,
+        { intent },
+      ))
+    },
+  }
+}
+
+export const m1TestIntentAdapter = createM1BackendTestIntentAdapter()

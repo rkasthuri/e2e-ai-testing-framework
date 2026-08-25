@@ -18,9 +18,9 @@
       "title": "Move a card",
       "objective": "Drag a card between columns",
       "pageIds": ["page-board"],
-      "preconditions": ["Board is visible"],
-      "steps": [{ "stepId": "step-1", "kind": "click_observed_data_test", "subjectId": "card", "dataTest": "card", "cardinality": "single", "observationIds": ["obs-card"] }],
-      "finalOracle": { "kind": "subject_observable", "subjectId": "column", "routePath": "/board.html", "observationIds": ["obs-column"] }
+      "preconditions": [{ "kind": "authenticated_role", "roleId": "board-user", "mechanism": "governed-setup" }],
+      "steps": [{ "stepId": "step-1", "ordinal": 1, "kind": "click_observed_data_test", "subjectId": "board", "elementId": "card", "dataTestValue": "card", "targetSubjectId": "column", "evidenceObservationIds": ["obs-card"] }],
+      "finalOracle": { "kind": "subject_observable", "subjectId": "column", "routePath": "/board.html", "evidenceObservationIds": ["obs-column"] }
     },
     "evidenceSufficiency": "sufficient",
     "requestedUnsupportedSemantic": "drag_and_drop"

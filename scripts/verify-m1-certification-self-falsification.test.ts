@@ -65,13 +65,13 @@ describe('M1 certification self-falsification', () => {
 
   test('missing grounding is detected even if downstream objects look runnable', async () => {
     await expectFinding('happy-path.json', 'INTENT_GROUNDING_DROPPED', trace => {
-      if (trace.intent?.state === 'accepted') trace.intent.intent.grounding.observationIds = [];
+      if (trace.intent?.state === 'accepted') trace.intent.intent.grounding.subjectSupport = [];
     });
   });
 
   test('false-positive app categorization is detected at its source', async () => {
     await expectFinding('app-area-correctness.json', 'APP_AREA_RECLASSIFIED', trace => {
-      if (trace.intent?.state === 'accepted') trace.intent.intent.appArea = 'account';
+      if (trace.intent?.state === 'accepted') trace.intent.intent.appArea.name = 'account';
     });
   });
 
@@ -83,16 +83,16 @@ describe('M1 certification self-falsification', () => {
       trace.plan!.steps.pop();
     });
     await expectFinding('step-order-hostiles.json', 'PLAN_STEP_DUPLICATED', trace => {
-      trace.plan!.steps.push({ ...trace.plan!.steps[0]!, observationIds: [...trace.plan!.steps[0]!.observationIds] });
+      trace.plan!.steps.push({ ...trace.plan!.steps[0]! });
     });
     await expectFinding('step-order-hostiles.json', 'INVALID_TEST_RUNNABLE', trace => {
       trace.plan!.steps.pop();
     });
   });
 
-  test('dropped plan provenance is detected independently of step content', async () => {
-    await expectFinding('provenance-hostiles.json', 'PLAN_PROVENANCE_DROPPED', trace => {
-      trace.plan!.observationIds = [];
+  test('dropped Definition provenance is detected independently of step content', async () => {
+    await expectFinding('provenance-hostiles.json', 'DEFINITION_PROVENANCE_DROPPED', trace => {
+      trace.definition!.subjectSupport = [];
     });
   });
 

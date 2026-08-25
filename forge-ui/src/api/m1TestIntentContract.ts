@@ -200,6 +200,24 @@ export function isNormalizedTestIntentV1(value: unknown): value is NormalizedTes
   return isSupportedNormalizedTestIntentV1(value) || isRefusedNormalizedTestIntentV1(value)
 }
 
+export function decodeDiscoveredAppAreas(value: unknown): readonly DiscoveredAppArea[] {
+  if (!Array.isArray(value)) throw new Error('The discovered application-area response is malformed.')
+  for (const item of value) {
+    if (!exactKeys(item, ['appArea', 'sourceSubjectId', 'observedRoute', 'evidenceSummary', 'confidence', 'availability', 'refusal'])) {
+      throw new Error('The discovered application-area response is malformed.')
+    }
+    const area = item as Partial<DiscoveredAppArea>
+    if (!(area.appArea === null || id(area.appArea)) || !(area.sourceSubjectId === null || id(area.sourceSubjectId))
+      || !(area.observedRoute === null || (typeof area.observedRoute === 'string' && ROUTE.test(area.observedRoute))) || !text(area.evidenceSummary)
+      || !['high', 'medium', 'unknown'].includes(area.confidence ?? '')
+      || !['available', 'app_area_unknown'].includes(area.availability ?? '')
+      || !(area.refusal === null || isRefusedNormalizedTestIntentV1(area.refusal))) {
+      throw new Error('The discovered application-area response is malformed.')
+    }
+  }
+  return value as DiscoveredAppArea[]
+}
+
 export function decodeCanonicalDefinitionSaveResultV3(value: unknown): CanonicalDefinitionSaveResultV3 {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('The canonical v3 promotion response is malformed.')
   const result = value as Partial<CanonicalDefinitionSaveResultV3> & Record<string, unknown>

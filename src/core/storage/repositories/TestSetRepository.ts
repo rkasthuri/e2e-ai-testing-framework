@@ -27,6 +27,7 @@ import {
   type TestDesignAuthorityInput,
   type TestGenerationOutcome,
 } from '../../test-design/TestDefinitionContract'
+import type { MaterializedNormalizedTestIntentV1 } from '../../test-design/NormalizedTestIntentContract'
 
 export const DEFAULT_TEST_SET_HISTORY_LIMIT = 25
 export const MAX_TEST_SET_HISTORY_LIMIT = 50
@@ -111,6 +112,30 @@ function parseHistoryCursor(cursor: string | null, projectId: string, limit: num
  * intentionally separate. Only this repository may assemble their transaction.
  */
 export class TestSetRepository {
+  async findCanonicalV3Intent(
+    projectId: string,
+    reviewed: MaterializedNormalizedTestIntentV1,
+  ): Promise<{ kind: 'absent' } | { kind: 'exact'; testSet: CanonicalTestSetV3 } | { kind: 'conflict' }> {
+    const rows = await getProductDb().selectFrom('test_set_revisions').selectAll()
+      .where('project_id', '=', projectId).where('schema_version', '=', 3)
+      .orderBy('revision', 'desc').execute()
+    for (const row of rows) {
+      const parsed = parseCanonicalTestSet(row.payload_json)
+      if (parsed.fingerprint !== row.content_hash || parsed.value.schemaVersion !== 3
+        || parsed.value.projectId !== projectId || parsed.value.revision !== row.revision
+        || parsed.value.generationId !== row.generation_id || parsed.value.definitions.length !== row.definition_count) {
+        throw new MalformedTestSetError()
+      }
+      const definition = parsed.value.definitions.find(item => item.provenance.intentId === reviewed.value.intentId)
+      if (!definition) continue
+      return definition.provenance.intentContentHash === reviewed.fingerprint
+        && JSON.stringify(definition.normalizedIntent) === reviewed.json
+        ? { kind: 'exact', testSet: parsed.value }
+        : { kind: 'conflict' }
+    }
+    return { kind: 'absent' }
+  }
+
   async readInventory(projectId: string, options: { limit?: number; cursor?: string | null; definitionId?: string | null } = {}): Promise<TestInventoryRead | { kind: 'invalid_cursor' }> {
     const limit = Math.min(Math.max(options.limit ?? DEFAULT_TEST_SET_HISTORY_LIMIT, 1), MAX_TEST_SET_HISTORY_LIMIT)
     const after = parseHistoryCursor(options.cursor ?? null, projectId, limit)

@@ -29,6 +29,7 @@ import {
   isRefusedNormalizedTestIntentV1,
   isSupportedNormalizedTestIntentV1,
   M1_REFUSAL_CODES,
+  type DiscoveredAppArea,
   type M1TestIntentAdapter,
 } from '../forge-ui/src/api/m1TestIntentContract'
 import { m1MockGeneration } from '../forge-ui/src/api/m1TestIntentMockFixtures'
@@ -248,6 +249,40 @@ test('workspace exposes truthful loading and empty states', async () => {
   assert.match(rendererText(renderer.root), /Loading discovered application areas/)
   await act(async () => { release([]); await new Promise(resolve => setTimeout(resolve, 25)) })
   assert.match(rendererText(renderer.root), /No discovered application areas/)
+  renderer.unmount()
+})
+
+test('workspace distinguishes conflicting persisted app-area evidence from unavailable classification without leaking codes', async () => {
+  const ambiguous = m1MockGeneration('project-a', 'Administration')
+  const unknown = m1MockGeneration('project-a', 'unknown')
+  assert.equal(isRefusedNormalizedTestIntentV1(ambiguous), true)
+  assert.equal(isRefusedNormalizedTestIntentV1(unknown), true)
+  if (!isRefusedNormalizedTestIntentV1(ambiguous) || !isRefusedNormalizedTestIntentV1(unknown)) throw new Error('Expected refusal fixtures')
+  const refusedAreas: readonly DiscoveredAppArea[] = [
+    {
+      appArea: 'Administration', sourceSubjectId: 'subject-admin', observedRoute: '/admin',
+      evidenceSummary: 'More than one supported observed transition belongs to this persisted application area.',
+      confidence: 'high', availability: 'app_area_unknown', refusal: ambiguous,
+    },
+    {
+      appArea: null, sourceSubjectId: 'subject-legacy', observedRoute: '/legacy',
+      evidenceSummary: 'The observed page has no usable canonical application-area classification.',
+      confidence: 'unknown', availability: 'app_area_unknown', refusal: unknown,
+    },
+  ]
+  const adapter: M1TestIntentAdapter = {
+    mode: 'backend',
+    listDiscoveredAreas: async () => refusedAreas,
+    generate: async () => { throw new Error('not reachable') },
+    save: async () => { throw new Error('not reachable') },
+  }
+  let renderer!: ReactTestRenderer
+  await act(async () => { renderer = create(workspace('m1-refused-areas', adapter)); await new Promise(resolve => setTimeout(resolve, 25)) })
+  const text = rendererText(renderer.root)
+  assert.match(text, /Persisted canonical application-area evidence exists but conflicts, so FORGE refuses to choose an application area/)
+  assert.match(text, /no usable canonical application-area classification is available/)
+  assert.doesNotMatch(text, /ambiguous_evidence|app_area_unknown|no persisted PageDefinition\.module exists/)
+  assert.doesNotMatch(text, /Generate test for|Accept and save|Continue to Run/)
   renderer.unmount()
 })
 
