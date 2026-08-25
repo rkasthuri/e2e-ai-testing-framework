@@ -385,6 +385,59 @@ governing decision remains
 - **Remaining / follow-on:** None. TD-PRODUCT-004 + R1-R17 + TC1-TC4 are safe,
   committed, and exact-SHA CI-green.
 
+### M1 - Canonical observed-flow vertical slice and Test Definition v3 Product integration
+
+- **Parent / related:** Builds on the canonical Observation/App Model, Test
+  Definition v2, Execution/Run, and Results authority spine; introduces the
+  richer observed-flow v3 slice without replacing v2 navigation semantics.
+- **Category:** Product / Architecture / Certification.
+- **Status:** **Committed** / **CI-Green** for this M1 milestone only.
+- **Purpose:** Deliver one evidence-backed Product vertical from Observation
+  and persisted App Model classification through `NormalizedTestIntentV1`, an
+  immutable Test Definition v3, `ExecutablePlan`, canonical Product Execution
+  and Run, and an immutable Result.
+- **Key invariants:** Application-area authority comes from persisted App Model
+  `PageDefinition.module` classification. The positive v3 semantic sequence is
+  exactly `navigate_to_observed_route` then `click_observed_data_test`, followed
+  by the final `subject_observable` oracle. Generate is ephemeral; Save accepts
+  only the exact reviewed intent and establishes canonical v3 inventory. Run
+  requires current inventory and preflight revalidation against the current App
+  Model authority. Test Definition v1 remains readable and quarantined; v2
+  navigation behavior is unchanged; only v3 carries the richer flow.
+- **Scope:** Core normalization, immutable v3 Definition persistence and
+  Migration 031, plan projection, preflight and execution, canonical Run/Result
+  projection, v3 Results transport, production UI adapter/routes/controller and
+  Generate-review-Save-inventory-preflight-Run flow, plus the real Product M1
+  certification driver and adversarial certification package.
+- **Validation / certification:** Pre-commit local validation recorded focused
+  M1 certification 202/202 PASS, persistence/governance regressions 217/217
+  PASS, full unit discovery 1464/1464 PASS, root and `forge-ui` typechecks PASS,
+  and `forge-ui` production build PASS. `E2E AI Testing Pipeline` run #315 (run
+  ID `32869714495`) triggered on exact M1 Product SHA
+  `1b73e26858d5c101d75059c32ff74ab758fa804a` and concluded `success`: CI unit
+  discovery was 1464/1464 PASS, typechecks PASS, and stable Playwright completed
+  with 315 passed plus 1 flaky test that passed on retry; the job succeeded. AI
+  reporting decision and reporting-evidence completeness both passed, with no
+  classified Product, test, infrastructure, flaky, or needs-review findings.
+- **Commit / CI:** M1 Product commit
+  `1b73e26858d5c101d75059c32ff74ab758fa804a`; direct exact-SHA run #315,
+  **success**; **Committed** / **CI-Green**. Workflow child
+  `c367ac9c45f7a2f75a064223b320044b10074f64` has the M1 Product commit as its
+  parent and changes only `reports/run-history.json`; it is not the M1 Product
+  SHA.
+- **Remaining / follow-on:** Live proof against an external application in a
+  real browser session has not been performed. The integrated Product test uses
+  a deterministic execution session behind the real governed
+  `PlaywrightPlanExecutor`; it does not establish full external-user readiness.
+  Complete manual or natural-language intent production, richer semantics,
+  healing migration, and broader Product readiness remain outside this M1
+  claim. The accepted fixed-disk, SQLite, process-local, single-host Product
+  constraints continue to apply.
+- **Evidence note:** Commit identity and scope, exact-SHA CI result, workflow
+  child ancestry/scope, Product certification fixtures/driver, and current
+  limitation boundaries were directly checked. Closure applies only to the M1
+  canonical observed-flow vertical slice, not to the full FORGE roadmap.
+
 ### TD-GOV-BASELINE-001 - Permission-stable governed baseline harness
 
 - **Parent / related:** Separate governance scope; not part of
