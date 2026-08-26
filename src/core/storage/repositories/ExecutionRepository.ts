@@ -62,6 +62,7 @@ export interface BeginExecutionInput {
   supportSealHash?: string | null
   routeEvidenceIdentityHash?: string | null
   authenticationExpectationIdentityHash?: string | null
+  suiteAuthority?: { suiteId:string; suiteRevision:number; suiteContentHash:string }
   manifestItems: Array<{
     itemOrdinal: number
     definitionId: string
@@ -106,11 +107,18 @@ export class ExecutionIntentConflictError extends Error {
 }
 
 export class StaleExecutionAuthorityError extends Error {
-  constructor(readonly code: 'stale_definition' | 'conflicting_evidence') {
-    super(code === 'stale_definition'
+  constructor(readonly code: 'stale_definition' | 'conflicting_evidence' | 'stale_suite_authority') {
+    super(code === 'stale_suite_authority' ? 'The Suite pinned Test Set authority is no longer current.' : code === 'stale_definition'
       ? 'The selected test-set revision is no longer current.'
       : 'The selected definition provenance no longer matches the active App Model.')
     this.name = 'StaleExecutionAuthorityError'
+  }
+}
+
+export class SuiteExecutionIntegrityError extends Error {
+  constructor() {
+    super('The accepted Suite membership no longer matches its immutable ordered manifest.')
+    this.name = 'SuiteExecutionIntegrityError'
   }
 }
 
@@ -163,6 +171,7 @@ function safeInput(input: BeginExecutionInput): boolean {
     && Number.isSafeInteger(input.expectedModelRowId) && input.expectedModelRowId > 0
     && typeof input.expectedModelVersion === 'string' && input.expectedModelVersion.length > 0
     && provenanceValid
+    && (input.suiteAuthority === undefined || SAFE_ID.test(input.suiteAuthority.suiteId) && Number.isSafeInteger(input.suiteAuthority.suiteRevision) && input.suiteAuthority.suiteRevision>0 && SHA256.test(input.suiteAuthority.suiteContentHash))
     && Array.isArray(input.manifestItems) && input.manifestItems.length > 0
     && input.manifestItems.every((item, index) => item.itemOrdinal === index + 1
       && SAFE_ID.test(item.definitionId) && SHA256.test(item.executablePlanHash)
@@ -252,7 +261,13 @@ export class ExecutionRepository {
           || input.definitionSchemaVersion !== undefined && input.definitionSchemaVersion !== 1
             && (current.content_hash !== input.expectedTestSetContentHash
             || current.support_seal_hash !== input.supportSealHash)) {
-          throw new StaleExecutionAuthorityError('stale_definition')
+          throw new StaleExecutionAuthorityError(input.suiteAuthority ? 'stale_suite_authority' : 'stale_definition')
+        }
+        if (input.suiteAuthority) {
+          const suite=await trx.selectFrom('suite_revisions').selectAll().where('suite_id','=',input.suiteAuthority.suiteId).where('revision','=',input.suiteAuthority.suiteRevision).where('project_id','=',input.projectId).executeTakeFirst()
+          if (!suite || suite.content_hash!==input.suiteAuthority.suiteContentHash || suite.test_set_id!==input.expectedTestSetId || Number(suite.test_set_revision)!==input.expectedRevision || suite.test_set_content_hash!==input.expectedTestSetContentHash || Number(suite.definition_schema_version)!==(input.definitionSchemaVersion??1)) throw new StaleExecutionAuthorityError('stale_suite_authority')
+          const members=await trx.selectFrom('suite_revision_members').selectAll().where('suite_id','=',suite.suite_id).where('suite_revision','=',suite.revision).orderBy('member_ordinal').execute()
+          if (members.length!==input.manifestItems.length || members.some((m,i)=>Number(m.member_ordinal)!==i+1 || m.definition_id!==input.manifestItems[i].definitionId)) throw new SuiteExecutionIntegrityError()
         }
         const models = await trx.selectFrom('app_models')
           .select(['id', 'version']).where('app_name', '=', input.projectId)
@@ -281,6 +296,9 @@ export class ExecutionRepository {
           stop_rule: 'stop_on_first_non_completed',
           execution_intent_key: input.executionIntentKey,
           execution_intent_fingerprint: input.executionIntentFingerprint,
+          suite_id: input.suiteAuthority?.suiteId ?? null,
+          suite_revision: input.suiteAuthority?.suiteRevision ?? null,
+          suite_content_hash: input.suiteAuthority?.suiteContentHash ?? null,
         }).execute()
         await trx.insertInto('execution_items').values(input.manifestItems.map(item => ({
           execution_id: input.executionId,
@@ -315,6 +333,7 @@ export class ExecutionRepository {
     } catch (cause) {
       if (cause instanceof DuplicateExecutionError
         || cause instanceof StaleExecutionAuthorityError
+        || cause instanceof SuiteExecutionIntegrityError
         || cause instanceof ExecutionPersistenceError
         || cause instanceof ExecutionIntentConflictError) throw cause
       const message = cause instanceof Error ? cause.message : String(cause)

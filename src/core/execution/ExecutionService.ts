@@ -18,12 +18,15 @@ import {
   ExecutionIntentConflictError,
   ExecutionRepository,
   StaleExecutionAuthorityError,
+  SuiteExecutionIntegrityError,
   type ExecutionTerminalOutcome,
   type CancellationRequestWrite,
   type ExecutionAcceptanceWrite,
   type ExecutionIntentReplay,
 } from '../storage/repositories/ExecutionRepository'
 import { TestSetRepository, type TestInventoryRead } from '../storage/repositories/TestSetRepository'
+import { SuiteRepository } from '../storage/repositories/SuiteRepository'
+import { SuiteContractError, type CanonicalSuiteRevision } from '../suites/SuiteContract'
 import {
   PlaywrightPlanExecutor,
   readPlaywrightRunnerReadiness,
@@ -78,16 +81,23 @@ export type ExecutionStartRejectionCode =
   | 'execution_already_active'
   | 'execution_intent_conflict'
   | 'execution_persistence_unavailable'
+  | 'stale_suite_authority'
+  | 'suite_integrity_invalid'
+  | 'suite_not_found'
+  | 'suite_revision_not_found'
+  | 'suite_not_execution_eligible'
 
-export interface GovernedExecutionStartRequest {
+interface GovernedExecutionBase {
   projectId: string
   executionIntentKey: string
-  definitionIds: string[]
-  revision?: number
   workspaceRoot: string
   credentialReference: CredentialReference
   runtime: { baseUrl: string; loginUrl?: string; navigationTimeoutMs?: number }
 }
+export type GovernedExecutionStartRequest = GovernedExecutionBase & (
+  | { definitionIds: string[]; revision?: number; selection?: never }
+  | { selection: { kind: 'suite_revision'; suiteId: string; suiteRevision: number }; definitionIds?: never; revision?: never }
+)
 
 export type ExecutionPreflightResult =
   | {
@@ -96,6 +106,7 @@ export type ExecutionPreflightResult =
       definitionResults: ExecutionPreflightDefinitionResult[]
       current: Extract<TestInventoryRead['current'], object>
       authority: CurrentV2ProjectionAuthority | CurrentProjectionAuthority
+      suiteAuthority?: CanonicalSuiteRevision
     }
   | { kind: 'rejected'; code: ExecutionStartRejectionCode; safeMessage: string }
 
@@ -195,6 +206,7 @@ interface RunCoordinator {
 interface Dependencies {
   repository?: LifecycleRepository
   definitions?: DefinitionReader
+  suites?: Pick<SuiteRepository, 'read'>
   credentials?: CredentialExecutionScope
   executor?: PlanExecutor
   coordinator?: RunCoordinator
@@ -238,10 +250,11 @@ function selectionHash(plans: MaterializedExecutablePlan[]): string {
   return crypto.createHash('sha256').update(semanticSelection).digest('hex')
 }
 
-export function executionIntentFingerprint(input: Pick<GovernedExecutionStartRequest, 'projectId' | 'definitionIds' | 'revision'>): string {
+export function executionIntentFingerprint(input: {projectId:string;definitionIds:string[];revision?:number;suiteAuthority?:CanonicalSuiteRevision}): string {
   return crypto.createHash('sha256').update(JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: input.suiteAuthority ? 2 : 1,
     projectId: input.projectId,
+    selection: input.suiteAuthority ? {kind:'suite_revision',suiteId:input.suiteAuthority.suiteId,suiteRevision:input.suiteAuthority.revision,suiteContentHash:input.suiteAuthority.contentHash,testSetId:input.suiteAuthority.members[0].definitionAuthority.testSetId,testSetRevision:input.suiteAuthority.members[0].definitionAuthority.testSetRevision,testSetContentHash:input.suiteAuthority.members[0].definitionAuthority.testSetContentHash}:undefined,
     revision: input.revision ?? null,
     definitionIds: input.definitionIds,
   })).digest('hex')
@@ -329,6 +342,7 @@ export function executionPreflightDefinitionResult(
 export class ExecutionService {
   private readonly repository: LifecycleRepository
   private readonly definitions: DefinitionReader
+  private readonly suites: Pick<SuiteRepository, 'read'>
   private readonly credentials: CredentialExecutionScope
   private readonly executor: PlanExecutor
   private readonly coordinator: RunCoordinator
@@ -351,6 +365,7 @@ export class ExecutionService {
   constructor(dependencies: Dependencies = {}) {
     this.repository = dependencies.repository ?? new ExecutionRepository()
     this.definitions = dependencies.definitions ?? new TestSetRepository()
+    this.suites = dependencies.suites ?? new SuiteRepository()
     this.credentials = dependencies.credentials ?? credentialExecutionScope
     this.executor = dependencies.executor ?? new PlaywrightPlanExecutor(this.credentials)
     this.coordinator = dependencies.coordinator ?? new ExecutionRunCoordinator()
@@ -370,19 +385,22 @@ export class ExecutionService {
   }
 
   async start(request: GovernedExecutionStartRequest): Promise<ExecutionStartResult> {
-    if (!Array.isArray(request.definitionIds) || request.definitionIds.length === 0) {
+    const isSuite = 'selection' in request && request.selection !== undefined
+    const suiteKeysValid = !isSuite || Object.keys(request).every(key => ['projectId','executionIntentKey','workspaceRoot','credentialReference','runtime','selection'].includes(key))
+    if (!isSuite && (!Array.isArray(request.definitionIds) || request.definitionIds.length === 0)) {
       return reject('empty_selection', 'At least one current-revision definition must be selected.')
     }
     if (!SAFE_ID.test(request.projectId) || !SAFE_INTENT_KEY.test(request.executionIntentKey)
-      || request.definitionIds.length > 50
-      || request.definitionIds.some(id => !SAFE_ID.test(id))
-      || new Set(request.definitionIds).size !== request.definitionIds.length
+      || !isSuite && (request.definitionIds!.length > 50
+      || request.definitionIds!.some(id => !SAFE_ID.test(id))
+      || new Set(request.definitionIds!).size !== request.definitionIds!.length)
+      || isSuite && (!suiteKeysValid || request.selection!.kind !== 'suite_revision' || !SAFE_ID.test(request.selection!.suiteId) || !Number.isSafeInteger(request.selection!.suiteRevision) || request.selection!.suiteRevision < 1 || Object.keys(request.selection!).some(key=>!['kind','suiteId','suiteRevision'].includes(key)))
       || request.revision !== undefined && (!Number.isSafeInteger(request.revision) || request.revision < 1)
       || this.v1ExecutionPolicy !== 'historical_compatibility'
         && (typeof request.workspaceRoot !== 'string' || request.workspaceRoot.length < 1)) {
       return reject('invalid_request', 'The governed execution request is malformed.')
     }
-    const requestFingerprint = executionIntentFingerprint(request)
+    let suiteAuthority: CanonicalSuiteRevision | undefined
     const replayResult = (replay: ExecutionIntentReplay): ExecutionStartResult => replay.requestFingerprint === requestFingerprint
       ? {
           kind: 'accepted', executionId: replay.executionId, startedAt: replay.acceptedAt,
@@ -395,6 +413,13 @@ export class ExecutionService {
     } catch {
       return reject('execution_persistence_unavailable', 'The workspace execution schema could not be established safely.')
     }
+    if (isSuite) {
+      try { suiteAuthority = await this.suites.read(request.projectId,request.selection!.suiteId,request.selection!.suiteRevision) }
+      catch (cause) { return cause instanceof SuiteContractError && ['suite_not_found','suite_revision_not_found','suite_integrity_invalid'].includes(cause.code) ? reject(cause.code as ExecutionStartRejectionCode,cause.message) : reject('suite_integrity_invalid','Suite authority could not be resolved safely.') }
+    }
+    const resolvedDefinitionIds = suiteAuthority ? suiteAuthority.members.map(m=>m.definitionAuthority.definitionId) : request.definitionIds!
+    const resolvedRevision = suiteAuthority ? suiteAuthority.members[0].definitionAuthority.testSetRevision : request.revision
+    const requestFingerprint = executionIntentFingerprint({projectId:request.projectId,definitionIds:resolvedDefinitionIds,revision:resolvedRevision,suiteAuthority})
 
     try {
       const replay = await this.repository.findExecutionIntent(request.projectId, request.executionIntentKey)
@@ -458,6 +483,7 @@ export class ExecutionService {
         supportSealHash: canonical ? canonicalAuthority!.sealedAuthority.supportSealHash : null,
         routeEvidenceIdentityHash: canonical ? routeSelectionIdentity(plans) : null,
         authenticationExpectationIdentityHash: canonical && plans[0].value.schemaVersion === 2 ? plans[0].value.provenance.authenticationExpectationIdentityHash : null,
+        suiteAuthority: preflight.suiteAuthority ? {suiteId:preflight.suiteAuthority.suiteId,suiteRevision:preflight.suiteAuthority.revision,suiteContentHash:preflight.suiteAuthority.contentHash}:undefined,
         manifestItems: plans.map((plan, index) => ({
           itemOrdinal: index + 1,
           definitionId: plan.value.definitionId,
@@ -472,6 +498,7 @@ export class ExecutionService {
         return reject('execution_already_active', 'A Product UI execution is already active for this project.')
       }
       if (cause instanceof StaleExecutionAuthorityError) return reject(cause.code, cause.message)
+      if (cause instanceof SuiteExecutionIntegrityError) return reject('suite_integrity_invalid', cause.message)
       if (cause instanceof ExecutionIntentConflictError) return reject('execution_intent_conflict', cause.message)
       return reject('execution_persistence_unavailable', 'Atomic execution acceptance did not commit.')
     }
@@ -483,6 +510,26 @@ export class ExecutionService {
   }
 
   async preflight(request: GovernedExecutionStartRequest): Promise<ExecutionPreflightResult> {
+    if ('selection' in request && request.selection) {
+      let suite: CanonicalSuiteRevision
+      try { suite=await this.suites.read(request.projectId,request.selection.suiteId,request.selection.suiteRevision) }
+      catch(cause){return {kind:'rejected',code:cause instanceof SuiteContractError && ['suite_not_found','suite_revision_not_found','suite_integrity_invalid'].includes(cause.code)?cause.code as ExecutionStartRejectionCode:'suite_integrity_invalid',safeMessage:cause instanceof Error?cause.message:'Suite authority could not be read safely.'}}
+      let inventory: TestInventoryRead | {kind:'invalid_cursor'}
+      try{inventory=await this.definitions.readInventory(request.projectId,{limit:1})}catch{return {kind:'rejected',code:'preflight_source_invalid',safeMessage:'The current test-definition authority could not be re-read safely.'}}
+      const pinned=suite.members[0].definitionAuthority
+      if ('kind' in inventory || !inventory.current || inventory.current.testSet.testSetId!==pinned.testSetId || inventory.current.testSet.revision!==pinned.testSetRevision || inventory.current.testSet.schemaVersion!==pinned.definitionSchemaVersion || inventory.current.contentHash!==pinned.testSetContentHash) return {kind:'rejected',code:'stale_suite_authority',safeMessage:'The Suite pinned Test Set authority is no longer current.'}
+      const direct: GovernedExecutionStartRequest={projectId:request.projectId,executionIntentKey:request.executionIntentKey,definitionIds:suite.members.map(m=>m.definitionAuthority.definitionId),revision:pinned.testSetRevision,workspaceRoot:request.workspaceRoot,credentialReference:request.credentialReference,runtime:request.runtime}
+      const result=await this.preflight(direct)
+      if (result.kind==='ready') return {...result,suiteAuthority:suite}
+      const definitionAuthorityFailures = new Set<ExecutionStartRejectionCode>([
+        'stale_definition', 'incompatible_definition', 'legacy_provenance_unsupported',
+        'support_seal_mismatch', 'route_unknown', 'route_conflicted',
+        'authentication_unknown', 'authentication_conflicted', 'conflicting_evidence',
+      ])
+      return definitionAuthorityFailures.has(result.code)
+        ? {kind:'rejected',code:'suite_not_execution_eligible',safeMessage:result.safeMessage}
+        : result
+    }
     let inventory: TestInventoryRead | { kind: 'invalid_cursor' }
     try { inventory = await this.definitions.readInventory(request.projectId, { limit: 1 }) }
     catch { return { kind: 'rejected', code: 'preflight_source_invalid', safeMessage: 'The current test-definition authority could not be re-read safely.' } }
