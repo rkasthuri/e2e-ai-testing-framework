@@ -29,6 +29,7 @@ import {
   type ActiveDatabaseProvenance,
 } from './DatabaseAuthority';
 import { runWithMigrationContext } from './MigrationContext';
+import { MIGRATION_032_TRIGGER_DEFINITIONS_V1 } from './migrations/032_canonical_suite_revision_authority';
 
 // Kysely's Migrator and migration types live in a subpath export (kysely/migration)
 // that is not declared as a types path in kysely's package.json exports map under
@@ -100,6 +101,7 @@ const OBSERVATION_GAP_ARTIFACT_SEALING_MIGRATION = '028_observation_gap_artifact
 const CANONICAL_RESULT_DETAIL_MIGRATION = '029_canonical_result_detail_evidence'
 const CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION = '030_canonical_execution_start_idempotency'
 const CANONICAL_TEST_DEFINITION_V3_MIGRATION = '031_canonical_test_definition_v3'
+const CANONICAL_SUITE_REVISION_MIGRATION = '032_canonical_suite_revision_authority'
 const LEGACY_JSON_IMPORT_MIGRATION = '004_json_import'
 const MIGRATION_TABLE = 'kysely_migration'
 const MIGRATION_LOCK_TABLE = 'kysely_migration_lock'
@@ -126,6 +128,61 @@ class AtomicMigrationError extends Error {
 
 interface IndexContract { present: boolean; valid: boolean; detail: string }
 interface TableContract { present: boolean; valid: boolean; detail: string }
+
+function normalizeMigrationSqlDefinition(definition: string): string {
+  const tokens: string[] = []
+  let quote: "'" | '"' | '`' | ']' | null = null
+  let token = ''
+  const flush = () => {
+    if (token.length===0) return
+    tokens.push(token.toUpperCase())
+    token=''
+  }
+  for (let index=0; index<definition.length; index+=1) {
+    const character=definition[index]
+    if (quote!==null) {
+      token+=character
+      if (quote===']' ? character===']' : character===quote) {
+        if (quote!==']' && definition[index+1]===quote) {
+          token+=definition[index+1]
+          index+=1
+        } else {
+          quote=null
+          tokens.push(token)
+          token=''
+        }
+      }
+      continue
+    }
+    if (character==="'" || character==='"' || character==='`' || character==='[') {
+      flush()
+      quote=character==='[' ? ']' : character
+      token=character
+      continue
+    }
+    if (character==='-' && definition[index+1]==='-') {
+      flush()
+      while (index+1<definition.length && definition[index+1]!=='\n' && definition[index+1]!=='\r') index+=1
+      continue
+    }
+    if (character==='/' && definition[index+1]==='*') {
+      flush()
+      index+=2
+      while (index<definition.length && !(definition[index]==='*' && definition[index+1]==='/')) index+=1
+      if (index>=definition.length) throw new Error('Migration SQL contains an unterminated comment.')
+      index+=1
+      continue
+    }
+    if (/\s/.test(character)) { flush(); continue }
+    if (/[A-Za-z0-9_$]/.test(character)) { token+=character; continue }
+    flush()
+    tokens.push(character)
+  }
+  if (quote!==null) throw new Error('Migration SQL contains unterminated quoted text.')
+  flush()
+  while (tokens.at(-1)===';') tokens.pop()
+  return tokens.join(' ')
+}
 
 function stripOuterSqlParentheses(value: string): string {
   let result = value.trim()
@@ -286,7 +343,17 @@ async function inspectExecutionIdentitySchema(db: Kysely<any>): Promise<TableCon
     ['max_run_attempts', 1, 0], ['dispatch_mode', 1, 0], ['stop_rule', 1, 0],
     ['execution_intent_key', 0, 0], ['execution_intent_fingerprint', 0, 0],
   ])
-  const executionsValid = legacyExecutionsValid || canonicalV2ExecutionsValid || idempotentExecutionsValid
+  const suiteExecutionsValid = exactColumns(executionColumns, [
+    ['execution_id', 1, 1], ['project_id', 1, 0], ['accepted_at', 1, 0],
+    ['test_set_id', 1, 0], ['test_set_revision', 1, 0], ['definition_schema_version', 1, 0],
+    ['model_row_id', 1, 0], ['model_version', 1, 0], ['source_observation_id', 0, 0],
+    ['support_seal_hash', 0, 0], ['route_evidence_identity_hash', 0, 0],
+    ['authentication_expectation_identity_hash', 0, 0], ['manifest_hash', 1, 0],
+    ['max_run_attempts', 1, 0], ['dispatch_mode', 1, 0], ['stop_rule', 1, 0],
+    ['execution_intent_key', 0, 0], ['execution_intent_fingerprint', 0, 0],
+    ['suite_id', 0, 0], ['suite_revision', 0, 0], ['suite_content_hash', 0, 0],
+  ])
+  const executionsValid = legacyExecutionsValid || canonicalV2ExecutionsValid || idempotentExecutionsValid || suiteExecutionsValid
   const executionItemColumns = await columns('execution_items')
   const legacyItemsValid = exactColumns(executionItemColumns, [
     ['execution_id', 1, 1], ['item_ordinal', 1, 2],
@@ -1044,6 +1111,67 @@ async function inspectCanonicalTestDefinitionV3Schema(db: Kysely<any>): Promise<
   }
 }
 
+async function inspectCanonicalSuiteRevisionSchema(db: Kysely<any>): Promise<TableContract> {
+  type SuiteColumn = { name: string; notnull: number; pk: number }
+  const columns = async (table: string) => (await sql<SuiteColumn>`PRAGMA table_info(${sql.table(table)})`.execute(db)).rows
+  const exactSuiteColumns = (actual: SuiteColumn[], expected: Array<[string, number, number]>) => actual.length === expected.length
+    && actual.every((column, index) => column.name === expected[index][0]
+      && Number(column.notnull) === expected[index][1] && Number(column.pk) === expected[index][2])
+  const suites = await columns('suites')
+  const revisions = await columns('suite_revisions')
+  const members = await columns('suite_revision_members')
+  const executions = await columns('executions')
+  const suiteColumnsValid = exactSuiteColumns(suites, [
+    ['suite_id', 1, 1], ['project_id', 1, 0], ['current_revision', 1, 0],
+    ['name_key', 1, 0], ['created_at', 1, 0],
+  ])
+  const revisionColumnsValid = exactSuiteColumns(revisions, [
+    ['suite_id', 1, 1], ['revision', 1, 2], ['project_id', 1, 0], ['name', 1, 0],
+    ['name_key', 1, 0], ['purpose', 1, 0], ['definition_schema_version', 1, 0],
+    ['test_set_row_id', 1, 0], ['test_set_id', 1, 0], ['test_set_revision', 1, 0],
+    ['test_set_content_hash', 1, 0], ['created_at', 1, 0], ['provenance_source', 1, 0],
+    ['change_kind', 1, 0], ['prior_revision', 0, 0], ['change_intent_key', 1, 0],
+    ['change_intent_fingerprint', 1, 0], ['member_count', 1, 0], ['content_hash', 1, 0],
+  ])
+  const memberColumnsValid = exactSuiteColumns(members, [
+    ['suite_id', 1, 1], ['suite_revision', 1, 2], ['member_ordinal', 1, 3], ['definition_id', 1, 0],
+  ])
+  const executionByName = new Map(executions.map(row => [row.name, Number(row.notnull)]))
+  const executionColumnsValid = ['suite_id', 'suite_revision', 'suite_content_hash']
+    .every(name => executionByName.get(name) === 0)
+  const triggerRows = (await sql<{ name: string; definition: string | null }>`
+    SELECT name, sql AS definition FROM sqlite_schema WHERE type='trigger'
+  `.execute(db)).rows
+  const triggersByName = new Map(triggerRows.map(row=>[row.name,row.definition]))
+  const triggersValid = Object.entries(MIGRATION_032_TRIGGER_DEFINITIONS_V1).every(([name,expected]) => {
+    const actual=triggersByName.get(name)
+    return typeof actual==='string'
+      && normalizeMigrationSqlDefinition(actual)===normalizeMigrationSqlDefinition(expected)
+  })
+  const revisionForeignKeys = (await sql<{
+    id: number; seq: number; table: string; from: string; to: string
+  }>`PRAGMA foreign_key_list(suite_revisions)`.execute(db)).rows
+  const suiteProjectForeignKeyValid = [...new Set(revisionForeignKeys.map(row => Number(row.id)))].some(id => {
+    const authority = revisionForeignKeys.filter(row => Number(row.id)===id).sort((left,right)=>Number(left.seq)-Number(right.seq))
+    return authority.length===2 && authority.every(row=>row.table==='suites')
+      && authority[0].from==='suite_id' && authority[0].to==='suite_id'
+      && authority[1].from==='project_id' && authority[1].to==='project_id'
+  })
+  const suiteIndexes = (await sql<{ name: string; unique: number }>`PRAGMA index_list(suites)`.execute(db)).rows
+  let suiteProjectUniqueValid = false
+  for (const index of suiteIndexes.filter(row=>Number(row.unique)===1)) {
+    const names = (await sql<{ name: string }>`SELECT name FROM pragma_index_info(${index.name}) ORDER BY seqno`.execute(db)).rows.map(row=>row.name)
+    if (names.length===2 && names[0]==='suite_id' && names[1]==='project_id') suiteProjectUniqueValid=true
+  }
+  const present = suites.length > 0 || revisions.length > 0 || members.length > 0
+    || ['suite_id', 'suite_revision', 'suite_content_hash'].some(name => executionByName.has(name))
+  const valid = suiteColumnsValid && revisionColumnsValid && memberColumnsValid
+    && executionColumnsValid && triggersValid && suiteProjectForeignKeyValid && suiteProjectUniqueValid
+  return { present, valid, detail: valid
+    ? 'canonical project-scoped Suite revision tables, immutability guards, and Execution provenance match Migration 032'
+    : 'canonical Suite revision authority does not match the exact Migration 032 contract' }
+}
+
 async function appModelColumns(db: Kysely<any>): Promise<Set<string>> {
   if (!await tableExists(db, 'app_models')) return new Set()
   return new Set((await sql<{ name: string }>`PRAGMA table_info(app_models)`.execute(db)).rows.map(row => row.name))
@@ -1121,6 +1249,7 @@ async function assertManagedSchemaHistoryConsistency(
   const canonicalResultDetail = await inspectCanonicalResultDetailSchema(db)
   const canonicalExecutionIntent = await inspectCanonicalExecutionIntentSchema(db)
   const canonicalTestDefinitionV3 = await inspectCanonicalTestDefinitionV3Schema(db)
+  const canonicalSuiteRevision = await inspectCanonicalSuiteRevisionSchema(db)
   const discrepancies: string[] = []
   if (migration016Applied && !activeIndex.valid) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is applied, but ${activeIndex.detail}`)
   else if (!migration016Applied && activeIndex.present) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is pending, but ${activeIndex.detail}`)
@@ -1214,6 +1343,9 @@ async function assertManagedSchemaHistoryConsistency(
   } else if (canonicalTestDefinitionV3.present) {
     discrepancies.push(`history says ${CANONICAL_TEST_DEFINITION_V3_MIGRATION} is pending, but ${canonicalTestDefinitionV3.detail}`)
   }
+  if (appliedNames.has(CANONICAL_SUITE_REVISION_MIGRATION)) {
+    if (!canonicalSuiteRevision.valid) discrepancies.push(`history says ${CANONICAL_SUITE_REVISION_MIGRATION} is applied, but ${canonicalSuiteRevision.detail}`)
+  } else if (canonicalSuiteRevision.present) discrepancies.push(`history says ${CANONICAL_SUITE_REVISION_MIGRATION} is pending, but ${canonicalSuiteRevision.detail}`)
   if (discrepancies.length > 0) throw new MigrationStateMismatchError(discrepancies)
 }
 
@@ -1282,6 +1414,9 @@ async function assertMigrationPostconditions(db: Kysely<any>, migrationName: str
   if (migrationName === CANONICAL_TEST_DEFINITION_V3_MIGRATION) {
     const v3 = await inspectCanonicalTestDefinitionV3Schema(db)
     if (!v3.valid) throw new Error(v3.detail)
+  }
+  if (migrationName === CANONICAL_SUITE_REVISION_MIGRATION) {
+    const suite=await inspectCanonicalSuiteRevisionSchema(db); if(!suite.valid) throw new Error(suite.detail)
   }
 }
 

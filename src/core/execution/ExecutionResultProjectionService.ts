@@ -14,8 +14,10 @@ import type { Kysely, Transaction } from 'kysely'
 import { getDb } from '../storage/db'
 import { ExecutionPersistenceError, ExecutionRepository } from '../storage/repositories/ExecutionRepository'
 import { RunRepository } from '../storage/repositories/RunRepository'
+import { SuiteRepository } from '../storage/repositories/SuiteRepository'
 import { TestResultRepository } from '../storage/repositories/TestResultRepository'
 import type { Database } from '../storage/types'
+import { SuiteContractError } from '../suites/SuiteContract'
 import {
   PersistedEvidenceAggregator,
   type PersistedEvidenceIntegrityCode,
@@ -82,6 +84,14 @@ export interface ExecutionResultProjection {
       routeEvidenceIdentityHash: string | null
       authenticationExpectationIdentityHash: string | null
     }
+    selectionAuthority?: {
+      kind: 'suite_revision'
+      suiteId: string
+      suiteRevision: number
+      suiteContentHash: string
+      name: string
+      purpose: 'sanity'
+    }
   }
   run: null | {
     runId: string
@@ -119,6 +129,7 @@ export interface ExecutionResultSummary {
   failedResultCount: number | null
   couldNotVerifyResultCount: number | null
   integrityState: 'valid' | 'warning' | 'invalid'
+  selectionAuthority?: ExecutionResultProjection['execution']['selectionAuthority']
 }
 
 export type ExecutionResultProjectionRead =
@@ -148,6 +159,7 @@ class ProjectionIntegrityError extends Error {
  */
 export class ExecutionResultProjectionService {
   private readonly aggregator: PersistedEvidenceAggregator
+  private readonly suites: SuiteRepository
 
   constructor(
     private readonly dbProvider: () => Kysely<Database> = getDb,
@@ -155,19 +167,21 @@ export class ExecutionResultProjectionService {
     private readonly runs = new RunRepository(),
     private readonly results = new TestResultRepository(),
     aggregator?: PersistedEvidenceAggregator,
+    suites?: SuiteRepository,
   ) {
     this.aggregator = aggregator ?? new PersistedEvidenceAggregator(dbProvider, executions, runs, results)
+    this.suites = suites ?? new SuiteRepository(dbProvider)
   }
 
   async read(projectId: string, executionId: string): Promise<ExecutionResultProjectionRead> {
     if (!SAFE_ID.test(projectId) || !SAFE_ID.test(executionId)) return { kind: 'not_found' }
     try {
-      const read = await this.dbProvider().transaction().execute(
-        trx => this.aggregator.read(projectId, executionId, trx),
-      )
-      return read.kind === 'not_found'
-        ? { kind: 'not_found' }
-        : { kind: 'ok', projection: this.project(read) }
+      return await this.dbProvider().transaction().execute(async trx => {
+        const read = await this.aggregator.read(projectId, executionId, trx)
+        if (read.kind === 'not_found') return { kind: 'not_found' }
+        const suite = await this.readSuiteSelection(read.evidence.execution, trx)
+        return { kind: 'ok', projection: this.project(read, suite) }
+      })
     } catch (cause) {
       if (cause instanceof ProjectionIntegrityError) {
         return { kind: 'integrity_invalid', integrityWarnings: cause.integrityWarnings }
@@ -187,7 +201,8 @@ export class ExecutionResultProjectionService {
         try {
           const read = await this.aggregator.read(projectId, root.execution_id, trx)
           if (read.kind === 'not_found') continue
-          const projection = this.project(read)
+          const suite = await this.readSuiteSelection(read.evidence.execution, trx)
+          const projection = this.project(read, suite)
           summaries.push({
             executionId: projection.execution.executionId,
             lifecycle: projection.execution.lifecycle,
@@ -203,6 +218,7 @@ export class ExecutionResultProjectionService {
             failedResultCount: projection.run?.aggregateCounts.failed ?? 0,
             couldNotVerifyResultCount: projection.run?.aggregateCounts.couldNotVerify ?? 0,
             integrityState: projection.integrityWarnings.length > 0 ? 'warning' : 'valid',
+            ...(projection.execution.selectionAuthority ? { selectionAuthority: projection.execution.selectionAuthority } : {}),
           })
         } catch (cause) {
           if (!(cause instanceof ProjectionIntegrityError)) throw cause
@@ -233,7 +249,29 @@ export class ExecutionResultProjectionService {
     return { kind: 'ok', executions, limit }
   }
 
-  private project(read: Extract<PersistedEvidenceRead, { kind: 'ok' }>): ExecutionResultProjection {
+  private async readSuiteSelection(execution: Extract<PersistedEvidenceRead,{kind:'ok'}>['evidence']['execution'], trx:Transaction<Database>): Promise<ExecutionResultProjection['execution']['selectionAuthority']> {
+    if (execution.suite_id===null && execution.suite_revision===null && execution.suite_content_hash===null) return undefined
+    if (!execution.suite_id || !execution.suite_revision || !execution.suite_content_hash) throw new ProjectionIntegrityError([{severity:'error',code:'conflicting_provenance',safeMessage:'Execution Suite authority is incomplete.'}])
+    const revision=Number(execution.suite_revision)
+    if (!Number.isSafeInteger(revision) || revision<1) throw new ProjectionIntegrityError([{severity:'error',code:'conflicting_provenance',safeMessage:'Accepted Suite revision provenance is invalid.'}])
+    try {
+      const suite=await this.suites.readVerifiedInTransaction(trx,execution.project_id,execution.suite_id,revision)
+      const definitionAuthority=suite.members[0]?.definitionAuthority
+      if (suite.projectId!==execution.project_id || suite.suiteId!==execution.suite_id || suite.revision!==revision
+        || suite.contentHash!==execution.suite_content_hash || suite.purpose!=='sanity' || !definitionAuthority
+        || definitionAuthority.testSetId!==execution.test_set_id
+        || definitionAuthority.testSetRevision!==Number(execution.test_set_revision)
+        || definitionAuthority.definitionSchemaVersion!==Number(execution.definition_schema_version)) {
+        throw new SuiteContractError('suite_integrity_invalid','Accepted Suite revision does not match Execution authority.')
+      }
+      return {kind:'suite_revision',suiteId:suite.suiteId,suiteRevision:suite.revision,suiteContentHash:suite.contentHash,name:suite.name,purpose:suite.purpose}
+    } catch (cause) {
+      if (!(cause instanceof SuiteContractError)) throw cause
+      throw new ProjectionIntegrityError([{severity:'error',code:'conflicting_provenance',safeMessage:'Accepted Suite revision provenance is invalid.'}])
+    }
+  }
+
+  private project(read: Extract<PersistedEvidenceRead, { kind: 'ok' }>, suite: ExecutionResultProjection['execution']['selectionAuthority']): ExecutionResultProjection {
     const { evidence, aggregation } = read
     const invalid = aggregation.integrityWarnings.filter(item => item.severity === 'error')
     if (invalid.length > 0) throw new ProjectionIntegrityError(invalid)
@@ -289,6 +327,7 @@ export class ExecutionResultProjectionService {
           routeEvidenceIdentityHash: evidence.execution.route_evidence_identity_hash,
           authenticationExpectationIdentityHash: evidence.execution.authentication_expectation_identity_hash,
         },
+        ...(suite ? { selectionAuthority: suite } : {}),
       },
       run: run ? {
         runId: run.run_id,
