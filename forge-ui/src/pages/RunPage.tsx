@@ -39,6 +39,14 @@ import type {
 import { decodeCanonicalExecutionStatus } from '../api/executionContract'
 import { decodeCanonicalExecutionPreflight } from '../api/executionPreflightContract'
 import {
+  parseSuitePresentationIntent,
+  SuiteContractError,
+  type CanonicalSuiteRevision,
+  type CanonicalSuiteSelectionAuthority,
+  type SuitePresentationIntent,
+} from '../api/suiteContract'
+import { suiteTransport } from '../api/suiteAdapter'
+import {
   CanonicalResultsIntegrityError,
   CanonicalResultsPayloadError,
 } from '../api/resultsClient'
@@ -92,6 +100,49 @@ const STATE_LABEL: Record<ExecutionPreflightState, string> = {
   execution_already_active: 'Execution already active',
   execution_persistence_unavailable: 'Execution persistence unavailable',
   ready: 'Eligible',
+}
+
+export type SuiteRunDependencyState =
+  | { kind: 'absent' }
+  | { kind: 'malformed' }
+  | { kind: 'requested'; intent: SuitePresentationIntent }
+
+export function resolveSuiteRunDependencyState(params: URLSearchParams): SuiteRunDependencyState {
+  try {
+    const intent = parseSuitePresentationIntent(params)
+    return intent ? { kind: 'requested', intent } : { kind: 'absent' }
+  } catch (cause) {
+    if (cause instanceof SuiteContractError) return { kind: 'malformed' }
+    throw cause
+  }
+}
+
+export function exactSuitePreflightMatches(
+  suite: CanonicalSuiteRevision,
+  authority: CanonicalSuiteSelectionAuthority | null,
+): boolean {
+  return authority !== null
+    && authority.suiteId === suite.suiteId
+    && authority.suiteRevision === suite.revision
+    && authority.suiteContentHash === suite.contentHash
+    && authority.name === suite.name
+    && authority.purpose === suite.purpose
+}
+
+function SuiteRunWorkspace({project,intent,onAccepted}:{project:string;intent:SuitePresentationIntent;onAccepted:(accepted:CanonicalExecutionStartAccepted)=>void}){
+  const [state,setState]=useState<{kind:'loading'}|{kind:'blocked';explanation:string;suiteName?:string}|{kind:'ready';suite:Awaited<ReturnType<typeof suiteTransport.readRevision>>}>({kind:'loading'})
+  const [starting,setStarting]=useState(false)
+  const [startError,setStartError]=useState<string|null>(null)
+  const intentKey=useRef(`suite-execution-${crypto.randomUUID()}`)
+  useEffect(()=>{let active=true;setState({kind:'loading'});setStartError(null);Promise.all([
+    suiteTransport.readRevision(project,intent.suiteId,intent.suiteRevision),suiteTransport.preflight(project,intent),
+  ]).then(([suite,preflight])=>{if(!active)return;const authority=preflight.selectionAuthority;if(exactSuitePreflightMatches(suite,authority))setState({kind:'ready',suite});else setState({kind:'blocked',suiteName:suite.name,explanation:authority?'The exact Suite read and authoritative preflight disagree. Run remains disabled.':preflight.aggregate.explanation})})
+    .catch(error=>{if(active)setState({kind:'blocked',explanation:error instanceof Error?error.message:'Suite preflight is unavailable.'})});return()=>{active=false}},[project,intent.suiteId,intent.suiteRevision])
+  async function start(){if(state.kind!=='ready'||starting)return;setStarting(true);setStartError(null);try{onAccepted(await suiteTransport.start(project,intentKey.current,intent))}catch(error){setStartError(error instanceof Error?error.message:'Execution acceptance is unresolved. Retry uses the same intent key.')}finally{setStarting(false)}}
+  if(state.kind==='loading')return <div role="status" className="flex items-center gap-2 text-secondary"><Loader2 className="animate-spin" size={18}/> Loading exact Suite revision and authoritative preflight…</div>
+  if(state.kind==='blocked')return <section role="alert" className="rounded-lg border border-flaky/50 bg-surface p-5"><h2 className="font-semibold text-primary">Suite Run blocked</h2>{state.suiteName&&<p className="mt-1 text-sm text-primary">{state.suiteName} · revision {intent.suiteRevision}</p>}<p className="mt-1 text-sm text-secondary">{state.explanation}</p><p className="mt-2 text-xs text-muted">No client membership or Definition authority was substituted. Start remains disabled.</p></section>
+  const suite=state.suite
+  return <section className="space-y-4 rounded-lg border border-brand/40 bg-surface p-5"><div><p className="text-xs uppercase tracking-[0.16em] text-brand">Authoritative Suite preflight</p><h2 className="mt-1 text-xl font-semibold text-primary">{suite.name}</h2><p className="text-sm text-secondary">Sanity · immutable revision {suite.revision}</p></div><dl className="grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-xs text-muted">Suite ID</dt><dd className="break-all font-mono text-secondary">{suite.suiteId}</dd></div><div><dt className="text-xs text-muted">Content hash</dt><dd className="break-all font-mono text-xs text-secondary">{suite.contentHash}</dd></div></dl><ol className="space-y-2">{suite.members.map(member=><li key={member.definitionAuthority.definitionId} className="flex gap-3 rounded border border-border bg-elevated p-3 text-sm"><span className="font-semibold text-brand">{member.ordinal}</span><span className="break-all font-mono text-primary">{member.definitionAuthority.definitionId}</span></li>)}</ol><aside className="text-xs text-muted">Preflight is read-only. Start sends only the durable execution intent key and this Suite revision selection; the backend re-resolves membership.</aside><button type="button" disabled={starting} onClick={()=>{void start()}} className="inline-flex items-center gap-2 rounded bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{starting?<Loader2 className="animate-spin" size={16}/>:<Play size={16}/>} {starting?'Submitting Suite intent…':'Run exact Suite revision'}</button>{startError&&<p role="alert" className="text-sm text-flaky">{startError}</p>}</section>
 }
 
 function readable(value: string): string {
@@ -900,6 +951,8 @@ function RunWorkspace({
 
 function ProjectRunExperience({ project }: { project: string }) {
   const [params, setParams] = useSearchParams()
+  const suiteRun = resolveSuiteRunDependencyState(params)
+  const suiteHandoffRequested = suiteRun.kind !== 'absent'
   const queryClient = useQueryClient()
   const controllerRef = useRef<RunIntentController | null>(null)
   if (!controllerRef.current) controllerRef.current = new RunIntentController(browserRunIntentStorage(), project, queryClient)
@@ -935,6 +988,8 @@ function ProjectRunExperience({ project }: { project: string }) {
     next.set('execution', accepted.executionId)
     next.delete('definition')
     next.delete('revision')
+    next.delete('suiteId')
+    next.delete('suiteRevision')
     M1RunHandoffSession.clear(project)
     setParams(next)
   }
@@ -952,15 +1007,17 @@ function ProjectRunExperience({ project }: { project: string }) {
     <div><h1 className="text-2xl font-semibold text-primary">Run</h1><p className="mt-1 max-w-3xl text-sm text-secondary">Start and observe canonical Product execution while lifecycle, current evidence, and persisted terminal outcome remain separate truths.</p></div>
     {intentState.phase === 'storage_blocked' && <BlockedIntentRecovery state={intentState} onRetry={() => { intentController.reconcileBlockedIntentStorage(); setIntentState(intentController.snapshot()) }} />}
     <RunIntentAuthoritySummary project={project} state={intentState} viewedExecutionId={activeExecutionId} />
+    {suiteRun.kind === 'malformed' && <BoundedState alert title="Invalid Suite Run handoff" explanation="Suite ID and positive Suite revision are both required. No direct-definition authority was substituted." />}
+    {suiteRun.kind === 'requested' && !activeExecutionId && <SuiteRunWorkspace project={project} intent={suiteRun.intent} onAccepted={setExecution}/>}
     {m1HandoffRequested && <M1RunHandoffNotice handoff={m1Handoff} />}
     {!project && <section className="rounded-lg border border-border bg-surface"><ProjectSelector title="Run" subtitle="Select a project to evaluate and execute its current canonical v2 Test Set." basePath="/run" /></section>}
     {project && activeExecutionId && <ExecutionMonitor project={project} executionId={activeExecutionId} acceptance={displayedAcceptance} intentController={intentController} onNewIntent={prepareNewIntent} />}
     {project && inventory.isLoading && <div role="status" className="flex items-center gap-2 text-secondary"><Loader2 className="animate-spin" size={18} /> Loading canonical Test Definitions…</div>}
     {project && inventory.isError && <PreflightError error={inventory.error} />}
-    {project && inventory.isSuccess && !current && !activeExecutionId && !m1HandoffRequested && <BoundedState title="No current Test Set revision" explanation="No Test Definition revision has been persisted for this project." />}
-    {project && current?.schemaVersion === 1 && !activeExecutionId && !m1HandoffRequested && <section className="rounded-lg border border-flaky/50 bg-surface p-6"><h2 className="font-semibold text-flaky">LEGACY PROVENANCE — execution unsupported</h2><p className="mt-2 text-sm text-secondary">The current revision is historical v1 compatibility evidence. It remains readable on Test Cases but cannot enter new Product execution.</p><Link className="mt-3 inline-block text-brand underline-offset-2 hover:underline" to={`/tests?project=${encodeURIComponent(project)}`}>Open legacy Test Case quarantine</Link></section>}
-    {project && canonical && canonical.definitions.length === 0 && !activeExecutionId && !intentOwnsSelection && !m1HandoffRequested && <BoundedState title="No canonical definitions" explanation={`The current v${canonical.schemaVersion} revision contains no Definitions eligible for execution preflight.`} />}
-    {project && canonical && currentRecord && (canonical.definitions.length > 0 || intentOwnsSelection) && !m1HandoffBlocked && <RunWorkspace key={`${project}-${canonical.testSetId}-${canonical.revision}-${m1HandoffReady ? m1Handoff.definitionId : 'default'}`} project={project} canonical={canonical} canonicalContentHash={currentRecord.contentHash} v3Handoff={m1HandoffReady ? { testSetId: m1Handoff.testSetId, definitionId: m1Handoff.definitionId, revision: m1Handoff.revision } : undefined} initialDefinitionIds={m1HandoffReady ? [m1Handoff.definitionId] : undefined} activeExecutionId={activeExecutionId} intentController={intentController} intentState={intentState} onIntentStateChange={setIntentState} onAccepted={setExecution} />}
+    {project && inventory.isSuccess && !current && !activeExecutionId && !m1HandoffRequested && !suiteHandoffRequested && <BoundedState title="No current Test Set revision" explanation="No Test Definition revision has been persisted for this project." />}
+    {project && current?.schemaVersion === 1 && !activeExecutionId && !m1HandoffRequested && !suiteHandoffRequested && <section className="rounded-lg border border-flaky/50 bg-surface p-6"><h2 className="font-semibold text-flaky">LEGACY PROVENANCE — execution unsupported</h2><p className="mt-2 text-sm text-secondary">The current revision is historical v1 compatibility evidence. It remains readable on Test Cases but cannot enter new Product execution.</p><Link className="mt-3 inline-block text-brand underline-offset-2 hover:underline" to={`/tests?project=${encodeURIComponent(project)}`}>Open legacy Test Case quarantine</Link></section>}
+    {project && canonical && canonical.definitions.length === 0 && !activeExecutionId && !intentOwnsSelection && !m1HandoffRequested && !suiteHandoffRequested && <BoundedState title="No canonical definitions" explanation={`The current v${canonical.schemaVersion} revision contains no Definitions eligible for execution preflight.`} />}
+    {project && canonical && currentRecord && (canonical.definitions.length > 0 || intentOwnsSelection) && !m1HandoffBlocked && !suiteHandoffRequested && <RunWorkspace key={`${project}-${canonical.testSetId}-${canonical.revision}-${m1HandoffReady ? m1Handoff.definitionId : 'default'}`} project={project} canonical={canonical} canonicalContentHash={currentRecord.contentHash} v3Handoff={m1HandoffReady ? { testSetId: m1Handoff.testSetId, definitionId: m1Handoff.definitionId, revision: m1Handoff.revision } : undefined} initialDefinitionIds={m1HandoffReady ? [m1Handoff.definitionId] : undefined} activeExecutionId={activeExecutionId} intentController={intentController} intentState={intentState} onIntentStateChange={setIntentState} onAccepted={setExecution} />}
     {project && activeExecutionId && !canonical && inventory.isSuccess && <aside className="flex gap-3 rounded-lg border border-border bg-elevated p-4 text-sm text-secondary"><Ban className="shrink-0 text-muted" size={18} /><p>The selected Execution remains monitorable, but no current canonical v2 or v3 Test Set is available for a new Run.</p></aside>}
   </div>
 }

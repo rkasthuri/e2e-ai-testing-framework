@@ -12,8 +12,10 @@
 
 import * as crypto from 'crypto'
 import type { Kysely, Transaction } from 'kysely'
+import { SuiteContractError } from '../../suites/SuiteContract'
 import { getProductDb } from '../db'
 import type { Database, Execution, ExecutionEvent, ExecutionItem, ExecutionLock } from '../types'
+import { SuiteRepository } from './SuiteRepository'
 
 /**
  * Existing FORGE run-lifecycle precedent uses a two-hour on-next-run stale
@@ -62,6 +64,7 @@ export interface BeginExecutionInput {
   supportSealHash?: string | null
   routeEvidenceIdentityHash?: string | null
   authenticationExpectationIdentityHash?: string | null
+  suiteAuthority?: { suiteId:string; suiteRevision:number; suiteContentHash:string }
   manifestItems: Array<{
     itemOrdinal: number
     definitionId: string
@@ -106,11 +109,18 @@ export class ExecutionIntentConflictError extends Error {
 }
 
 export class StaleExecutionAuthorityError extends Error {
-  constructor(readonly code: 'stale_definition' | 'conflicting_evidence') {
-    super(code === 'stale_definition'
+  constructor(readonly code: 'stale_definition' | 'conflicting_evidence' | 'stale_suite_authority') {
+    super(code === 'stale_suite_authority' ? 'The Suite pinned Test Set authority is no longer current.' : code === 'stale_definition'
       ? 'The selected test-set revision is no longer current.'
       : 'The selected definition provenance no longer matches the active App Model.')
     this.name = 'StaleExecutionAuthorityError'
+  }
+}
+
+export class SuiteExecutionIntegrityError extends Error {
+  constructor() {
+    super('The exact Suite revision failed canonical integrity revalidation at execution acceptance.')
+    this.name = 'SuiteExecutionIntegrityError'
   }
 }
 
@@ -163,6 +173,7 @@ function safeInput(input: BeginExecutionInput): boolean {
     && Number.isSafeInteger(input.expectedModelRowId) && input.expectedModelRowId > 0
     && typeof input.expectedModelVersion === 'string' && input.expectedModelVersion.length > 0
     && provenanceValid
+    && (input.suiteAuthority === undefined || SAFE_ID.test(input.suiteAuthority.suiteId) && Number.isSafeInteger(input.suiteAuthority.suiteRevision) && input.suiteAuthority.suiteRevision>0 && SHA256.test(input.suiteAuthority.suiteContentHash))
     && Array.isArray(input.manifestItems) && input.manifestItems.length > 0
     && input.manifestItems.every((item, index) => item.itemOrdinal === index + 1
       && SAFE_ID.test(item.definitionId) && SHA256.test(item.executablePlanHash)
@@ -190,7 +201,11 @@ function terminalMessage(outcome: ExecutionTerminalOutcome): string {
 }
 
 export class ExecutionRepository {
-  constructor(private readonly dbProvider: () => Kysely<Database> = getProductDb) {}
+  private readonly suites: SuiteRepository
+
+  constructor(private readonly dbProvider: () => Kysely<Database> = getProductDb) {
+    this.suites = new SuiteRepository(dbProvider)
+  }
 
   async findExecutionIntent(projectId: string, executionIntentKey: string): Promise<ExecutionIntentReplay | null> {
     if (!SAFE_ID.test(projectId) || !SAFE_INTENT_KEY.test(executionIntentKey)) {
@@ -242,11 +257,42 @@ export class ExecutionRepository {
           .selectAll().where('project_id', '=', input.projectId).executeTakeFirst()
         if (existingLock) throw new DuplicateExecutionError()
 
+        let verifiedSuite: Awaited<ReturnType<SuiteRepository['readVerifiedInTransaction']>> | undefined
+        if (input.suiteAuthority) {
+          try {
+            verifiedSuite = await this.suites.readVerifiedInTransaction(
+              trx, input.projectId, input.suiteAuthority.suiteId, input.suiteAuthority.suiteRevision,
+            )
+          } catch (cause) {
+            if (cause instanceof SuiteContractError) throw new SuiteExecutionIntegrityError()
+            throw cause
+          }
+          const pinned = verifiedSuite.members[0].definitionAuthority
+          if (verifiedSuite.contentHash !== input.suiteAuthority.suiteContentHash
+            || pinned.testSetId !== input.expectedTestSetId
+            || pinned.testSetRevision !== input.expectedRevision
+            || pinned.definitionSchemaVersion !== (input.definitionSchemaVersion ?? 1)
+            || pinned.testSetContentHash !== input.expectedTestSetContentHash
+            || verifiedSuite.members.length !== input.manifestItems.length
+            || verifiedSuite.members.some((member, index) => member.ordinal !== index + 1
+              || member.definitionAuthority.definitionId !== input.manifestItems[index].definitionId)) {
+            throw new SuiteExecutionIntegrityError()
+          }
+        }
+
         const current = await trx.selectFrom('test_set_revisions')
           .select(['test_set_id', 'revision', 'schema_version', 'content_hash', 'support_seal_hash'])
           .where('project_id', '=', input.projectId)
           .orderBy('revision', 'desc').limit(1).executeTakeFirst()
-        if (!current || current.test_set_id !== input.expectedTestSetId
+        if (verifiedSuite) {
+          const pinned = verifiedSuite.members[0].definitionAuthority
+          if (!current || current.test_set_id !== pinned.testSetId
+            || Number(current.revision) !== pinned.testSetRevision
+            || Number(current.schema_version) !== pinned.definitionSchemaVersion
+            || current.content_hash !== pinned.testSetContentHash) {
+            throw new StaleExecutionAuthorityError('stale_suite_authority')
+          }
+        } else if (!current || current.test_set_id !== input.expectedTestSetId
           || Number(current.revision) !== input.expectedRevision
           || Number(current.schema_version) !== (input.definitionSchemaVersion ?? 1)
           || input.definitionSchemaVersion !== undefined && input.definitionSchemaVersion !== 1
@@ -281,6 +327,9 @@ export class ExecutionRepository {
           stop_rule: 'stop_on_first_non_completed',
           execution_intent_key: input.executionIntentKey,
           execution_intent_fingerprint: input.executionIntentFingerprint,
+          suite_id: input.suiteAuthority?.suiteId ?? null,
+          suite_revision: input.suiteAuthority?.suiteRevision ?? null,
+          suite_content_hash: input.suiteAuthority?.suiteContentHash ?? null,
         }).execute()
         await trx.insertInto('execution_items').values(input.manifestItems.map(item => ({
           execution_id: input.executionId,
@@ -315,6 +364,7 @@ export class ExecutionRepository {
     } catch (cause) {
       if (cause instanceof DuplicateExecutionError
         || cause instanceof StaleExecutionAuthorityError
+        || cause instanceof SuiteExecutionIntegrityError
         || cause instanceof ExecutionPersistenceError
         || cause instanceof ExecutionIntentConflictError) throw cause
       const message = cause instanceof Error ? cause.message : String(cause)

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "forge-m2-certification-case/v1",
+  "caseId": "M2-03-stale-authority",
+  "title": "New canonical Test Set makes saved Suite stale without mutating it",
+  "scenario": "stale_authority",
+  "projectId": "project-stale",
+  "testSets": [
+    {
+      "projectId": "project-stale", "testSetId": "test-set-stale", "testSetRevision": 1, "definitionSchemaVersion": 2,
+      "testSetContentHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "definitions": [
+        { "definitionId": "definition-a", "executable": true, "executionOutcome": "passed" },
+        { "definitionId": "definition-b", "executable": true, "executionOutcome": "passed" }
+      ]
+    },
+    {
+      "projectId": "project-stale", "testSetId": "test-set-stale", "testSetRevision": 2, "definitionSchemaVersion": 2,
+      "testSetContentHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "definitions": [
+        { "definitionId": "definition-a", "executable": true, "executionOutcome": "passed" },
+        { "definitionId": "definition-b", "executable": true, "executionOutcome": "passed" }
+      ]
+    }
+  ],
+  "suite": { "name": "Checkout Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-a", "definition-b"], "expectedOrdinals": [1, 2] },
+  "hostileCases": [], "uiRequirements": [], "tags": ["mandatory", "stale_suite_authority", "no_substitution"]
+}

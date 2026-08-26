@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "forge-m2-certification-case/v1",
+  "caseId": "M2-02-one-member-v3",
+  "title": "One-member current v3 Suite executes without authority translation",
+  "scenario": "positive_v3",
+  "projectId": "project-v3",
+  "testSets": [{
+    "projectId": "project-v3", "testSetId": "test-set-v3", "testSetRevision": 3, "definitionSchemaVersion": 3,
+    "testSetContentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "definitions": [{ "definitionId": "definition-v3-a", "executable": true, "executionOutcome": "passed" }]
+  }],
+  "suite": { "name": "Account Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-v3-a"], "expectedOrdinals": [1] },
+  "hostileCases": [], "uiRequirements": [], "tags": ["positive", "v3", "one_member"]
+}

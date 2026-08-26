@@ -10,6 +10,8 @@
  * of this software is strictly prohibited.
  */
 
+import { decodeCanonicalSuiteSelectionAuthority, type CanonicalSuiteSelectionAuthority } from './suiteContract'
+
 export type CanonicalResultOutcome = 'passed' | 'failed' | 'could_not_verify'
 export type CanonicalExecutionLifecycle =
   | 'accepted'
@@ -58,6 +60,7 @@ export interface CanonicalExecutionResultsListItem {
   failedResultCount: number | null
   couldNotVerifyResultCount: number | null
   integrityState: CanonicalResultsIntegrityState
+  selectionAuthority?: CanonicalSuiteSelectionAuthority
 }
 
 export interface CanonicalExecutionResultsListResponse {
@@ -141,6 +144,7 @@ export interface CanonicalExecutionResultsDetail {
     terminalAt: string | null
     expectedResultCount: number
     definitionAuthority: CanonicalDefinitionAuthoritySummary
+    selectionAuthority?: CanonicalSuiteSelectionAuthority
   }
   run: null | {
     runId: string
@@ -267,6 +271,7 @@ function decodeListItem(value: unknown, label: string): CanonicalExecutionResult
     'executionId', 'lifecycle', 'evidenceHeadlineOutcome', 'terminalOutcome', 'authorityReasonCode', 'acceptedAt', 'terminalAt',
     'expectedResultCount', 'runCount', 'observedResultCount', 'passedResultCount', 'failedResultCount',
     'couldNotVerifyResultCount', 'integrityState',
+    'selectionAuthority',
   ], label)
   const result: CanonicalExecutionResultsListItem = {
     executionId: id(item.executionId, `${label}.executionId`),
@@ -283,6 +288,7 @@ function decodeListItem(value: unknown, label: string): CanonicalExecutionResult
     failedResultCount: nullable(item.failedResultCount, value => integer(value, `${label}.failedResultCount`)),
     couldNotVerifyResultCount: nullable(item.couldNotVerifyResultCount, value => integer(value, `${label}.couldNotVerifyResultCount`)),
     integrityState: enumeration(item.integrityState, INTEGRITY_STATES, `${label}.integrityState`),
+    ...(item.selectionAuthority===undefined?{}:{selectionAuthority:decodeCanonicalSuiteSelectionAuthority(item.selectionAuthority)}),
   }
   if (result.runCount > 1 || result.observedResultCount > result.expectedResultCount) {
     throw new CanonicalResultsContractError(`${label} contains impossible evidence counts.`)
@@ -490,6 +496,7 @@ export function decodeCanonicalExecutionResultsDetail(value: unknown): Canonical
   const execution = object(root.execution, [
     'executionId', 'lifecycle', 'terminalOutcome', 'authorityReasonCode', 'acceptedAt', 'terminalAt',
     'expectedResultCount', 'definitionAuthority',
+    'selectionAuthority',
   ], 'execution')
   const run = root.run === null ? null : object(root.run, [
     'runId', 'lifecycle', 'evidenceOutcome', 'evidenceReasonCode', 'startedAt', 'terminalAt',
@@ -509,6 +516,7 @@ export function decodeCanonicalExecutionResultsDetail(value: unknown): Canonical
       terminalAt: nullable(execution.terminalAt, value => timestamp(value, 'execution.terminalAt')),
       expectedResultCount: integer(execution.expectedResultCount, 'execution.expectedResultCount', 1),
       definitionAuthority: decodeAuthority(execution.definitionAuthority),
+      ...(execution.selectionAuthority===undefined?{}:{selectionAuthority:decodeCanonicalSuiteSelectionAuthority(execution.selectionAuthority)}),
     },
     run: run === null || evidenceCounts === null ? null : {
       runId: id(run.runId, 'run.runId'),
@@ -588,6 +596,7 @@ export function serializeCanonicalExecutionResultsRead(value: unknown): Canonica
   if (source.availability !== 'available') throw new CanonicalResultsContractError('Core Results projection availability is unsupported.')
   const execution = object(source.execution, [
     'executionId', 'lifecycle', 'outcome', 'reasonCode', 'acceptedAt', 'terminalAt', 'manifestCount', 'definitionAuthority',
+    'selectionAuthority',
   ], 'Core execution')
   const sourceItems = array(source.items, (entry, index) => {
     const item = object(entry, ['itemOrdinal', 'definitionId', 'executablePlanHash', 'result'], `Core items[${index}]`)
@@ -642,6 +651,7 @@ export function serializeCanonicalExecutionResultsRead(value: unknown): Canonica
         terminalAt: execution.terminalAt,
         expectedResultCount: execution.manifestCount,
         definitionAuthority: execution.definitionAuthority,
+        ...(execution.selectionAuthority===undefined?{}:{selectionAuthority:execution.selectionAuthority}),
       },
       run: sourceRun === null || aggregateCounts === null ? null : {
         runId: sourceRun.runId,
@@ -676,6 +686,7 @@ export function serializeCanonicalExecutionResultsList(value: unknown, requested
       const item = object(entry, [
         'executionId', 'lifecycle', 'evidenceHeadlineOutcome', 'outcome', 'reasonCode', 'acceptedAt', 'terminalAt', 'manifestCount',
         'runCount', 'observedResultCount', 'passedResultCount', 'failedResultCount', 'couldNotVerifyResultCount', 'integrityState',
+        'selectionAuthority',
       ], `Core executions[${index}]`)
       return {
         executionId: item.executionId,
@@ -692,6 +703,7 @@ export function serializeCanonicalExecutionResultsList(value: unknown, requested
         failedResultCount: item.failedResultCount,
         couldNotVerifyResultCount: item.couldNotVerifyResultCount,
         integrityState: item.integrityState,
+        ...(item.selectionAuthority===undefined?{}:{selectionAuthority:item.selectionAuthority}),
       }
     }, 'Core executions'),
     page: { limit: requestedLimit },

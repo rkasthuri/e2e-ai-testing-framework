@@ -35,6 +35,7 @@ import { readExecutionPreflight } from '../context/ExecutionPreflightController'
 import { cancelExecution, readExecutionStatus, startExecution } from '../context/ExecutionLifecycleController'
 import { listExecutionResults, readExecutionResults } from '../context/ExecutionResultsController'
 import { generateM1Intent, listM1DiscoveredAreas, saveM1Intent } from '../context/M1TestIntentController'
+import { createSuite, listSuites, readSuite, readSuiteCandidates, reviseSuite } from '../context/SuiteController'
 
 // Known fixture apps — last-resort fallback (fixture-specific, intentional:
 // fixtures use .ts onboarding configs, not .forge/config.json, so they won't
@@ -274,6 +275,33 @@ router.get('/:appName/test-definitions/:definitionId', async (req, res) => {
 
 router.get('/:appName/test-definitions/generations/:generationId', async (req, res) => {
   const result = await readTestGenerationStatus(req.params.appName, req.params.generationId, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+// M2 Saved Suites. Routes transport project/change intent only; SuiteService
+// and the selected workspace database own membership and immutable revisions.
+router.get('/:appName/suites', async (req, res) => {
+  const result = await listSuites(req.params.appName, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.get('/:appName/suites/candidates', async (req, res) => {
+  const result = await readSuiteCandidates(req.params.appName, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.post('/:appName/suites', async (req, res) => {
+  const result = await createSuite(req.params.appName, req.body, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.get('/:appName/suites/:suiteId', async (req, res) => {
+  const result = await readSuite(req.params.appName, req.params.suiteId, req.query.revision, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.put('/:appName/suites/:suiteId', async (req, res) => {
+  const result = await reviseSuite(req.params.appName, req.params.suiteId, req.body, resolveKnownProject)
   res.status(result.status).json(result.body)
 })
 

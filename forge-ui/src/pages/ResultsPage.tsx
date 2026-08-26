@@ -35,6 +35,7 @@ import type {
   CanonicalResultOutcome,
   CanonicalResultsIntegrityWarning,
 } from '../api/resultsContract'
+import { SuiteResultsProvenance } from '../components/tests/SuiteResultsProvenance'
 import { ProjectSelector } from '../components/shared/ProjectSelector'
 import {
   useCanonicalExecutionResultDetail,
@@ -145,6 +146,7 @@ export function ExecutionHistory({
                 <p className="font-mono text-xs text-muted">Execution ID</p>
                 <p className="break-all font-mono text-sm text-primary">{item.executionId}</p>
                 <p className="mt-1 text-xs text-secondary">Accepted <Time value={item.acceptedAt} /></p>
+                {item.selectionAuthority && <p className="mt-1 text-xs text-brand">{item.selectionAuthority.name} · Suite revision {item.selectionAuthority.suiteRevision}</p>}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-run">Lifecycle: {readable(item.lifecycle)}</span>
@@ -273,6 +275,8 @@ export function ExecutionResultsDetail({ detail }: { detail: CanonicalExecutionR
       </dl>
       <div className="mt-3 grid grid-cols-2 gap-2 rounded border border-border bg-elevated p-3 text-sm sm:grid-cols-4"><span><strong className="text-pass">{detail.run.evidenceCounts.passed}</strong> passed</span><span><strong className="text-fail">{detail.run.evidenceCounts.failed}</strong> failed</span><span><strong className="text-unknown">{detail.run.evidenceCounts.couldNotVerify}</strong> could not verify</span><span><strong className="text-flaky">{detail.run.evidenceCounts.missing}</strong> missing</span></div>
     </section> : <aside className="rounded-lg border border-border bg-surface p-4"><div className="flex gap-3"><Ban className="shrink-0 text-muted" size={18} /><div><h3 className="font-semibold text-primary">No Product Run persisted</h3><p className="mt-1 text-sm text-secondary">This execution has no Product Run. No Run identity or Result evidence was manufactured.</p></div></div></aside>}
+
+    {detail.execution.selectionAuthority && <SuiteResultsProvenance authority={detail.execution.selectionAuthority} />}
 
     <section aria-labelledby="result-items-heading">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2"><div><h3 id="result-items-heading" className="text-lg font-semibold text-primary">Manifest Results</h3><p className="text-sm text-secondary">Canonical ordinal order · {observed} observed · {detail.items.length - observed} missing</p></div></div>

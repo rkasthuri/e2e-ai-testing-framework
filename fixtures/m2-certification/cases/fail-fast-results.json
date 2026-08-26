@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "forge-m2-certification-case/v1",
+  "caseId": "M2-05-fail-fast-results",
+  "title": "Fail-fast preserves failure and missing later Result truth",
+  "scenario": "fail_fast_results",
+  "projectId": "project-fail-fast",
+  "testSets": [{
+    "projectId": "project-fail-fast", "testSetId": "test-set-fail-fast", "testSetRevision": 1, "definitionSchemaVersion": 3,
+    "testSetContentHash": "1212121212121212121212121212121212121212121212121212121212121212",
+    "definitions": [
+      { "definitionId": "definition-first", "executable": true, "executionOutcome": "passed" },
+      { "definitionId": "definition-failing", "executable": true, "executionOutcome": "failed" },
+      { "definitionId": "definition-later", "executable": true, "executionOutcome": "passed" }
+    ]
+  }],
+  "suite": { "name": "Fail Fast Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-first", "definition-failing", "definition-later"], "expectedOrdinals": [1, 2, 3] },
+  "hostileCases": [], "uiRequirements": [], "tags": ["fail_fast", "missing_result", "weakest_truth"]
+}

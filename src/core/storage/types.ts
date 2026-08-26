@@ -372,7 +372,20 @@ export interface ExecutionsTable {
   // Migration 030: NULL only for historical pre-idempotency executions.
   execution_intent_key: Generated<string | null>;
   execution_intent_fingerprint: Generated<string | null>;
+  suite_id: Generated<string | null>;
+  suite_revision: Generated<number | null>;
+  suite_content_hash: Generated<string | null>;
 }
+
+export interface SuitesTable { suite_id: string; project_id: string; current_revision: number; name_key: string; created_at: string }
+export interface SuiteRevisionsTable {
+  suite_id: string; revision: number; project_id: string; name: string; name_key: string; purpose: string;
+  definition_schema_version: number; test_set_row_id: number; test_set_id: string; test_set_revision: number;
+  test_set_content_hash: string; created_at: string; provenance_source: string; change_kind: string;
+  prior_revision: number | null; change_intent_key: string; change_intent_fingerprint: string;
+  member_count: number; content_hash: string;
+}
+export interface SuiteRevisionMembersTable { suite_id: string; suite_revision: number; member_ordinal: number; definition_id: string }
 
 export interface ExecutionItemsTable {
   execution_id: string;
@@ -554,6 +567,9 @@ export interface Database {
   execution_locks: ExecutionLocksTable;
   executions: ExecutionsTable;
   execution_items: ExecutionItemsTable;
+  suites: SuitesTable;
+  suite_revisions: SuiteRevisionsTable;
+  suite_revision_members: SuiteRevisionMembersTable;
   observation_runs: ObservationRunsTable;
   observations: ObservationsTable;
   observation_gaps: ObservationGapsTable;
