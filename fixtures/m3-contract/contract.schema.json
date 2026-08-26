@@ -1,0 +1,1076 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FORGE M3 frozen manual automation contract spine",
+  "oneOf": [
+    {
+      "$ref": "#/definitions/ManualTestSourceV1"
+    },
+    {
+      "$ref": "#/definitions/ManualAutomationProposalV1"
+    },
+    {
+      "$ref": "#/definitions/ManualAnalysisResultV1"
+    },
+    {
+      "$ref": "#/definitions/ManualPromotionResultV1"
+    }
+  ],
+  "definitions": {
+    "SafeOpaqueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$"
+    },
+    "OpaqueContentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "NonEmptyText": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ManualStepV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "text"
+      ],
+      "properties": {
+        "ordinal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      }
+    },
+    "ManualTestSourceV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceId",
+        "projectId",
+        "sourceKind",
+        "title",
+        "objective",
+        "steps",
+        "expectedOutcome",
+        "contentHash"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "forge-manual-test-source/v1"
+        },
+        "sourceId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "projectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "sourceKind": {
+          "const": "manual"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "objective": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/definitions/ManualStepV1"
+          }
+        },
+        "expectedOutcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "contentHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        }
+      }
+    },
+    "SourceAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "sourceContentHash"
+      ],
+      "properties": {
+        "sourceId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "sourceContentHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        }
+      }
+    },
+    "ProposalAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelRowId",
+        "modelVersion",
+        "observationRunId",
+        "supportSealHash",
+        "routeEvidenceIdentityHash",
+        "authenticationExpectationIdentityHash"
+      ],
+      "properties": {
+        "modelRowId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "modelVersion": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "observationRunId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "supportSealHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        },
+        "routeEvidenceIdentityHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        },
+        "authenticationExpectationIdentityHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        }
+      }
+    },
+    "AppArea": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sourceSubjectId",
+        "confidence",
+        "method",
+        "evidenceIds"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "sourceSubjectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium"
+          ]
+        },
+        "method": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "evidenceIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/SafeOpaqueId"
+          }
+        }
+      }
+    },
+    "NavigateAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepId",
+        "ordinal",
+        "kind",
+        "subjectId",
+        "routePath"
+      ],
+      "properties": {
+        "stepId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "ordinal": {
+          "const": 0
+        },
+        "kind": {
+          "const": "navigate_to_observed_route"
+        },
+        "subjectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "routePath": {
+          "$ref": "#/definitions/NonEmptyText"
+        }
+      }
+    },
+    "ClickAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepId",
+        "ordinal",
+        "kind",
+        "subjectId",
+        "elementId",
+        "dataTestValue",
+        "targetSubjectId"
+      ],
+      "properties": {
+        "stepId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "ordinal": {
+          "const": 1
+        },
+        "kind": {
+          "const": "click_observed_data_test"
+        },
+        "subjectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "elementId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "dataTestValue": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "targetSubjectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        }
+      }
+    },
+    "CanonicalActions": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": [
+        {
+          "$ref": "#/definitions/NavigateAction"
+        },
+        {
+          "$ref": "#/definitions/ClickAction"
+        }
+      ],
+      "additionalItems": false
+    },
+    "NormalizedExpectedOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcomeId",
+        "kind",
+        "subjectId",
+        "routePath"
+      ],
+      "properties": {
+        "outcomeId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "kind": {
+          "const": "subject_observable"
+        },
+        "subjectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "routePath": {
+          "$ref": "#/definitions/NonEmptyText"
+        }
+      }
+    },
+    "NormalizedPrecondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "roleId",
+        "mechanism"
+      ],
+      "properties": {
+        "kind": {
+          "const": "authenticated_role"
+        },
+        "roleId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "mechanism": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        }
+      }
+    },
+    "SubjectSupport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonicalSubjectId",
+        "supportingObservationIds",
+        "supportingGapIds"
+      ],
+      "properties": {
+        "canonicalSubjectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "supportingObservationIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/SafeOpaqueId"
+          }
+        },
+        "supportingGapIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SafeOpaqueId"
+          }
+        }
+      }
+    },
+    "NormalizedGrounding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelRowId",
+        "modelVersion",
+        "observationRunId",
+        "supportSealHash",
+        "sourceFlowId",
+        "selectedFlowStepIndexes",
+        "excludedFlowStepIndexes",
+        "subjectSupport"
+      ],
+      "properties": {
+        "modelRowId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "modelVersion": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "observationRunId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "supportSealHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        },
+        "sourceFlowId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "selectedFlowStepIndexes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "excludedFlowStepIndexes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "subjectSupport": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/SubjectSupport"
+          }
+        }
+      }
+    },
+    "EvidenceAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "sourceFlowConfidence",
+        "selectedStepGrounding",
+        "limitations"
+      ],
+      "properties": {
+        "state": {
+          "const": "sufficient"
+        },
+        "sourceFlowConfidence": {
+          "enum": [
+            "observed",
+            "partial"
+          ]
+        },
+        "selectedStepGrounding": {
+          "const": "observed"
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NonEmptyText"
+          }
+        }
+      }
+    },
+    "SupportedDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "const": "supported"
+        }
+      }
+    },
+    "SupportedNormalizedTestIntentV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "intentId",
+        "projectId",
+        "source",
+        "appArea",
+        "title",
+        "objective",
+        "preconditions",
+        "steps",
+        "expectedOutcomes",
+        "grounding",
+        "evidenceAssessment",
+        "disposition"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "forge-normalized-test-intent/v1"
+        },
+        "intentId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "projectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "source": {
+          "const": "manual"
+        },
+        "appArea": {
+          "$ref": "#/definitions/AppArea"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "preconditions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NormalizedPrecondition"
+          }
+        },
+        "steps": {
+          "$ref": "#/definitions/CanonicalActions"
+        },
+        "expectedOutcomes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/definitions/NormalizedExpectedOutcome"
+          }
+        },
+        "grounding": {
+          "$ref": "#/definitions/NormalizedGrounding"
+        },
+        "evidenceAssessment": {
+          "$ref": "#/definitions/EvidenceAssessment"
+        },
+        "disposition": {
+          "$ref": "#/definitions/SupportedDisposition"
+        }
+      }
+    },
+    "SourceStepRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ordinal"
+      ],
+      "properties": {
+        "kind": {
+          "const": "step"
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "ExpectedOutcomeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "expected_outcome"
+        }
+      }
+    },
+    "ActionBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ordinal"
+      ],
+      "properties": {
+        "kind": {
+          "const": "action"
+        },
+        "ordinal": {
+          "enum": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    "OracleBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "oracleKind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "oracle"
+        },
+        "oracleKind": {
+          "const": "subject_observable"
+        }
+      }
+    },
+    "GovernedRouteBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "flowStepIndex",
+        "evidenceIds"
+      ],
+      "properties": {
+        "kind": {
+          "const": "governed_route"
+        },
+        "flowStepIndex": {
+          "type": "null"
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SafeOpaqueId"
+          }
+        }
+      }
+    },
+    "ObservedFlowStepBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "flowStepIndex",
+        "evidenceIds"
+      ],
+      "properties": {
+        "kind": {
+          "const": "observed_flow_step"
+        },
+        "flowStepIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SafeOpaqueId"
+          }
+        }
+      }
+    },
+    "GovernedSubjectBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "flowStepIndex",
+        "evidenceIds"
+      ],
+      "properties": {
+        "kind": {
+          "const": "governed_subject"
+        },
+        "flowStepIndex": {
+          "type": "null"
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SafeOpaqueId"
+          }
+        }
+      }
+    },
+    "SourceGrounding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRef",
+        "status",
+        "canonicalBinding",
+        "basis"
+      ],
+      "properties": {
+        "sourceRef": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/SourceStepRef"
+            },
+            {
+              "$ref": "#/definitions/ExpectedOutcomeRef"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "grounded",
+            "insufficient_evidence",
+            "ambiguous_evidence",
+            "unsupported_semantics"
+          ]
+        },
+        "canonicalBinding": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/definitions/ActionBinding"
+            },
+            {
+              "$ref": "#/definitions/OracleBinding"
+            }
+          ]
+        },
+        "basis": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/GovernedRouteBasis"
+            },
+            {
+              "$ref": "#/definitions/ObservedFlowStepBasis"
+            },
+            {
+              "$ref": "#/definitions/GovernedSubjectBasis"
+            }
+          ]
+        }
+      }
+    },
+    "ProposalOracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "subjectId",
+        "routePath",
+        "supportingObservationIds",
+        "explanation"
+      ],
+      "properties": {
+        "kind": {
+          "const": "subject_observable"
+        },
+        "subjectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "routePath": {
+          "$ref": "#/definitions/NonEmptyText"
+        },
+        "supportingObservationIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/SafeOpaqueId"
+          }
+        },
+        "explanation": {
+          "$ref": "#/definitions/NonEmptyText"
+        }
+      }
+    },
+    "AuthenticationBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "policyId",
+        "policyVersion",
+        "configurationDigest",
+        "mechanism"
+      ],
+      "properties": {
+        "kind": {
+          "const": "declared_configuration"
+        },
+        "policyId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "policyVersion": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "configurationDigest": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        },
+        "mechanism": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/definitions/SafeOpaqueId"
+            }
+          ]
+        }
+      }
+    },
+    "AuthenticationExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "state",
+        "mechanism",
+        "bases",
+        "identityHash"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "forge-authentication-expectation/v1"
+        },
+        "state": {
+          "enum": [
+            "required",
+            "not_required",
+            "unknown",
+            "conflicted"
+          ]
+        },
+        "mechanism": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/definitions/SafeOpaqueId"
+            }
+          ]
+        },
+        "bases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AuthenticationBasis"
+          }
+        },
+        "identityHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        }
+      }
+    },
+    "ManualAutomationProposalV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "proposalId",
+        "projectId",
+        "sourceAuthority",
+        "authority",
+        "appArea",
+        "normalizedIntent",
+        "normalizedIntentContentHash",
+        "sourceGrounding",
+        "canonicalActions",
+        "oracle",
+        "authenticationExpectation",
+        "limitations",
+        "disposition",
+        "proposalContentHash"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "forge-manual-automation-proposal/v1"
+        },
+        "proposalId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "projectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "sourceAuthority": {
+          "$ref": "#/definitions/SourceAuthority"
+        },
+        "authority": {
+          "$ref": "#/definitions/ProposalAuthority"
+        },
+        "appArea": {
+          "$ref": "#/definitions/AppArea"
+        },
+        "normalizedIntent": {
+          "$ref": "#/definitions/SupportedNormalizedTestIntentV1"
+        },
+        "normalizedIntentContentHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        },
+        "sourceGrounding": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 51,
+          "items": {
+            "$ref": "#/definitions/SourceGrounding"
+          }
+        },
+        "canonicalActions": {
+          "$ref": "#/definitions/CanonicalActions"
+        },
+        "oracle": {
+          "$ref": "#/definitions/ProposalOracle"
+        },
+        "authenticationExpectation": {
+          "$ref": "#/definitions/AuthenticationExpectation"
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NonEmptyText"
+          }
+        },
+        "disposition": {
+          "$ref": "#/definitions/SupportedDisposition"
+        },
+        "proposalContentHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        }
+      }
+    },
+    "ManualAutomationRefusalV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "projectId",
+        "sourceAuthority",
+        "code",
+        "evidenceState",
+        "safeMessage",
+        "sourceGrounding",
+        "limitations"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "forge-manual-automation-refusal/v1"
+        },
+        "projectId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "sourceAuthority": {
+          "$ref": "#/definitions/SourceAuthority"
+        },
+        "code": {
+          "enum": [
+            "insufficient_evidence",
+            "ambiguous_evidence",
+            "unsupported_semantics",
+            "app_area_unknown"
+          ]
+        },
+        "evidenceState": {
+          "enum": [
+            "insufficient",
+            "ambiguous",
+            "unsupported"
+          ]
+        },
+        "safeMessage": {
+          "$ref": "#/definitions/NonEmptyText"
+        },
+        "sourceGrounding": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 51,
+          "items": {
+            "$ref": "#/definitions/SourceGrounding"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NonEmptyText"
+          }
+        }
+      }
+    },
+    "ProposalOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "proposal"
+      ],
+      "properties": {
+        "kind": {
+          "const": "proposal"
+        },
+        "proposal": {
+          "$ref": "#/definitions/ManualAutomationProposalV1"
+        }
+      }
+    },
+    "RefusalOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "refusal"
+      ],
+      "properties": {
+        "kind": {
+          "const": "refusal"
+        },
+        "refusal": {
+          "$ref": "#/definitions/ManualAutomationRefusalV1"
+        }
+      }
+    },
+    "ManualAnalysisResultV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "outcome"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "forge-manual-analysis-result/v1"
+        },
+        "outcome": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/ProposalOutcome"
+            },
+            {
+              "$ref": "#/definitions/RefusalOutcome"
+            }
+          ]
+        }
+      }
+    },
+    "PromotionProposalAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposalId",
+        "proposalContentHash"
+      ],
+      "properties": {
+        "proposalId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "proposalContentHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        }
+      }
+    },
+    "DefinitionAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definitionId",
+        "definitionSchemaVersion",
+        "testSetId",
+        "testSetRevision",
+        "testSetContentHash"
+      ],
+      "properties": {
+        "definitionId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "definitionSchemaVersion": {
+          "const": 3
+        },
+        "testSetId": {
+          "$ref": "#/definitions/SafeOpaqueId"
+        },
+        "testSetRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "testSetContentHash": {
+          "$ref": "#/definitions/OpaqueContentHash"
+        }
+      }
+    },
+    "ManualPromotionResultV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "outcome",
+        "sourceAuthority",
+        "proposalAuthority",
+        "definitionAuthority"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "forge-manual-promotion-result/v1"
+        },
+        "outcome": {
+          "const": "promoted"
+        },
+        "sourceAuthority": {
+          "$ref": "#/definitions/SourceAuthority"
+        },
+        "proposalAuthority": {
+          "$ref": "#/definitions/PromotionProposalAuthority"
+        },
+        "definitionAuthority": {
+          "$ref": "#/definitions/DefinitionAuthority"
+        }
+      }
+    }
+  }
+}

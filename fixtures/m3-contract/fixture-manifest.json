@@ -1,0 +1,33 @@
+{
+  "schema": "contract.schema.json",
+  "fixtures": [
+    {
+      "file": "positive-manual-source.json",
+      "rootType": "ManualTestSourceV1"
+    },
+    {
+      "file": "positive-automation-proposal.json",
+      "rootType": "ManualAutomationProposalV1"
+    },
+    {
+      "file": "positive-save-result.json",
+      "rootType": "ManualPromotionResultV1"
+    },
+    {
+      "file": "unsupported-fill.json",
+      "rootType": "ManualAnalysisResultV1"
+    },
+    {
+      "file": "ambiguous-control.json",
+      "rootType": "ManualAnalysisResultV1"
+    },
+    {
+      "file": "insufficient-outcome.json",
+      "rootType": "ManualAnalysisResultV1"
+    },
+    {
+      "file": "app-area-unknown.json",
+      "rootType": "ManualAnalysisResultV1"
+    }
+  ]
+}

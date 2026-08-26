@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "forge-manual-test-source/v1",
+  "sourceId": "manual-source-checkout-cart-01",
+  "projectId": "project-storefront",
+  "sourceKind": "manual",
+  "title": "Checkout from cart",
+  "objective": "Proceed from cart to checkout.",
+  "steps": [
+    {
+      "ordinal": 1,
+      "text": "Open the cart page."
+    },
+    {
+      "ordinal": 2,
+      "text": "Click the Checkout button."
+    }
+  ],
+  "expectedOutcome": "Checkout information page is displayed.",
+  "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

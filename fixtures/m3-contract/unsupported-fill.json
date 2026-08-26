@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "forge-manual-analysis-result/v1",
+  "outcome": {
+    "kind": "refusal",
+    "refusal": {
+      "schemaVersion": "forge-manual-automation-refusal/v1",
+      "projectId": "project-storefront",
+      "sourceAuthority": {
+        "sourceId": "manual-source-unsupported-fill-01",
+        "sourceContentHash": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "code": "unsupported_semantics",
+      "evidenceState": "unsupported",
+      "safeMessage": "The manual source requires a fill action outside the frozen canonical action set.",
+      "sourceGrounding": [
+        {
+          "sourceRef": {
+            "kind": "step",
+            "ordinal": 1
+          },
+          "status": "grounded",
+          "canonicalBinding": {
+            "kind": "action",
+            "ordinal": 0
+          },
+          "basis": {
+            "kind": "governed_route",
+            "flowStepIndex": null,
+            "evidenceIds": [
+              "obs-checkout-route"
+            ]
+          }
+        },
+        {
+          "sourceRef": {
+            "kind": "step",
+            "ordinal": 2
+          },
+          "status": "unsupported_semantics",
+          "canonicalBinding": null,
+          "basis": {
+            "kind": "observed_flow_step",
+            "flowStepIndex": 0,
+            "evidenceIds": [
+              "obs-first-name-control"
+            ]
+          }
+        },
+        {
+          "sourceRef": {
+            "kind": "step",
+            "ordinal": 3
+          },
+          "status": "grounded",
+          "canonicalBinding": {
+            "kind": "action",
+            "ordinal": 1
+          },
+          "basis": {
+            "kind": "observed_flow_step",
+            "flowStepIndex": 1,
+            "evidenceIds": [
+              "obs-continue-control"
+            ]
+          }
+        },
+        {
+          "sourceRef": {
+            "kind": "expected_outcome"
+          },
+          "status": "grounded",
+          "canonicalBinding": {
+            "kind": "oracle",
+            "oracleKind": "subject_observable"
+          },
+          "basis": {
+            "kind": "governed_subject",
+            "flowStepIndex": null,
+            "evidenceIds": [
+              "obs-overview-subject"
+            ]
+          }
+        }
+      ],
+      "limitations": [
+        "No partial Definition is created when any authored source step requires unsupported semantics."
+      ]
+    }
+  }
+}

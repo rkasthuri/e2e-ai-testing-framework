@@ -1,0 +1,216 @@
+{
+  "schemaVersion": "forge-manual-automation-proposal/v1",
+  "proposalId": "manual-proposal-checkout-cart-01",
+  "projectId": "project-storefront",
+  "sourceAuthority": {
+    "sourceId": "manual-source-checkout-cart-01",
+    "sourceContentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "authority": {
+    "modelRowId": 42,
+    "modelVersion": "app-model-v7",
+    "observationRunId": "11111111-1111-4111-8111-111111111111",
+    "supportSealHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "routeEvidenceIdentityHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "authenticationExpectationIdentityHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "appArea": {
+    "id": "checkout",
+    "sourceSubjectId": "subject-cart",
+    "confidence": "high",
+    "method": "rule",
+    "evidenceIds": [
+      "subject-cart"
+    ]
+  },
+  "normalizedIntent": {
+    "schemaVersion": "forge-normalized-test-intent/v1",
+    "intentId": "manual-intent-checkout-cart-01",
+    "projectId": "project-storefront",
+    "source": "manual",
+    "appArea": {
+      "id": "checkout",
+      "sourceSubjectId": "subject-cart",
+      "confidence": "high",
+      "method": "rule",
+      "evidenceIds": [
+        "subject-cart"
+      ]
+    },
+    "title": "Checkout from cart",
+    "objective": "Proceed from cart to checkout.",
+    "preconditions": [
+      {
+        "kind": "authenticated_role",
+        "roleId": "shopper",
+        "mechanism": "form-login"
+      }
+    ],
+    "steps": [
+      {
+        "stepId": "intent-step-manual-checkout-nav",
+        "ordinal": 0,
+        "kind": "navigate_to_observed_route",
+        "subjectId": "subject-cart",
+        "routePath": "/cart.html"
+      },
+      {
+        "stepId": "intent-step-manual-checkout-click",
+        "ordinal": 1,
+        "kind": "click_observed_data_test",
+        "subjectId": "subject-cart",
+        "elementId": "subject-checkout-control",
+        "dataTestValue": "checkout",
+        "targetSubjectId": "subject-checkout-step-one"
+      }
+    ],
+    "expectedOutcomes": [
+      {
+        "outcomeId": "manual-outcome-checkout-step-one",
+        "kind": "subject_observable",
+        "subjectId": "subject-checkout-step-one",
+        "routePath": "/checkout-step-one.html"
+      }
+    ],
+    "grounding": {
+      "modelRowId": 42,
+      "modelVersion": "app-model-v7",
+      "observationRunId": "11111111-1111-4111-8111-111111111111",
+      "supportSealHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "sourceFlowId": "flow-cart-checkout",
+      "selectedFlowStepIndexes": [
+        0
+      ],
+      "excludedFlowStepIndexes": [],
+      "subjectSupport": [
+        {
+          "canonicalSubjectId": "subject-cart",
+          "supportingObservationIds": [
+            "obs-cart-route",
+            "obs-checkout-control"
+          ],
+          "supportingGapIds": []
+        },
+        {
+          "canonicalSubjectId": "subject-checkout-step-one",
+          "supportingObservationIds": [
+            "obs-checkout-subject"
+          ],
+          "supportingGapIds": []
+        }
+      ]
+    },
+    "evidenceAssessment": {
+      "state": "sufficient",
+      "sourceFlowConfidence": "observed",
+      "selectedStepGrounding": "observed",
+      "limitations": []
+    },
+    "disposition": {
+      "state": "supported"
+    }
+  },
+  "normalizedIntentContentHash": "9999999999999999999999999999999999999999999999999999999999999999",
+  "sourceGrounding": [
+    {
+      "sourceRef": {
+        "kind": "step",
+        "ordinal": 1
+      },
+      "status": "grounded",
+      "canonicalBinding": {
+        "kind": "action",
+        "ordinal": 0
+      },
+      "basis": {
+        "kind": "governed_route",
+        "flowStepIndex": null,
+        "evidenceIds": [
+          "obs-cart-route"
+        ]
+      }
+    },
+    {
+      "sourceRef": {
+        "kind": "step",
+        "ordinal": 2
+      },
+      "status": "grounded",
+      "canonicalBinding": {
+        "kind": "action",
+        "ordinal": 1
+      },
+      "basis": {
+        "kind": "observed_flow_step",
+        "flowStepIndex": 0,
+        "evidenceIds": [
+          "obs-checkout-control"
+        ]
+      }
+    },
+    {
+      "sourceRef": {
+        "kind": "expected_outcome"
+      },
+      "status": "grounded",
+      "canonicalBinding": {
+        "kind": "oracle",
+        "oracleKind": "subject_observable"
+      },
+      "basis": {
+        "kind": "governed_subject",
+        "flowStepIndex": null,
+        "evidenceIds": [
+          "obs-checkout-subject"
+        ]
+      }
+    }
+  ],
+  "canonicalActions": [
+    {
+      "stepId": "intent-step-manual-checkout-nav",
+      "ordinal": 0,
+      "kind": "navigate_to_observed_route",
+      "subjectId": "subject-cart",
+      "routePath": "/cart.html"
+    },
+    {
+      "stepId": "intent-step-manual-checkout-click",
+      "ordinal": 1,
+      "kind": "click_observed_data_test",
+      "subjectId": "subject-cart",
+      "elementId": "subject-checkout-control",
+      "dataTestValue": "checkout",
+      "targetSubjectId": "subject-checkout-step-one"
+    }
+  ],
+  "oracle": {
+    "kind": "subject_observable",
+    "subjectId": "subject-checkout-step-one",
+    "routePath": "/checkout-step-one.html",
+    "supportingObservationIds": [
+      "obs-checkout-subject"
+    ],
+    "explanation": "The governed target subject is observable at the expected checkout route."
+  },
+  "authenticationExpectation": {
+    "schemaVersion": "forge-authentication-expectation/v1",
+    "state": "required",
+    "mechanism": "form-login",
+    "bases": [
+      {
+        "kind": "declared_configuration",
+        "policyId": "forge.authentication-expectation.declared-configuration",
+        "policyVersion": "1",
+        "configurationDigest": "7777777777777777777777777777777777777777777777777777777777777777",
+        "mechanism": "form-login"
+      }
+    ],
+    "identityHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "limitations": [],
+  "disposition": {
+    "state": "supported"
+  },
+  "proposalContentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}
