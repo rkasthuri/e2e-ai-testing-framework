@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "forge-m2-certification-case/v1",
+  "caseId": "M2-01-checkout-sanity-v2",
+  "title": "Checkout Sanity revision 1 executes exact ordered current v2 authority",
+  "scenario": "golden_v2",
+  "projectId": "project-storefront",
+  "testSets": [{
+    "projectId": "project-storefront", "testSetId": "test-set-checkout", "testSetRevision": 7, "definitionSchemaVersion": 2,
+    "testSetContentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "definitions": [
+      { "definitionId": "definition-checkout-a", "executable": true, "executionOutcome": "passed" },
+      { "definitionId": "definition-checkout-b", "executable": true, "executionOutcome": "passed" }
+    ]
+  }],
+  "suite": { "name": "Checkout Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-checkout-a", "definition-checkout-b"] },
+  "hostileCases": [], "uiRequirements": [], "tags": ["golden", "v2", "ordered_members"]
+}
