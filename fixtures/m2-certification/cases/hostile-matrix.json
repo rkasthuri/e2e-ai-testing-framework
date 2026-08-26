@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "forge-m2-certification-case/v1",
+  "caseId": "M2-04-hostile-matrix",
+  "title": "Frozen M2 hostile authority and identity matrix",
+  "scenario": "hostile_matrix",
+  "projectId": "project-hostile",
+  "testSets": [
+    {
+      "projectId": "project-hostile", "testSetId": "test-set-hostile", "testSetRevision": 4, "definitionSchemaVersion": 2,
+      "testSetContentHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "definitions": [
+        { "definitionId": "definition-hostile-a", "executable": true, "executionOutcome": "passed" },
+        { "definitionId": "definition-hostile-b", "executable": true, "executionOutcome": "passed" }
+      ]
+    },
+    {
+      "projectId": "project-hostile", "testSetId": "test-set-hostile", "testSetRevision": 5, "definitionSchemaVersion": 2,
+      "testSetContentHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "definitions": [
+        { "definitionId": "definition-hostile-a", "executable": true, "executionOutcome": "passed" },
+        { "definitionId": "definition-hostile-b", "executable": true, "executionOutcome": "passed" }
+      ]
+    }
+  ],
+  "suite": { "name": "Hostile Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-hostile-a", "definition-hostile-b"] },
+  "hostileCases": [
+    "mixed_test_set_ids", "mixed_revisions", "mixed_hashes", "mixed_schemas", "v1_member", "missing_definition", "cross_project_definition",
+    "malformed_authority_claim", "corrupt_suite_hash", "missing_suite_authority_field", "persisted_ordinal_member_inconsistency", "invalid_persisted_authority",
+    "ordinal_gap", "duplicate_member", "duplicate_normalized_name", "empty_suite", "more_than_50_members",
+    "reorder_new_revision_hash", "rename_new_revision", "historical_revision_unchanged", "stale_expected_revision", "same_change_key_exact_retry",
+    "same_change_key_different_content", "same_start_key_exact_retry", "same_start_key_changed_selection", "authority_changes_after_preflight",
+    "client_injects_members_at_start", "suite_identity_content_mismatch", "results_from_current_head", "legacy_suite_masquerade", "partial_member_preflight"
+  ],
+  "uiRequirements": [], "tags": ["hostile", "fail_closed", "idempotency"]
+}

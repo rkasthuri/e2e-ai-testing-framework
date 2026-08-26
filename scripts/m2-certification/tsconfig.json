@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../.."
+  },
+  "include": [
+    "./*.ts",
+    "../verify-m2-certification-contract.test.ts",
+    "../verify-m2-certification-self-falsification.test.ts"
+  ],
+  "exclude": []
+}

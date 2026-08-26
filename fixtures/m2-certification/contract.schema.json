@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "forge-m2-certification-case-v1",
+  "title": "FORGE M2 independent Suite certification fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "caseId", "title", "scenario", "projectId", "testSets", "suite", "hostileCases", "uiRequirements", "tags"],
+  "properties": {
+    "schemaVersion": { "const": "forge-m2-certification-case/v1" },
+    "caseId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "scenario": { "enum": ["golden_v2", "positive_v3", "stale_authority", "hostile_matrix", "fail_fast_results", "ui_contract"] },
+    "projectId": { "type": "string", "minLength": 1 },
+    "testSets": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/testSet" } },
+    "suite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "purpose", "orderedDefinitionIds"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "purpose": { "const": "sanity" },
+        "orderedDefinitionIds": { "type": "array", "minItems": 1, "maxItems": 50, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "hostileCases": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "authority_changes_after_preflight", "client_injects_members_at_start", "corrupt_suite_hash", "cross_project_definition",
+          "duplicate_member", "duplicate_normalized_name", "empty_suite", "historical_revision_unchanged", "invalid_persisted_authority", "legacy_suite_masquerade",
+          "malformed_authority_claim", "missing_definition", "missing_suite_authority_field", "mixed_hashes", "mixed_revisions", "mixed_schemas", "mixed_test_set_ids",
+          "more_than_50_members", "ordinal_gap", "partial_member_preflight", "rename_new_revision", "reorder_new_revision_hash",
+          "persisted_ordinal_member_inconsistency", "results_from_current_head", "same_change_key_different_content", "same_change_key_exact_retry", "same_start_key_changed_selection",
+          "same_start_key_exact_retry", "stale_expected_revision", "suite_identity_content_mismatch", "v1_member"
+        ]
+      }
+    },
+    "uiRequirements": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "tags": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+  },
+  "definitions": {
+    "testSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "testSetId", "testSetRevision", "definitionSchemaVersion", "testSetContentHash", "definitions"],
+      "properties": {
+        "projectId": { "type": "string", "minLength": 1 },
+        "testSetId": { "type": "string", "minLength": 1 },
+        "testSetRevision": { "type": "integer", "minimum": 1 },
+        "definitionSchemaVersion": { "enum": [2, 3] },
+        "testSetContentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "definitions": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/definition" } }
+      }
+    },
+    "definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["definitionId", "executable", "executionOutcome"],
+      "properties": {
+        "definitionId": { "type": "string", "minLength": 1 },
+        "executable": { "type": "boolean" },
+        "executionOutcome": { "enum": ["passed", "failed", "could_not_verify"] }
+      }
+    }
+  }
+}

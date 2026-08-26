@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "forge-m2-certification-case/v1",
+  "caseId": "M2-06-ui-contract",
+  "title": "UI acceptance semantics without React implementation coupling",
+  "scenario": "ui_contract",
+  "projectId": "project-ui",
+  "testSets": [
+    {
+      "projectId": "project-ui", "testSetId": "test-set-ui", "testSetRevision": 1, "definitionSchemaVersion": 2,
+      "testSetContentHash": "3434343434343434343434343434343434343434343434343434343434343434",
+      "definitions": [
+        { "definitionId": "definition-ui-a", "executable": true, "executionOutcome": "passed" },
+        { "definitionId": "definition-ui-b", "executable": true, "executionOutcome": "passed" }
+      ]
+    },
+    {
+      "projectId": "project-ui", "testSetId": "test-set-ui", "testSetRevision": 2, "definitionSchemaVersion": 2,
+      "testSetContentHash": "5656565656565656565656565656565656565656565656565656565656565656",
+      "definitions": [
+        { "definitionId": "definition-ui-a", "executable": true, "executionOutcome": "passed" },
+        { "definitionId": "definition-ui-b", "executable": true, "executionOutcome": "passed" }
+      ]
+    }
+  ],
+  "suite": { "name": "UI Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-ui-a", "definition-ui-b"] },
+  "hostileCases": [],
+  "uiRequirements": [
+    "saved_suite_list", "create_reopen", "name_purpose_revision_hash_visible", "exact_ordered_members_visible", "stale_suite_readable",
+    "stale_suite_cannot_run", "stale_edit_conflict", "whole_suite_eligibility_truth", "start_omits_membership", "results_show_accepted_immutable_revision"
+  ],
+  "tags": ["ui_contract", "semantic_only", "no_react_import"]
+}
