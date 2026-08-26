@@ -438,6 +438,64 @@ governing decision remains
   limitation boundaries were directly checked. Closure applies only to the M1
   canonical observed-flow vertical slice, not to the full FORGE roadmap.
 
+### M2 - Saved named sanity Suites and canonical Suite revision authority
+
+- **Parent / related:** Builds on M1 canonical Test Definition v2/v3 inventory,
+  Product Execution/Run/Result authority, and the observed-flow vertical slice;
+  direct v2 and M1 behavior remains compatible and unchanged.
+- **Category:** Product / Architecture / Certification.
+- **Status:** **Committed** / **CI-Green** for this M2 milestone only.
+- **Purpose:** Deliver saved named Suites whose canonical identity and immutable
+  revisions provide the only Product authority for repeatable sanity execution.
+- **Key invariants:** Suite purpose is exactly `sanity`. Ordered, contiguous,
+  1-based membership is pinned to one exact current Test Set authority tuple;
+  create, reopen, and revise are project-scoped, append immutable revisions,
+  reject stale edits, and preserve idempotent replay. A Suite remains readable
+  after its pinned Test Set ceases to be current, but preflight and Start refuse
+  `stale_suite_authority` without substituting another revision or authority.
+  Migration 032 persists Suite authority and preserves trigger integrity across
+  restart. Start accepts only `suiteId` plus `suiteRevision`; the server resolves
+  membership and atomically revalidates the complete Suite integrity and current
+  Test Set authority. The Execution manifest preserves exact Suite order and
+  Start idempotency. Results retain immutable historical Suite provenance and
+  never fall back to current-head or legacy authority.
+- **Scope:** Canonical Suite contracts, service, repository, Migration
+  `032_canonical_suite_revision_authority`, Product preflight/Start/Execution and
+  Results projection, Saved Suites UI with authoritative preflight and head
+  refresh, strict Suite UUID/timestamp transport decoding, and the real Product
+  M2 certification driver plus independent certification contract. Certification
+  treats Product Suite hashes as opaque authority and distinguishes integrity
+  failure from stale authority rather than deriving Product hash bytes.
+- **Validation / certification:** Pre-commit local validation recorded focused
+  M2 certification 78/78 PASS, targeted regressions 294/294 PASS,
+  persistence/governance 36/36 PASS, full unit discovery 1542/1542 PASS, root
+  and `forge-ui` typechecks PASS, and `forge-ui` production build PASS. The
+  governed offline baseline was unavailable locally because no legitimate
+  Product database existed; no Product authority or baseline result was
+  fabricated. `E2E AI Testing Pipeline` run #317 (run ID `32986251750`)
+  triggered on exact M2 code SHA
+  `400d760843117316224ef39ec44b743b38d5db30` and concluded `success`: CI unit
+  discovery was 1542/1542 PASS, root/eval typechecks PASS, stable Playwright was
+  316/316 PASS, failed/flaky was 0/0, and the current-run evidence decision was
+  PASS.
+- **Commit / CI:** M2 code commit
+  `400d760843117316224ef39ec44b743b38d5db30`; direct exact-SHA run #317,
+  **success**; **Committed** / **CI-Green**. Workflow child
+  `cf2d981b0b1019adaa001a2e6f9f89b66979c322` has the exact M2 code commit as
+  its parent and changes only `reports/run-history.json`; it is not the M2 code
+  SHA.
+- **Remaining / follow-on:** M2 intentionally supports only Suites pinned to one
+  currently authoritative Test Set; historical or mixed-Test-Set Suite execution
+  remains out of scope. Scheduling, dynamic Suites, AI Suite generation,
+  archive/delete, healing, and triage are not included. The accepted local
+  Product constraints continue to apply; this closure does not establish broader
+  FORGE or external-user readiness.
+- **Evidence note:** Exact code identity and scope, Migration 032, certification
+  driver/hash boundary, local counts, exact-SHA CI result, workflow-child
+  ancestry/scope, compatibility, and bounded limitation wording were checked.
+  Closure applies only to M2 saved named sanity Suites and canonical Suite
+  revision authority.
+
 ### TD-GOV-BASELINE-001 - Permission-stable governed baseline harness
 
 - **Parent / related:** Separate governance scope; not part of
