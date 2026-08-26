@@ -12,8 +12,10 @@
 
 import * as crypto from 'crypto'
 import type { Kysely, Transaction } from 'kysely'
+import { SuiteContractError } from '../../suites/SuiteContract'
 import { getProductDb } from '../db'
 import type { Database, Execution, ExecutionEvent, ExecutionItem, ExecutionLock } from '../types'
+import { SuiteRepository } from './SuiteRepository'
 
 /**
  * Existing FORGE run-lifecycle precedent uses a two-hour on-next-run stale
@@ -117,7 +119,7 @@ export class StaleExecutionAuthorityError extends Error {
 
 export class SuiteExecutionIntegrityError extends Error {
   constructor() {
-    super('The accepted Suite membership no longer matches its immutable ordered manifest.')
+    super('The exact Suite revision failed canonical integrity revalidation at execution acceptance.')
     this.name = 'SuiteExecutionIntegrityError'
   }
 }
@@ -199,7 +201,11 @@ function terminalMessage(outcome: ExecutionTerminalOutcome): string {
 }
 
 export class ExecutionRepository {
-  constructor(private readonly dbProvider: () => Kysely<Database> = getProductDb) {}
+  private readonly suites: SuiteRepository
+
+  constructor(private readonly dbProvider: () => Kysely<Database> = getProductDb) {
+    this.suites = new SuiteRepository(dbProvider)
+  }
 
   async findExecutionIntent(projectId: string, executionIntentKey: string): Promise<ExecutionIntentReplay | null> {
     if (!SAFE_ID.test(projectId) || !SAFE_INTENT_KEY.test(executionIntentKey)) {
@@ -251,23 +257,48 @@ export class ExecutionRepository {
           .selectAll().where('project_id', '=', input.projectId).executeTakeFirst()
         if (existingLock) throw new DuplicateExecutionError()
 
+        let verifiedSuite: Awaited<ReturnType<SuiteRepository['readVerifiedInTransaction']>> | undefined
+        if (input.suiteAuthority) {
+          try {
+            verifiedSuite = await this.suites.readVerifiedInTransaction(
+              trx, input.projectId, input.suiteAuthority.suiteId, input.suiteAuthority.suiteRevision,
+            )
+          } catch (cause) {
+            if (cause instanceof SuiteContractError) throw new SuiteExecutionIntegrityError()
+            throw cause
+          }
+          const pinned = verifiedSuite.members[0].definitionAuthority
+          if (verifiedSuite.contentHash !== input.suiteAuthority.suiteContentHash
+            || pinned.testSetId !== input.expectedTestSetId
+            || pinned.testSetRevision !== input.expectedRevision
+            || pinned.definitionSchemaVersion !== (input.definitionSchemaVersion ?? 1)
+            || pinned.testSetContentHash !== input.expectedTestSetContentHash
+            || verifiedSuite.members.length !== input.manifestItems.length
+            || verifiedSuite.members.some((member, index) => member.ordinal !== index + 1
+              || member.definitionAuthority.definitionId !== input.manifestItems[index].definitionId)) {
+            throw new SuiteExecutionIntegrityError()
+          }
+        }
+
         const current = await trx.selectFrom('test_set_revisions')
           .select(['test_set_id', 'revision', 'schema_version', 'content_hash', 'support_seal_hash'])
           .where('project_id', '=', input.projectId)
           .orderBy('revision', 'desc').limit(1).executeTakeFirst()
-        if (!current || current.test_set_id !== input.expectedTestSetId
+        if (verifiedSuite) {
+          const pinned = verifiedSuite.members[0].definitionAuthority
+          if (!current || current.test_set_id !== pinned.testSetId
+            || Number(current.revision) !== pinned.testSetRevision
+            || Number(current.schema_version) !== pinned.definitionSchemaVersion
+            || current.content_hash !== pinned.testSetContentHash) {
+            throw new StaleExecutionAuthorityError('stale_suite_authority')
+          }
+        } else if (!current || current.test_set_id !== input.expectedTestSetId
           || Number(current.revision) !== input.expectedRevision
           || Number(current.schema_version) !== (input.definitionSchemaVersion ?? 1)
           || input.definitionSchemaVersion !== undefined && input.definitionSchemaVersion !== 1
             && (current.content_hash !== input.expectedTestSetContentHash
             || current.support_seal_hash !== input.supportSealHash)) {
-          throw new StaleExecutionAuthorityError(input.suiteAuthority ? 'stale_suite_authority' : 'stale_definition')
-        }
-        if (input.suiteAuthority) {
-          const suite=await trx.selectFrom('suite_revisions').selectAll().where('suite_id','=',input.suiteAuthority.suiteId).where('revision','=',input.suiteAuthority.suiteRevision).where('project_id','=',input.projectId).executeTakeFirst()
-          if (!suite || suite.content_hash!==input.suiteAuthority.suiteContentHash || suite.test_set_id!==input.expectedTestSetId || Number(suite.test_set_revision)!==input.expectedRevision || suite.test_set_content_hash!==input.expectedTestSetContentHash || Number(suite.definition_schema_version)!==(input.definitionSchemaVersion??1)) throw new StaleExecutionAuthorityError('stale_suite_authority')
-          const members=await trx.selectFrom('suite_revision_members').selectAll().where('suite_id','=',suite.suite_id).where('suite_revision','=',suite.revision).orderBy('member_ordinal').execute()
-          if (members.length!==input.manifestItems.length || members.some((m,i)=>Number(m.member_ordinal)!==i+1 || m.definition_id!==input.manifestItems[i].definitionId)) throw new SuiteExecutionIntegrityError()
+          throw new StaleExecutionAuthorityError('stale_definition')
         }
         const models = await trx.selectFrom('app_models')
           .select(['id', 'version']).where('app_name', '=', input.projectId)

@@ -231,6 +231,7 @@ const ENGINE = {
   planExecutor: '../../../src/core/execution/PlaywrightPlanExecutor',
   executionService: '../../../src/core/execution/ExecutionService',
   executionResultProjection: '../../../src/core/execution/ExecutionResultProjectionService',
+  suites:        '../../../src/core/suites/SuiteService',
   observations: '../../../src/core/observation/ObservationService',
   observationProjection: '../../../src/core/observation/ObservationReadProjectionService',
   testDefinitionAuthority: '../../../src/core/test-design/TestDefinitionAuthorityProjectionService',
@@ -348,6 +349,47 @@ export class ExecutionContext {
         workspaceRoot: this.workspaces.resolve(appName).root,
         credentialReference: credentialStore.read(appName) ?? CredentialStore.defaultReference(appName),
       })
+    })
+  }
+
+  /** M2: canonical Product Suite authority; routes remain transport-only. */
+  readProductSuiteHeads(appName: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.suites)
+      return new mod.SuiteService().listHeads(appName)
+    })
+  }
+
+  readProductSuiteRevision(appName: string, suiteId: string, revision?: number): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.suites)
+      return new mod.SuiteService().read(appName, suiteId, revision)
+    })
+  }
+
+  readProductSuiteCandidates(appName: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.suites)
+      return new mod.SuiteService().readCandidates(appName)
+    })
+  }
+
+  createProductSuite(appName: string, input: Record<string, unknown>): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.suites)
+      return new mod.SuiteService().create({ ...input, projectId: appName })
+    })
+  }
+
+  reviseProductSuite(appName: string, input: Record<string, unknown>): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.suites)
+      return new mod.SuiteService().revise({ ...input, projectId: appName })
     })
   }
 

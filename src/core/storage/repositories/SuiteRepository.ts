@@ -28,6 +28,25 @@ export interface SuiteWriteInput {
 export class SuiteRepository {
   constructor(private readonly dbProvider: () => Kysely<Database> = getProductDb) {}
 
+  async listHeads(projectId: string): Promise<CanonicalSuiteRevision[]> {
+    try {
+      return await this.dbProvider().transaction().execute(async trx => {
+        const heads = await trx.selectFrom('suites').selectAll()
+          .where('project_id', '=', projectId).orderBy('created_at').orderBy('suite_id').execute()
+        const revisions: CanonicalSuiteRevision[] = []
+        for (const head of heads) {
+          revisions.push(await this.readVerifiedInTransaction(
+            trx, projectId, head.suite_id, Number(head.current_revision),
+          ))
+        }
+        return revisions
+      })
+    } catch (cause) {
+      if (cause instanceof SuiteContractError) throw cause
+      throw new SuiteContractError('suite_integrity_invalid', 'Suite heads could not be validated safely.')
+    }
+  }
+
   async read(projectId: string, suiteId: string, revision?: number): Promise<CanonicalSuiteRevision> {
     try {
       return await this.dbProvider().transaction().execute(async trx => {

@@ -172,7 +172,9 @@ export type M2HostileCase =
   | 'mixed_schemas'
   | 'mixed_test_set_ids'
   | 'more_than_50_members'
+  | 'ordinal_zero'
   | 'ordinal_gap'
+  | 'duplicate_ordinal'
   | 'partial_member_preflight'
   | 'persisted_ordinal_member_inconsistency'
   | 'historical_revision_unchanged'
@@ -199,6 +201,7 @@ export interface M2CertificationCase {
     name: string;
     purpose: 'sanity';
     orderedDefinitionIds: string[];
+    expectedOrdinals: number[];
   };
   hostileCases: M2HostileCase[];
   uiRequirements: string[];
@@ -285,7 +288,7 @@ function parseMembers(value: unknown): SuiteMember[] | null {
     const authority = objectValue(member?.definitionAuthority);
     if (!member || !authority || !exactKeys(member, ['ordinal', 'definitionAuthority'])
       || !exactKeys(authority, ['definitionId', 'testSetId', 'testSetRevision', 'definitionSchemaVersion', 'testSetContentHash'])
-      || !Number.isSafeInteger(member.ordinal) || Number(member.ordinal) < 0
+      || !Number.isSafeInteger(member.ordinal) || Number(member.ordinal) < 1
       || typeof authority.definitionId !== 'string' || authority.definitionId.length === 0
       || typeof authority.testSetId !== 'string' || authority.testSetId.length === 0
       || !Number.isSafeInteger(authority.testSetRevision) || Number(authority.testSetRevision) < 1
@@ -580,7 +583,7 @@ export class ReferenceM2Driver implements M2CertificationDriver {
 
   private validMembers(projectId: string, members: SuiteMember[]): boolean {
     const current = this.testSets.get(projectId);
-    if (!current || members.some((member, index) => member.ordinal !== index)
+    if (!current || members.some((member, index) => member.ordinal !== index + 1)
       || new Set(members.map(member => member.definitionAuthority.definitionId)).size !== members.length) return false;
     const expectedAuthority = authorityOf(current);
     return members.every(member => sameAuthority(member.definitionAuthority, expectedAuthority)
@@ -589,7 +592,9 @@ export class ReferenceM2Driver implements M2CertificationDriver {
 
   private buildSuite(suiteId: string, revision: number, parsed: ParsedMutation): SavedSuite {
     let members = cloneValue(parsed.members);
-    if (this.faults.has('reorder_members')) members = [...members].reverse().map((member, ordinal) => ({ ...member, ordinal }));
+    if (this.faults.has('reorder_members')) {
+      members = [...members].reverse().map((member, index) => ({ ...member, ordinal: index + 1 }));
+    }
     const base: Omit<SavedSuite, 'contentHash'> = {
       schemaVersion: 1,
       suiteId,

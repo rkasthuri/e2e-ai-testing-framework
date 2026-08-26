@@ -10,7 +10,14 @@
  * of this software is strictly prohibited.
  */
 
-import type { CanonicalSuiteCandidateSet, CanonicalSuiteRevision, SuiteChangeRequest } from './suiteContract'
+import { apiClient, ApiError } from './client'
+import { decodeCanonicalExecutionStartAccepted, type CanonicalExecutionStartAccepted } from './executionContract'
+import {
+  buildSuiteExecutionStartBody, decodeCanonicalSuiteCandidateSet, decodeCanonicalSuiteExecutionPreflight,
+  decodeCanonicalSuiteHeads, decodeCanonicalSuiteRevision,
+  type CanonicalSuiteCandidateSet, type CanonicalSuiteExecutionPreflight, type CanonicalSuiteRevision,
+  type SuiteChangeRequest, type SuitePresentationIntent,
+} from './suiteContract'
 
 export interface SuiteTransport {
   listHeads(projectId: string): Promise<readonly CanonicalSuiteRevision[]>
@@ -18,6 +25,8 @@ export interface SuiteTransport {
   readRevision(projectId: string, suiteId: string, revision: number): Promise<CanonicalSuiteRevision>
   readCandidates(projectId: string): Promise<CanonicalSuiteCandidateSet>
   save(projectId: string, request: SuiteChangeRequest): Promise<CanonicalSuiteRevision>
+  preflight(projectId:string,intent:SuitePresentationIntent):Promise<CanonicalSuiteExecutionPreflight>
+  start(projectId:string,executionIntentKey:string,intent:SuitePresentationIntent):Promise<CanonicalExecutionStartAccepted>
 }
 
 export class SuiteTransportUnavailableError extends Error {
@@ -28,15 +37,25 @@ export class SuiteTransportUnavailableError extends Error {
   }
 }
 
-/**
- * The sole production adapter seam while M2 Core is developed independently.
- * No endpoint path or DTO is guessed here. Replace this implementation only
- * after the frozen Core transport is present and can be decoded end-to-end.
- */
-export const suiteTransport: SuiteTransport = Object.freeze({
-  async listHeads() { throw new SuiteTransportUnavailableError() },
-  async refreshCurrentHead() { throw new SuiteTransportUnavailableError() },
-  async readRevision() { throw new SuiteTransportUnavailableError() },
-  async readCandidates() { throw new SuiteTransportUnavailableError() },
-  async save() { throw new SuiteTransportUnavailableError() },
-})
+export class SuiteTransportError extends Error {
+  constructor(readonly code:string,message:string){super(message);this.name='SuiteTransportError'}
+}
+
+function path(projectId:string):string{return `/api/v1/projects/${encodeURIComponent(projectId)}`}
+function normalizeError(cause:unknown):never{
+  if(cause instanceof ApiError)throw new SuiteTransportError((cause.code??'SUITE_UNAVAILABLE').toLowerCase(),cause.message)
+  throw cause
+}
+
+/** Sole production adapter for the frozen M2 Suite HTTP vocabulary. */
+const suiteTransportImplementation: SuiteTransport = {
+  async listHeads(projectId) {try{return decodeCanonicalSuiteHeads(await apiClient.get<unknown>(`${path(projectId)}/suites`),projectId)}catch(cause){normalizeError(cause)}},
+  async refreshCurrentHead(projectId,suiteId) {try{return decodeCanonicalSuiteRevision(await apiClient.get<unknown>(`${path(projectId)}/suites/${encodeURIComponent(suiteId)}`),projectId)}catch(cause){normalizeError(cause)}},
+  async readRevision(projectId,suiteId,revision) {try{return decodeCanonicalSuiteRevision(await apiClient.get<unknown>(`${path(projectId)}/suites/${encodeURIComponent(suiteId)}?revision=${revision}`),projectId)}catch(cause){normalizeError(cause)}},
+  async readCandidates(projectId) {try{return decodeCanonicalSuiteCandidateSet(await apiClient.get<unknown>(`${path(projectId)}/suites/candidates`),projectId)}catch(cause){normalizeError(cause)}},
+  async save(projectId,request) {try{const value=request.kind==='create'?await apiClient.post<unknown>(`${path(projectId)}/suites`,request):await apiClient.put<unknown>(`${path(projectId)}/suites/${encodeURIComponent(request.suiteId)}`,request);return decodeCanonicalSuiteRevision(value,projectId)}catch(cause){normalizeError(cause)}},
+  async preflight(projectId,intent){try{return decodeCanonicalSuiteExecutionPreflight(await apiClient.post<unknown>(`${path(projectId)}/execution/preflight`,{selection:{kind:'suite_revision',suiteId:intent.suiteId,suiteRevision:intent.suiteRevision}}),projectId,intent)}catch(cause){normalizeError(cause)}},
+  async start(projectId,executionIntentKey,intent){try{return decodeCanonicalExecutionStartAccepted(await apiClient.post<unknown>(`${path(projectId)}/execution/start`,buildSuiteExecutionStartBody(executionIntentKey,intent)))}catch(cause){normalizeError(cause)}},
+}
+
+export const suiteTransport: SuiteTransport = Object.freeze(suiteTransportImplementation)

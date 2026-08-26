@@ -22,11 +22,11 @@
       ]
     }
   ],
-  "suite": { "name": "Hostile Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-hostile-a", "definition-hostile-b"] },
+  "suite": { "name": "Hostile Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-hostile-a", "definition-hostile-b"], "expectedOrdinals": [1, 2] },
   "hostileCases": [
     "mixed_test_set_ids", "mixed_revisions", "mixed_hashes", "mixed_schemas", "v1_member", "missing_definition", "cross_project_definition",
     "malformed_authority_claim", "corrupt_suite_hash", "missing_suite_authority_field", "persisted_ordinal_member_inconsistency", "invalid_persisted_authority",
-    "ordinal_gap", "duplicate_member", "duplicate_normalized_name", "empty_suite", "more_than_50_members",
+    "ordinal_zero", "ordinal_gap", "duplicate_ordinal", "duplicate_member", "duplicate_normalized_name", "empty_suite", "more_than_50_members",
     "reorder_new_revision_hash", "rename_new_revision", "historical_revision_unchanged", "stale_expected_revision", "same_change_key_exact_retry",
     "same_change_key_different_content", "same_start_key_exact_retry", "same_start_key_changed_selection", "authority_changes_after_preflight",
     "client_injects_members_at_start", "suite_identity_content_mismatch", "results_from_current_head", "legacy_suite_masquerade", "partial_member_preflight"

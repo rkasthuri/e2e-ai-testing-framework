@@ -133,6 +133,10 @@ describe('M2 certification self-falsification', () => {
       fixture,
     );
     assert.equal(report.passed, true, report.findings.map(value => value.code).join(', '));
+    assert.deepEqual(
+      (report.observations.savedSuite as SavedSuite).members.map(member => member.ordinal),
+      [1, 2],
+    );
     assert.deepEqual([
       (report.observations.savedSuite as SavedSuite).contentHash,
       (report.observations.reopenedSuite as SavedSuite).contentHash,
@@ -230,7 +234,13 @@ describe('M2 certification self-falsification', () => {
   });
 
   test('reordering members is detected', async () => {
-    await expectBroken('reorder_members', 'golden-v2.json', ['SUITE_MEMBERSHIP_DRIFT']);
+    const report = await certifyM2Case(
+      new DeliberatelyBrokenM2Adapter('reorder_members'),
+      loadM2CertificationCase('golden-v2.json'),
+    );
+    assert.equal(report.passed, false);
+    assert.ok(report.findings.some(value => value.code === 'SUITE_MEMBERSHIP_DRIFT'));
+    assert.equal(report.findings.some(value => value.code === 'SUITE_ORDINAL_DRIFT'), false);
   });
 
   test('dropping Suite provenance is detected', async () => {

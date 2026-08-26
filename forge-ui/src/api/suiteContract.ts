@@ -92,6 +92,16 @@ export interface CanonicalSuiteSelectionAuthority {
   purpose: 'sanity'
 }
 
+export interface CanonicalSuiteExecutionPreflight {
+  kind: 'suite_preflight'
+  projectId: string
+  selection: { kind: 'suite_revision'; suiteId: string; suiteRevision: number }
+  selectionAuthority: CanonicalSuiteSelectionAuthority | null
+  aggregate: { state: string; explanation: string }
+  liveEligibility: { state: 'eligible' | 'blocked'; runner: 'available' | 'unavailable' | 'unknown'; credentials: 'available' | 'unavailable' | 'not_required' | 'unknown' }
+  boundaries: { suiteAuthority: 'established' | 'not_established'; executionEligibility: 'eligible' | 'blocked'; persisted: false }
+}
+
 export class SuiteContractError extends Error {
   constructor(message = 'Canonical Suite payload is malformed.') {
     super(message)
@@ -269,6 +279,29 @@ export function decodeCanonicalSuiteSelectionAuthority(value: unknown): Canonica
     name: text(source.name, 'Suite selection authority name'),
     purpose: 'sanity',
   })
+}
+
+export function decodeCanonicalSuiteExecutionPreflight(value: unknown, expectedProjectId:string, expected:SuitePresentationIntent):CanonicalSuiteExecutionPreflight{
+  const source=record(value,['kind','projectId','selection','selectionAuthority','aggregate','definitionResults','liveEligibility','boundaries'],'Suite preflight')
+  if(source.kind!=='suite_preflight')throw new SuiteContractError('Suite preflight kind is unsupported.')
+  const projectId=id(source.projectId,'Suite preflight projectId');if(projectId!==expectedProjectId)throw new SuiteContractError('Suite preflight project identity mismatch.')
+  const selection=record(source.selection,['kind','suiteId','suiteRevision'],'Suite preflight selection')
+  const suiteId=canonicalSuiteId(selection.suiteId,'Suite preflight selection suiteId')
+  const suiteRevision=positiveInteger(selection.suiteRevision,'Suite preflight selection suiteRevision')
+  if(selection.kind!=='suite_revision'||suiteId!==expected.suiteId||suiteRevision!==expected.suiteRevision)throw new SuiteContractError('Suite preflight selection identity mismatch.')
+  if(!Array.isArray(source.definitionResults)||source.definitionResults.some(item=>!item||typeof item!=='object'||Array.isArray(item)))throw new SuiteContractError('Suite preflight Definition results are malformed.')
+  const aggregate=record(source.aggregate,['state','explanation'],'Suite preflight aggregate')
+  const live=record(source.liveEligibility,['state','runner','credentials'],'Suite preflight live eligibility')
+  const boundaries=record(source.boundaries,['suiteAuthority','executionEligibility','persisted'],'Suite preflight boundaries')
+  const authority=source.selectionAuthority===null?null:decodeCanonicalSuiteSelectionAuthority(source.selectionAuthority)
+  if(authority&&(authority.suiteId!==suiteId||authority.suiteRevision!==suiteRevision))throw new SuiteContractError('Suite preflight accepted authority identity mismatch.')
+  const state=text(aggregate.state,'Suite preflight aggregate state')
+  const explanation=text(aggregate.explanation,'Suite preflight aggregate explanation')
+  if(!['eligible','blocked'].includes(String(live.state))||!['available','unavailable','unknown'].includes(String(live.runner))||!['available','unavailable','not_required','unknown'].includes(String(live.credentials))
+    || !['established','not_established'].includes(String(boundaries.suiteAuthority))||!['eligible','blocked'].includes(String(boundaries.executionEligibility))||boundaries.persisted!==false)throw new SuiteContractError('Suite preflight eligibility vocabulary is malformed.')
+  const ready=state==='ready'
+  if(ready!==!!authority||ready!==(live.state==='eligible')||ready!==(boundaries.suiteAuthority==='established')||ready!==(boundaries.executionEligibility==='eligible'))throw new SuiteContractError('Suite preflight authority and eligibility disagree.')
+  return Object.freeze({kind:'suite_preflight',projectId,selection:Object.freeze({kind:'suite_revision',suiteId,suiteRevision}),selectionAuthority:authority,aggregate:Object.freeze({state,explanation}),liveEligibility:Object.freeze({state:live.state as 'eligible'|'blocked',runner:live.runner as 'available'|'unavailable'|'unknown',credentials:live.credentials as 'available'|'unavailable'|'not_required'|'unknown'}),boundaries:Object.freeze({suiteAuthority:boundaries.suiteAuthority as 'established'|'not_established',executionEligibility:boundaries.executionEligibility as 'eligible'|'blocked',persisted:false})})
 }
 
 export function validateSuiteDraft(name: string, members: readonly SuiteDefinitionAuthority[]): string | null {

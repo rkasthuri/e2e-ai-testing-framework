@@ -3,8 +3,8 @@
   "certificationAuthority": "product_driver_required",
   "referenceHarnessAuthority": "mechanics_only",
   "items": [
-    { "item": 1, "name": "golden_v2", "fixtures": ["golden-v2.json"], "requiredTruth": "Checkout Sanity revision 1 retains exact ordered A/B and singular current v2 Test Set authority through successful Execution and Results." },
-    { "item": 2, "name": "positive_v3", "fixtures": ["positive-v3.json"], "requiredTruth": "One-member current v3 Suite is accepted without translating Definition authority." },
+    { "item": 1, "name": "golden_v2", "fixtures": ["golden-v2.json"], "requiredTruth": "Checkout Sanity revision 1 retains exact ordered A/B at member ordinals 1 and 2 plus singular current v2 Test Set authority through successful Execution and Results." },
+    { "item": 2, "name": "positive_v3", "fixtures": ["positive-v3.json"], "requiredTruth": "One-member current v3 Suite at member ordinal 1 is accepted without translating Definition or Suite member authority." },
     { "item": 3, "name": "stale_authority", "fixtures": ["stale-authority.json"], "requiredTruth": "Historical Suite remains unchanged and readable while preflight and Start refuse stale_suite_authority without Definition substitution." },
     { "item": 4, "name": "hostile_matrix", "fixtures": ["hostile-matrix.json"], "requiredTruth": "All frozen authority, revision, idempotency, injection, identity, legacy, and eligibility hostiles fail closed." },
     { "item": 5, "name": "fail_fast_truth", "fixtures": ["fail-fast-results.json"], "requiredTruth": "Observed failure dominates while later unexecuted manifest members remain explicitly missing." },

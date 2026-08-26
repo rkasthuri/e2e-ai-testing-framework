@@ -32,7 +32,7 @@ import {
 import { suiteTransport, SuiteTransportUnavailableError } from '../forge-ui/src/api/suiteAdapter'
 import { SavedSuitesWorkspace } from '../forge-ui/src/components/tests/SavedSuitesWorkspace'
 import { SuiteResultsProvenance } from '../forge-ui/src/components/tests/SuiteResultsProvenance'
-import { resolveSuiteRunDependencyState } from '../forge-ui/src/pages/RunPage'
+import { exactSuitePreflightMatches, resolveSuiteRunDependencyState } from '../forge-ui/src/pages/RunPage'
 
 const HASH_A = 'a'.repeat(64)
 const HASH_B = 'b'.repeat(64)
@@ -211,7 +211,7 @@ test('candidate decoder refuses cross-Test-Set injection and duplicate candidate
 test('Suite Run handoff is presentation intent only and malformed/changed sessions fail closed', () => {
   assert.equal(parseSuitePresentationIntent(new URLSearchParams()), null)
   assert.deepEqual(parseSuitePresentationIntent(new URLSearchParams(`suiteId=${SUITE_ID}&suiteRevision=4`)), { suiteId: SUITE_ID, suiteRevision: 4 })
-  assert.equal(resolveSuiteRunDependencyState(new URLSearchParams(`suiteId=${SUITE_ID}&suiteRevision=4`)).kind, 'core_transport_unavailable')
+  assert.equal(resolveSuiteRunDependencyState(new URLSearchParams(`suiteId=${SUITE_ID}&suiteRevision=4`)).kind, 'requested')
   assert.equal(resolveSuiteRunDependencyState(new URLSearchParams(`suiteId=${SUITE_ID}`)).kind, 'malformed')
   assert.throws(() => parseSuitePresentationIntent(new URLSearchParams(`suiteId=${SUITE_ID_B}&suiteRevision=0`)), SuiteContractError)
 })
@@ -221,6 +221,19 @@ test('Suite Start body contains only intent key and Suite selection authority', 
   assert.deepEqual(body, { executionIntentKey: 'execution-1', selection: { kind: 'suite_revision', suiteId: SUITE_ID, suiteRevision: 4 } })
   const serialized = JSON.stringify(body)
   for (const forbidden of ['members', 'definitionIds', 'testSetId', 'suiteContentHash', 'name', 'purpose']) assert.doesNotMatch(serialized, new RegExp(forbidden))
+})
+
+test('Suite Run enables only when the exact read and backend preflight authority agree', () => {
+  const suite = decodeCanonicalSuiteRevision(revision(), 'project-1')
+  const accepted = decodeCanonicalSuiteSelectionAuthority({
+    kind: 'suite_revision', suiteId: SUITE_ID, suiteRevision: 1,
+    suiteContentHash: HASH_A, name: 'Checkout Sanity', purpose: 'sanity',
+  })
+  assert.equal(exactSuitePreflightMatches(suite, accepted), true)
+  assert.equal(exactSuitePreflightMatches(suite, null), false)
+  assert.equal(exactSuitePreflightMatches(suite, { ...accepted, suiteRevision: 2 }), false)
+  assert.equal(exactSuitePreflightMatches(suite, { ...accepted, suiteContentHash: HASH_B }), false)
+  assert.equal(exactSuitePreflightMatches(suite, { ...accepted, name: 'Renamed head' }), false)
 })
 
 test('Results Suite provenance decoder and presenter retain accepted historical name/revision', () => {
@@ -234,9 +247,26 @@ test('Results Suite provenance decoder and presenter retain accepted historical 
   assert.throws(() => decodeCanonicalSuiteSelectionAuthority({ ...accepted, currentName: 'Renamed head' }), SuiteContractError)
 })
 
-test('production adapter fails explicitly without guessing endpoint paths', async () => {
-  await assert.rejects(() => suiteTransport.listHeads('project-1'), SuiteTransportUnavailableError)
-  await assert.rejects(() => suiteTransport.refreshCurrentHead('project-1', SUITE_ID), SuiteTransportUnavailableError)
+test('production adapter uses the one exact Product Suite endpoint vocabulary', async () => {
+  const originalFetch = globalThis.fetch
+  const calls: Array<{ method: string; path: string; body: unknown }> = []
+  globalThis.fetch = async (input, init) => {
+    calls.push({ method: init?.method ?? 'GET', path: String(input), body: init?.body ? JSON.parse(String(init.body)) : null })
+    return new Response(JSON.stringify({ data: calls.length === 1 ? { suites: [revision()] } : revision() }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    assert.equal((await suiteTransport.listHeads('project-1')).length, 1)
+    assert.equal((await suiteTransport.refreshCurrentHead('project-1', SUITE_ID)).revision, 1)
+    assert.deepEqual(calls, [
+      { method: 'GET', path: '/api/v1/projects/project-1/suites', body: null },
+      { method: 'GET', path: `/api/v1/projects/project-1/suites/${SUITE_ID}`, body: null },
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('opened Suite remains readable while Run is disabled without exact backend eligibility', async () => {
@@ -247,6 +277,24 @@ test('opened Suite remains readable while Run is disabled without exact backend 
     await act(async () => { button(renderer!, /^Checkout Sanity/).props.onClick(); await Promise.resolve() })
     assert.match(textOf(renderer!.root), /Immutable Suite revision/)
     assert.match(textOf(renderer!.root), /Execution eligibility requires authoritative backend verification/)
+    assert.equal(button(renderer!, /Run unavailable/).props.disabled, true)
+    assert.equal(renderer!.root.findAllByType('a').some(link => String(link.props.href).startsWith('/run?')), false)
+  } finally {
+    if (renderer) await act(async () => { renderer!.unmount() })
+  }
+})
+
+test('authoritative preflight with mismatched immutable provenance cannot expose Run', async () => {
+  const head = decodeCanonicalSuiteRevision(revision(), 'project-1')
+  let renderer: ReactTestRenderer | undefined
+  await act(async () => { renderer = create(readyWorkspace(head, {
+    preflight: async () => ({
+      kind: 'eligible', source: 'authoritative_preflight', suiteId: head.suiteId, suiteRevision: head.revision,
+      suiteContentHash: HASH_B, name: head.name, purpose: head.purpose,
+    }),
+  })) })
+  try {
+    await act(async () => { button(renderer!, /^Checkout Sanity/).props.onClick(); await Promise.resolve() })
     assert.equal(button(renderer!, /Run unavailable/).props.disabled, true)
     assert.equal(renderer!.root.findAllByType('a').some(link => String(link.props.href).startsWith('/run?')), false)
   } finally {
@@ -324,5 +372,6 @@ test('Saved Suites production surface truthfully exposes the Core dependency', (
 test('RunPage Suite branch cannot fall through to direct-definition workspace', () => {
   const source = fs.readFileSync(path.resolve(process.cwd(), 'forge-ui/src/pages/RunPage.tsx'), 'utf8')
   assert.match(source, /!suiteHandoffRequested && <RunWorkspace/)
-  assert.match(source, /No Definition IDs, membership, Test Set authority, Suite hash, name, or purpose were inferred or submitted/)
+  assert.match(source, /Start sends only the durable execution intent key and this Suite revision selection/)
+  assert.match(source, /No client membership or Definition authority was substituted/)
 })

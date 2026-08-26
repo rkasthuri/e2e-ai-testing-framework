@@ -18,7 +18,7 @@ import { TestInventoryPayloadError } from '../api/testInventoryContract'
 import type { TestDefinitionPresentation, TestSetPresentation } from '../api/types'
 import { ProjectSelector } from '../components/shared/ProjectSelector'
 import { M1TestDesignWorkspace } from '../components/tests/M1TestDesignWorkspace'
-import { SavedSuitesWorkspace } from '../components/tests/SavedSuitesWorkspace'
+import { SavedSuitesProductWorkspace } from '../components/tests/SavedSuitesWorkspace'
 import { useEvidenceBackedTests, useGenerateEvidenceBackedTests } from '../hooks/useApi'
 
 function Time({ value }: { value: string }) {
@@ -128,7 +128,7 @@ export function TestCasesPage() {
     <div><h1 className="text-2xl font-semibold text-primary">Tests</h1><p className="mt-1 max-w-3xl text-sm text-secondary">Generate and review one grounded v3 test from discovered evidence, or inspect existing immutable Test Definition history.</p></div>
     <p aria-live="polite" className="sr-only">{announcement}</p>
     {project && <M1TestDesignWorkspace key={project} projectId={project} />}
-    {project && <SavedSuitesWorkspace projectId={project} state={{ kind: 'transport_unavailable' }} />}
+    {project && <SavedSuitesProductWorkspace projectId={project} />}
     {!project ? <section className="rounded-lg border border-border bg-surface"><ProjectSelector title="Canonical Test Cases" subtitle="Select a project to read its authoritative Test Set history." basePath="/tests" /></section>
       : query.isLoading ? <div role="status" className="flex items-center gap-2 text-secondary"><Loader2 className="animate-spin" size={18} /> Loading Test Cases…</div>
       : query.isError ? <section role="alert" className="rounded-lg border border-fail/40 bg-surface p-6"><h2 className="font-semibold text-primary">Test Cases unavailable</h2><p className="mt-2 text-sm text-secondary">{query.error instanceof TestInventoryPayloadError ? 'The canonical inventory response was malformed. FORGE refused to display or run it.' : query.error instanceof ApiError && query.error.status === 404 ? 'The selected project was not found.' : query.error instanceof ApiError && query.error.status === 422 ? 'Persisted Test Definition authority could not be validated safely.' : 'The FORGE backend or Test Definition authority is unavailable.'}</p></section>

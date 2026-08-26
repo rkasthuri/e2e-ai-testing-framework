@@ -15,15 +15,18 @@ preflight, Start, Execution, and Results reads. A real adapter must declare
 The reference driver can never issue Product PASS. A Product adapter must drive
 real Product boundaries, use the current canonical Test Set, and return observed
 Product Suite, Execution, and Results authority. It must not calculate missing
-Product authority inside the adapter.
+Product authority inside the adapter or translate Product member ordinals;
+Core `1..N` output must pass through directly.
 
 ## Frozen authority rules
 
 - Suite schemaVersion is `1`; purpose is exactly `sanity`.
-- Each member contains only its ordinal and exact Definition authority.
+- Each member contains only its ordinal and exact Definition authority. Ordinals
+  are contiguous positive integers exactly `1..N` in semantic member order.
 - Every member shares one exact Test Set ID, revision, Definition schema, and
   content hash.
-- Definition schema v1, missing Definitions, mixed authority, gaps, duplicates,
+- Definition schema v1, missing Definitions, mixed authority, ordinal `0`,
+  ordinal gaps (for example `[1, 3]`), duplicate ordinals, duplicate members,
   empty Suites, and Suites over 50 members refuse.
 - Saved revisions are immutable. Reorder and rename append revisions; historical
   revisions do not change.
@@ -93,6 +96,7 @@ npm run check
 git diff --check
 ```
 
-The Product driver is deliberately absent. Until it exists and passes with
-`authorityClass: 'product'`, this package can report mechanics readiness only,
-never Product certification.
+The Product driver is implemented in `scripts/m2-certification/product-driver.ts`.
+Product certification requires that driver to pass with
+`authorityClass: 'product'`; mechanics-only results do not establish Product
+certification.

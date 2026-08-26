@@ -12,6 +12,6 @@
       { "definitionId": "definition-checkout-b", "executable": true, "executionOutcome": "passed" }
     ]
   }],
-  "suite": { "name": "Checkout Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-checkout-a", "definition-checkout-b"] },
+  "suite": { "name": "Checkout Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-checkout-a", "definition-checkout-b"], "expectedOrdinals": [1, 2] },
   "hostileCases": [], "uiRequirements": [], "tags": ["golden", "v2", "ordered_members"]
 }

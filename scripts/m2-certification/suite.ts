@@ -76,10 +76,10 @@ function suiteWithoutObservedHash(suite: SavedSuite): Omit<SavedSuite, 'contentH
 }
 
 function members(candidates: CandidateDefinition[], orderedDefinitionIds: string[]): SuiteMember[] {
-  return orderedDefinitionIds.map((definitionId, ordinal) => {
+  return orderedDefinitionIds.map((definitionId, index) => {
     const candidate = candidates.find(value => value.definitionAuthority.definitionId === definitionId);
     if (!candidate) throw new Error(`Fixture definition is not a current candidate: ${definitionId}`);
-    return { ordinal, definitionAuthority: cloneValue(candidate.definitionAuthority) };
+    return { ordinal: index + 1, definitionAuthority: cloneValue(candidate.definitionAuthority) };
   });
 }
 
@@ -139,7 +139,7 @@ function checkSuite(
   finding(findings, suite.revision === 1, 'SUITE_REVISION_DRIFT', 'Initial Suite revision must be 1.');
   finding(findings, suite.name === fixture.suite.name && suite.purpose === 'sanity', 'SUITE_PURPOSE_DRIFT', 'Suite name and sanity purpose must be exact.');
   finding(findings, SHA_256_HEX.test(suite.contentHash), 'MALFORMED_SUITE_HASH_ACCEPTED', 'Observed Suite contentHash must use the frozen Sha256Hex shape.');
-  finding(findings, same(suite.members.map(member => member.ordinal), expectedAuthorities.map((_value, ordinal) => ordinal)), 'SUITE_ORDINAL_DRIFT', 'Suite ordinals must be contiguous from zero.');
+  finding(findings, same(suite.members.map(member => member.ordinal), fixture.suite.expectedOrdinals), 'SUITE_ORDINAL_DRIFT', 'Suite ordinals must be contiguous positive integers from 1 through N.');
   finding(findings, same(suite.members.map(member => member.definitionAuthority), expectedAuthorities), 'SUITE_MEMBERSHIP_DRIFT', 'Suite must retain exact ordered Definition and Test Set authority.');
   finding(findings, suite.provenance !== null && suite.provenance !== undefined, 'SUITE_PROVENANCE_DROPPED', 'Opaque Suite provenance must be retained.');
 }
@@ -300,16 +300,22 @@ async function checkHostiles(
         return { ...member, definitionAuthority };
       });
       await expectRefused(driver, malformedMutationRequest(fixture.projectId, 'Malformed authority', changed, hostile), findings, 'MALFORMED_AUTHORITY_ACCEPTED');
+    } else if (hostile === 'ordinal_zero') {
+      const changed = cloneValue(baseMembers); changed[0]!.ordinal = 0;
+      await expectRefused(driver, mutationRequest(fixture.projectId, 'Ordinal zero', changed, hostile), findings, 'ORDINAL_ZERO_ACCEPTED');
     } else if (hostile === 'ordinal_gap') {
-      const changed = cloneValue(baseMembers); changed[1]!.ordinal = 2;
+      const changed = cloneValue(baseMembers); changed[1]!.ordinal = 3;
       await expectRefused(driver, mutationRequest(fixture.projectId, 'Ordinal gap', changed, hostile), findings, 'ORDINAL_GAP_ACCEPTED');
+    } else if (hostile === 'duplicate_ordinal') {
+      const changed = cloneValue(baseMembers); changed[1]!.ordinal = 1;
+      await expectRefused(driver, mutationRequest(fixture.projectId, 'Duplicate ordinal', changed, hostile), findings, 'DUPLICATE_ORDINAL_ACCEPTED');
     } else if (hostile === 'duplicate_member') {
       const changed = cloneValue(baseMembers); changed[1]!.definitionAuthority = cloneValue(changed[0]!.definitionAuthority);
       await expectRefused(driver, mutationRequest(fixture.projectId, 'Duplicate member', changed, hostile), findings, 'DUPLICATE_MEMBER_ACCEPTED');
     } else if (hostile === 'empty_suite') {
       await expectRefused(driver, mutationRequest(fixture.projectId, 'Empty', [], hostile), findings, 'EMPTY_SUITE_ACCEPTED');
     } else if (hostile === 'more_than_50_members') {
-      const changed = Array.from({ length: 51 }, (_value, ordinal) => ({ ...cloneValue(baseMembers[0]!), ordinal }));
+      const changed = Array.from({ length: 51 }, (_value, index) => ({ ...cloneValue(baseMembers[0]!), ordinal: index + 1 }));
       await expectRefused(driver, mutationRequest(fixture.projectId, 'Too many', changed, hostile), findings, 'OVERSIZE_SUITE_ACCEPTED');
     }
   }
@@ -376,7 +382,7 @@ async function checkHostiles(
       const head = (await driver.listSuites(fixture.projectId)).find(value => value.suiteId === suite.suiteId)!;
       const old = await driver.readSuite(fixture.projectId, suite.suiteId, head.revision);
       const changedMembers = hostile === 'reorder_new_revision_hash'
-        ? [...head.members].reverse().map((member, ordinal) => ({ ...member, ordinal }))
+        ? [...head.members].reverse().map((member, index) => ({ ...member, ordinal: index + 1 }))
         : head.members;
       const changedName = hostile === 'rename_new_revision' ? `${head.name} renamed` : head.name;
       const result = await driver.reviseSuite({ ...mutationRequest(fixture.projectId, changedName, changedMembers, `${hostile}-${head.revision}`), suiteId: suite.suiteId, expectedRevision: head.revision });

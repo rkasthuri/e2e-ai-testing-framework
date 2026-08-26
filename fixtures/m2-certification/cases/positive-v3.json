@@ -9,6 +9,6 @@
     "testSetContentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "definitions": [{ "definitionId": "definition-v3-a", "executable": true, "executionOutcome": "passed" }]
   }],
-  "suite": { "name": "Account Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-v3-a"] },
+  "suite": { "name": "Account Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-v3-a"], "expectedOrdinals": [1] },
   "hostileCases": [], "uiRequirements": [], "tags": ["positive", "v3", "one_member"]
 }

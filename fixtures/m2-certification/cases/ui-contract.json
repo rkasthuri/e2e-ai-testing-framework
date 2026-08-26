@@ -22,7 +22,7 @@
       ]
     }
   ],
-  "suite": { "name": "UI Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-ui-a", "definition-ui-b"] },
+  "suite": { "name": "UI Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-ui-a", "definition-ui-b"], "expectedOrdinals": [1, 2] },
   "hostileCases": [],
   "uiRequirements": [
     "saved_suite_list", "create_reopen", "name_purpose_revision_hash_visible", "exact_ordered_members_visible", "stale_suite_readable",

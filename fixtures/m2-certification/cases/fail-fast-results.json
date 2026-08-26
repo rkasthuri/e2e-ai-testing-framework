@@ -13,6 +13,6 @@
       { "definitionId": "definition-later", "executable": true, "executionOutcome": "passed" }
     ]
   }],
-  "suite": { "name": "Fail Fast Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-first", "definition-failing", "definition-later"] },
+  "suite": { "name": "Fail Fast Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-first", "definition-failing", "definition-later"], "expectedOrdinals": [1, 2, 3] },
   "hostileCases": [], "uiRequirements": [], "tags": ["fail_fast", "missing_result", "weakest_truth"]
 }

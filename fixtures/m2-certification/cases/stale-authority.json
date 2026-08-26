@@ -22,6 +22,6 @@
       ]
     }
   ],
-  "suite": { "name": "Checkout Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-a", "definition-b"] },
+  "suite": { "name": "Checkout Sanity", "purpose": "sanity", "orderedDefinitionIds": ["definition-a", "definition-b"], "expectedOrdinals": [1, 2] },
   "hostileCases": [], "uiRequirements": [], "tags": ["mandatory", "stale_suite_authority", "no_substitution"]
 }

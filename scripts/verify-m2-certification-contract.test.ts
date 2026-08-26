@@ -49,11 +49,14 @@ describe('M2 certification contract', () => {
     ]);
   });
 
-  test('schema rejects v1 Test Set authority and competing Suite fields', () => {
+  test('schema rejects v1 Test Set authority, non-1-based ordinal expectations, and competing Suite fields', () => {
     const fixture = structuredClone(loadM2CertificationCase('golden-v2.json')) as unknown as Record<string, unknown>;
     const testSets = fixture.testSets as Array<Record<string, unknown>>;
     testSets[0]!.definitionSchemaVersion = 1;
     assert.equal(isValidM2CertificationFixture(fixture), false);
+    const zeroBased = structuredClone(loadM2CertificationCase('golden-v2.json')) as unknown as Record<string, unknown>;
+    (zeroBased.suite as Record<string, unknown>).expectedOrdinals = [0, 1];
+    assert.equal(isValidM2CertificationFixture(zeroBased), false);
     const competing = structuredClone(loadM2CertificationCase('golden-v2.json')) as unknown as Record<string, unknown>;
     competing.selectionAuthority = 'client_membership';
     assert.equal(isValidM2CertificationFixture(competing), false);
@@ -79,6 +82,10 @@ describe('M2 certification contract', () => {
       { requireProductAuthority: false },
     );
     assertM2CertificationPassed(report);
+    assert.deepEqual(
+      (report.observations.savedSuite as { members: Array<{ ordinal: number }> }).members.map(member => member.ordinal),
+      [1, 2],
+    );
     assert.deepEqual(report.observations.startRequest, {
       executionIntentKey: 'M2-01-checkout-sanity-v2-start',
       selection: { kind: 'suite_revision', suiteId: 'suite-project-storefront-1', suiteRevision: 1 },
@@ -88,8 +95,11 @@ describe('M2 certification contract', () => {
 
   test('hostile matrix names every frozen hostile case exactly once', () => {
     const hostile = loadM2CertificationCase('hostile-matrix.json');
-    assert.equal(hostile.hostileCases.length, 31);
-    assert.equal(new Set(hostile.hostileCases).size, 31);
+    assert.equal(hostile.hostileCases.length, 33);
+    assert.equal(new Set(hostile.hostileCases).size, 33);
+    for (const required of ['ordinal_zero', 'ordinal_gap', 'duplicate_ordinal', 'reorder_new_revision_hash']) {
+      assert.ok(hostile.hostileCases.includes(required as typeof hostile.hostileCases[number]), required);
+    }
   });
 
   test('UI contract freezes all semantics without importing React or UI code', () => {

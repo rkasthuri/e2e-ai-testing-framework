@@ -27,11 +27,29 @@ function caseValidator(): ValidateFunction {
   return validator;
 }
 
+function hasFrozenOneBasedOrdinals(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const suite = (value as { suite?: unknown }).suite;
+  if (typeof suite !== 'object' || suite === null) return false;
+  const { orderedDefinitionIds, expectedOrdinals } = suite as {
+    orderedDefinitionIds?: unknown;
+    expectedOrdinals?: unknown;
+  };
+  return Array.isArray(orderedDefinitionIds)
+    && Array.isArray(expectedOrdinals)
+    && expectedOrdinals.length === orderedDefinitionIds.length
+    && expectedOrdinals.every((ordinal, index) => Number.isSafeInteger(ordinal) && ordinal === index + 1);
+}
+
 export function loadM2CertificationCase(fileName: string): M2CertificationCase {
   const fixture = JSON.parse(readFileSync(path.join(CASE_ROOT, fileName), 'utf8')) as unknown;
   const validate = caseValidator();
-  if (!validate(fixture)) {
-    throw new Error(`Invalid M2 certification fixture ${fileName}: ${JSON.stringify(validate.errors, null, 2)}`);
+  const structurallyValid = validate(fixture) as boolean;
+  if (!structurallyValid || !hasFrozenOneBasedOrdinals(fixture)) {
+    const detail = structurallyValid
+      ? 'suite.expectedOrdinals must equal the contiguous positive sequence 1..N for orderedDefinitionIds'
+      : JSON.stringify(validate.errors, null, 2);
+    throw new Error(`Invalid M2 certification fixture ${fileName}: ${detail}`);
   }
   return fixture as M2CertificationCase;
 }
@@ -44,7 +62,7 @@ export function loadAllM2CertificationCases(): M2CertificationCase[] {
 }
 
 export function isValidM2CertificationFixture(value: unknown): boolean {
-  return caseValidator()(value) as boolean;
+  return caseValidator()(value) as boolean && hasFrozenOneBasedOrdinals(value);
 }
 
 export function loadM2GoldenMatrix(): unknown {
