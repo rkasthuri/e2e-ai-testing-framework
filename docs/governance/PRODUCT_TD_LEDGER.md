@@ -496,6 +496,55 @@ governing decision remains
   Closure applies only to M2 saved named sanity Suites and canonical Suite
   revision authority.
 
+### M3 - Manual Test Ingestion and canonical Test Definition v3 promotion
+
+- **Parent / related:** Builds on M1 canonical Test Definition v3 authority and
+  M2 canonical Suite execution/results compatibility; existing M2 execution and
+  Results behavior remains compatible and unchanged.
+- **Category:** Product / Architecture / Certification.
+- **Status:** **Committed** / **CI-Green** for this M3 milestone only.
+- **Purpose:** Deliver Manual Test Ingestion from an immutable manual source to
+  an evidence-grounded canonical Test Definition v3 that can enter the existing
+  Product inventory, execution, and Results authority without creating a
+  parallel test-definition path.
+- **Key invariants:** The submitted manual source is immutable. Grounding and
+  refusal are deterministic and fail closed when canonical evidence is
+  insufficient, ambiguous, unsupported, or unknown. Save accepts identity only,
+  replays the exact reviewed proposal, and refuses substituted content. Promotion
+  atomically persists the canonical v3 definition with its exact manual-source,
+  proposal, App Model, observation, support-seal, and Test Set provenance. The
+  UI and transport preserve the same authority boundary, while M2 execution and
+  Results consume the promoted v3 definition through their existing contracts.
+- **Scope:** Manual-source and automation-proposal contracts, deterministic
+  ingestion/grounding/refusal service, immutable persistence and Migration 033,
+  identity-only Save and exact replay, atomic canonical-v3 promotion provenance,
+  Product controller/routes and strict UI transport/workspace, M2
+  execution/results compatibility, and real Product certification with
+  persistence observation and fault-injection proof.
+- **Validation / certification:** `E2E AI Testing Pipeline` run ID
+  `33214805264` triggered on exact certified M3 Product/repair SHA
+  `917023a816ce7aa984f80874a5973045fe36ffe4` and concluded `SUCCESS`.
+  Playwright job `98995943989` concluded `SUCCESS`; AI/reporting job
+  `98998340988` concluded `SUCCESS`; failure-notification job `98998600345` was
+  correctly skipped. The successful run covered unit tests, TypeScript, the
+  stable Playwright suite, triage, and reporting-evidence completeness.
+- **Commit / CI:** Certified M3 Product/repair commit
+  `917023a816ce7aa984f80874a5973045fe36ffe4`; direct exact-SHA run ID
+  `33214805264`, **SUCCESS**; **Committed** / **CI-Green**. Workflow child
+  `667f5bb28d6e9badc6b744c66eff8e4affe42cc4` has the certified commit as its
+  parent and changes only `reports/run-history.json`; it is not the certified
+  M3 Product/repair SHA.
+- **Remaining / follow-on:** Closure is bounded to Manual Test Ingestion and its
+  canonical v3 promotion path. The accepted local Product constraints continue
+  to apply; this closure does not establish broader FORGE, cloud/distributed, or
+  external-user readiness.
+- **Evidence note:** Exact certified commit identity, exact-SHA CI run and job
+  states, workflow-child ancestry/scope, immutable source, deterministic
+  grounding/refusal, identity-only Save, exact replay, atomic promotion
+  provenance, UI transport, real Product certification, persistence
+  observation/fault proof, and M2 execution/results compatibility were checked.
+  Closure applies only to the M3 Manual Test Ingestion milestone.
+
 ### TD-GOV-BASELINE-001 - Permission-stable governed baseline harness
 
 - **Parent / related:** Separate governance scope; not part of
