@@ -36,6 +36,7 @@ import { cancelExecution, readExecutionStatus, startExecution } from '../context
 import { listExecutionResults, readExecutionResults } from '../context/ExecutionResultsController'
 import { generateM1Intent, listM1DiscoveredAreas, saveM1Intent } from '../context/M1TestIntentController'
 import { createSuite, listSuites, readSuite, readSuiteCandidates, reviseSuite } from '../context/SuiteController'
+import { analyzeManualTest, saveManualTest } from '../context/ManualTestController'
 
 // Known fixture apps — last-resort fallback (fixture-specific, intentional:
 // fixtures use .ts onboarding configs, not .forge/config.json, so they won't
@@ -265,6 +266,18 @@ router.post('/:appName/test-intents/generate', async (req, res) => {
 
 router.post('/:appName/test-intents/save', async (req, res) => {
   const result = await saveM1Intent(req.params.appName, req.body, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+// M3 manual-test transport. These routes are distinct from M1 test-intents;
+// exact body decoding and public error mapping stay in the controller.
+router.post('/:appName/manual-tests/analyze', async (req, res) => {
+  const result = await analyzeManualTest(req.params.appName, req.body, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+router.post('/:appName/manual-tests/save', async (req, res) => {
+  const result = await saveManualTest(req.params.appName, req.body, resolveKnownProject)
   res.status(result.status).json(result.body)
 })
 

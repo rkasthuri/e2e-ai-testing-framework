@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "forge-manual-promotion-result/v1",
+  "outcome": "promoted",
+  "sourceAuthority": {
+    "sourceId": "manual-source-checkout-cart-01",
+    "sourceContentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "proposalAuthority": {
+    "proposalId": "manual-proposal-checkout-cart-01",
+    "proposalContentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "definitionAuthority": {
+    "definitionId": "test-v3-flow-manual-checkout-cart",
+    "definitionSchemaVersion": 3,
+    "testSetId": "test-set-v3-project-storefront",
+    "testSetRevision": 8,
+    "testSetContentHash": "8888888888888888888888888888888888888888888888888888888888888888"
+  }
+}

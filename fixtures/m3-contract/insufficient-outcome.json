@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "forge-manual-analysis-result/v1",
+  "outcome": {
+    "kind": "refusal",
+    "refusal": {
+      "schemaVersion": "forge-manual-automation-refusal/v1",
+      "projectId": "project-storefront",
+      "sourceAuthority": {
+        "sourceId": "manual-source-insufficient-outcome-01",
+        "sourceContentHash": "4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "code": "insufficient_evidence",
+      "evidenceState": "insufficient",
+      "safeMessage": "No canonical target subject supports the expected delivery promise page.",
+      "sourceGrounding": [
+        {
+          "sourceRef": {
+            "kind": "step",
+            "ordinal": 1
+          },
+          "status": "grounded",
+          "canonicalBinding": {
+            "kind": "action",
+            "ordinal": 0
+          },
+          "basis": {
+            "kind": "governed_route",
+            "flowStepIndex": null,
+            "evidenceIds": [
+              "obs-checkout-route"
+            ]
+          }
+        },
+        {
+          "sourceRef": {
+            "kind": "step",
+            "ordinal": 2
+          },
+          "status": "grounded",
+          "canonicalBinding": {
+            "kind": "action",
+            "ordinal": 1
+          },
+          "basis": {
+            "kind": "observed_flow_step",
+            "flowStepIndex": 0,
+            "evidenceIds": [
+              "obs-continue-control"
+            ]
+          }
+        },
+        {
+          "sourceRef": {
+            "kind": "expected_outcome"
+          },
+          "status": "insufficient_evidence",
+          "canonicalBinding": null,
+          "basis": {
+            "kind": "governed_subject",
+            "flowStepIndex": null,
+            "evidenceIds": []
+          }
+        }
+      ],
+      "limitations": [
+        "The expected delivery promise page has no canonical target subject."
+      ]
+    }
+  }
+}

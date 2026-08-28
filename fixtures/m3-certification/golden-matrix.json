@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "forge-m3-golden-matrix/v1",
+  "certificationAuthority": "product_driver_required",
+  "referenceHarnessAuthority": "mechanics_only",
+  "sharedFixtures": [
+    "positive-manual-source.json",
+    "positive-automation-proposal.json",
+    "positive-save-result.json",
+    "unsupported-fill.json",
+    "ambiguous-control.json",
+    "insufficient-outcome.json",
+    "app-area-unknown.json"
+  ],
+  "items": [
+    { "item": 1, "name": "analyze_authored_source", "requiredTruth": "Product analyzes the authored manual source through the manual boundary." },
+    { "item": 2, "name": "immutable_source_admission", "requiredTruth": "Product admits one immutable manual source authority." },
+    { "item": 3, "name": "source_round_trip", "requiredTruth": "Every authored source string and one-based manual ordinal round-trips unchanged." },
+    { "item": 4, "name": "reviewable_proposal", "requiredTruth": "The proposal preserves manual source, object appArea, canonical 0/1 actions, exact grounding, oracle, and authentication authority." },
+    { "item": 5, "name": "identity_only_save", "requiredTruth": "Save accepts source and proposal identities only and rejects semantic bodies." },
+    { "item": 6, "name": "current_reanalysis", "requiredTruth": "Save reanalyzes current evidence before promotion." },
+    { "item": 7, "name": "exact_reviewed_promotion", "requiredTruth": "Promotion binds the exact reviewed proposal identity and content authority." },
+    { "item": 8, "name": "canonical_v3_unchanged", "requiredTruth": "The promoted canonical v3 preserves normalized intent, appArea, actions, oracle, and authentication expectation unchanged while manual promotion provenance remains external." },
+    { "item": 9, "name": "m2_candidate_exact", "requiredTruth": "The promoted Definition becomes an existing M2 candidate using exact Definition/Test Set authority without translation." },
+    { "item": 10, "name": "run_result_unchanged", "requiredTruth": "Existing execution and Result behavior consumes the promoted v3 authority unchanged." },
+    { "item": 11, "name": "presentation_provenance", "requiredTruth": "Definition presentation preserves immutable external manual source and proposal promotion provenance." },
+    { "item": 12, "name": "historical_provenance", "requiredTruth": "Historical Results retain the accepted external manual promotion provenance and never float to current authority." }
+  ]
+}

@@ -236,6 +236,39 @@ const ENGINE = {
   observationProjection: '../../../src/core/observation/ObservationReadProjectionService',
   testDefinitionAuthority: '../../../src/core/test-design/TestDefinitionAuthorityProjectionService',
   canonicalTestDefinitionGeneration: '../../../src/core/test-design/CanonicalTestDefinitionGenerationService',
+  manualTestIngestion: '../../../src/core/test-design/ManualTestIngestionService',
+  manualTestSourceContract: '../../../src/core/test-design/ManualTestSourceContract',
+  manualAutomationProposalContract: '../../../src/core/test-design/ManualAutomationProposalContract',
+  databaseAuthority: '../../../src/core/storage/DatabaseAuthority',
+  certificationPersistence: '../../../src/core/storage/certification/ManualTestCertificationPersistenceAdapter',
+  testSetRepository: '../../../src/core/storage/repositories/TestSetRepository',
+}
+
+/**
+ * Unforgeable in-process opt-in for the M3 certification harness. Production
+ * routers never import or receive this value, and request data cannot recreate
+ * a Symbol identity.
+ */
+export const M3_CERTIFICATION_EXECUTION_CONTEXT_OPT_IN = Symbol('M3_CERTIFICATION_EXECUTION_CONTEXT_OPT_IN')
+
+type DynamicDatabaseAuthority = Readonly<{ mode: unknown; sqlitePath: string }>
+
+export interface M3CertificationPersistencePort {
+  snapshot(projectId: string): Promise<unknown>
+  armPromotionFaultOnce(): void
+  disarmPromotionFault(): void
+}
+
+export interface M3CertificationExecutionContextHarness {
+  executionContext: ExecutionContext
+  controllerEngine: M3CertificationManualTestControllerEngine
+  persistence: M3CertificationPersistencePort
+}
+
+export interface M3CertificationManualTestControllerEngine {
+  analyzeProductManualTest(appName: string, input: unknown): Promise<ManualTestAnalyzeResponseDto>
+  saveProductManualTest(appName: string, input: unknown): Promise<unknown>
+  takeObservedSaveCause(): unknown | null
 }
 
 /** Structural mirror of DefinitionCompatibilityEvaluator's CompatibilityIntrinsicInput/Result — forge-ui never statically imports src/. */
@@ -249,9 +282,233 @@ export type DefinitionCompatibilityResult =
   | { state: 'compatible'; explanation: string }
   | { state: 'blocked'; reason: string; explanation: string }
 
+/** Structural DTO mirror for the dynamic M3 Core boundary. Runtime semantics remain owned by Core parsers. */
+export interface ManualTestSourceResponseDto {
+  schemaVersion: 'forge-manual-test-source/v1'
+  sourceId: string
+  projectId: string
+  sourceKind: 'manual'
+  title: string
+  objective: string | null
+  steps: Array<{ ordinal: number; text: string }>
+  expectedOutcome: string
+  contentHash: string
+}
+
+export interface ManualAppAreaResponseDto {
+  id: string
+  sourceSubjectId: string
+  confidence: 'high' | 'medium'
+  method: 'rule' | 'ai' | 'manual'
+  evidenceIds: readonly string[]
+}
+
+export interface ManualNavigateActionResponseDto {
+  stepId: string
+  ordinal: 0
+  kind: 'navigate_to_observed_route'
+  subjectId: string
+  routePath: string
+}
+
+export interface ManualClickActionResponseDto {
+  stepId: string
+  ordinal: 1
+  kind: 'click_observed_data_test'
+  subjectId: string
+  elementId: string
+  dataTestValue: string
+  targetSubjectId: string
+}
+
+export type ManualCanonicalActionResponseDto = ManualNavigateActionResponseDto | ManualClickActionResponseDto
+
+export interface ManualNormalizedIntentResponseDto {
+  schemaVersion: 'forge-normalized-test-intent/v1'
+  intentId: string
+  projectId: string
+  source: 'manual'
+  appArea: ManualAppAreaResponseDto
+  title: string
+  objective: string
+  preconditions: Array<{ kind: 'authenticated_role'; roleId: string; mechanism: string }>
+  steps: readonly [ManualNavigateActionResponseDto, ManualClickActionResponseDto]
+  expectedOutcomes: readonly [{ outcomeId: string; kind: 'subject_observable'; subjectId: string; routePath: string }]
+  grounding: {
+    modelRowId: number
+    modelVersion: string
+    observationRunId: string
+    supportSealHash: string
+    sourceFlowId: string
+    selectedFlowStepIndexes: readonly [number]
+    excludedFlowStepIndexes: readonly number[]
+    subjectSupport: Array<{
+      canonicalSubjectId: string
+      supportingObservationIds: readonly string[]
+      supportingGapIds: readonly string[]
+    }>
+  }
+  evidenceAssessment: {
+    state: 'sufficient'
+    sourceFlowConfidence: 'observed' | 'partial'
+    selectedStepGrounding: 'observed'
+    limitations: readonly string[]
+  }
+  disposition: { state: 'supported' }
+}
+
+export interface ManualSourceGroundingResponseDto {
+  sourceRef: { kind: 'step'; ordinal: number } | { kind: 'expected_outcome' }
+  status: 'grounded' | 'insufficient_evidence' | 'ambiguous_evidence' | 'unsupported_semantics'
+  canonicalBinding:
+    | { kind: 'action'; ordinal: 0 | 1 }
+    | { kind: 'oracle'; oracleKind: 'subject_observable' }
+    | null
+  basis:
+    | { kind: 'governed_route'; flowStepIndex: null; evidenceIds: string[] }
+    | { kind: 'observed_flow_step'; flowStepIndex: number; evidenceIds: string[] }
+    | { kind: 'governed_subject'; flowStepIndex: null; evidenceIds: string[] }
+}
+
+export interface ManualAuthenticationExpectationResponseDto {
+  schemaVersion: 'forge-authentication-expectation/v1'
+  state: 'required' | 'not_required'
+  mechanism: string | null
+  bases: Array<{
+    kind: 'declared_configuration'
+    policyId: string
+    policyVersion: string
+    configurationDigest: string
+    mechanism: string | null
+  }>
+  identityHash: string
+}
+
+export interface ManualAutomationProposalResponseDto {
+  schemaVersion: 'forge-manual-automation-proposal/v1'
+  proposalId: string
+  projectId: string
+  sourceAuthority: { sourceId: string; sourceContentHash: string }
+  authority: {
+    modelRowId: number
+    modelVersion: string
+    observationRunId: string
+    supportSealHash: string
+    routeEvidenceIdentityHash: string
+    authenticationExpectationIdentityHash: string
+  }
+  appArea: ManualAppAreaResponseDto
+  normalizedIntent: ManualNormalizedIntentResponseDto
+  normalizedIntentContentHash: string
+  sourceGrounding: ManualSourceGroundingResponseDto[]
+  canonicalActions: readonly [ManualNavigateActionResponseDto, ManualClickActionResponseDto]
+  oracle: {
+    kind: 'subject_observable'
+    subjectId: string
+    routePath: string
+    supportingObservationIds: readonly string[]
+    explanation: string
+  }
+  authenticationExpectation: ManualAuthenticationExpectationResponseDto
+  limitations: readonly string[]
+  disposition: { state: 'supported' }
+  proposalContentHash: string
+}
+
+export interface ManualAutomationRefusalResponseDto {
+  schemaVersion: 'forge-manual-automation-refusal/v1'
+  projectId: string
+  sourceAuthority: { sourceId: string; sourceContentHash: string }
+  code: 'insufficient_evidence' | 'ambiguous_evidence' | 'unsupported_semantics' | 'app_area_unknown'
+  evidenceState: 'insufficient' | 'ambiguous' | 'unsupported'
+  safeMessage: string
+  sourceGrounding: ManualSourceGroundingResponseDto[]
+  limitations: string[]
+}
+
+export interface ManualAnalysisResultResponseDto {
+  schemaVersion: 'forge-manual-analysis-result/v1'
+  outcome:
+    | { kind: 'proposal'; proposal: ManualAutomationProposalResponseDto }
+    | { kind: 'refusal'; refusal: ManualAutomationRefusalResponseDto }
+}
+
+export interface ManualTestAnalyzeResponseDto {
+  source: ManualTestSourceResponseDto
+  analysis: ManualAnalysisResultResponseDto
+}
+
 /** ADR-014 — close the open project DB only when switching to a different one. */
 export function shouldCloseDb(lastDbPath: string | null, targetDbPath: string): boolean {
   return lastDbPath !== null && lastDbPath !== targetDbPath
+}
+
+export type GovernedManualPromotionFailure = {
+  code: 'SOURCE_PROPOSAL_MISMATCH'
+    | 'MANUAL_PROMOTION_IDENTITY_CONFLICT'
+    | 'STALE_REVIEWED_PROPOSAL'
+    | 'MANUAL_PROPOSAL_NOT_EXECUTABLE'
+}
+
+export async function governedManualPromotionFailure(cause: unknown): Promise<GovernedManualPromotionFailure | null> {
+  const mod: any = await import(ENGINE.manualTestIngestion)
+  return cause instanceof mod.ManualTestPromotionError ? cause as GovernedManualPromotionFailure : null
+}
+
+function manualTransportRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function exactManualTransportKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort()
+  const keys = [...expected].sort()
+  return actual.length === keys.length && actual.every((key, index) => key === keys[index])
+}
+
+function validateManualGroundingSourceRefs(
+  source: ManualTestSourceResponseDto,
+  grounding: ManualSourceGroundingResponseDto[],
+): void {
+  if (grounding.length !== source.steps.length + 1) throw new Error('Invalid manual Analyze response grounding.')
+  for (let index = 0; index < source.steps.length; index += 1) {
+    const sourceRef = grounding[index]?.sourceRef
+    if (sourceRef?.kind !== 'step' || sourceRef.ordinal !== index + 1) {
+      throw new Error('Invalid manual Analyze response grounding.')
+    }
+  }
+  if (grounding[grounding.length - 1]?.sourceRef.kind !== 'expected_outcome') {
+    throw new Error('Invalid manual Analyze response grounding.')
+  }
+}
+
+/** Validates unknown dynamic Core output without recomputing opaque Product identities or hashes. */
+export async function parseProductManualTestAnalyzeResponse(value: unknown): Promise<ManualTestAnalyzeResponseDto> {
+  const response = manualTransportRecord(value)
+  if (!response || !exactManualTransportKeys(response, ['source', 'analysis'])) {
+    throw new Error('Invalid manual Analyze response envelope.')
+  }
+  const [sourceModule, proposalModule] = await Promise.all([
+    import(ENGINE.manualTestSourceContract),
+    import(ENGINE.manualAutomationProposalContract),
+  ])
+  const parseSource: (candidate: unknown, verifyHash?: boolean) => ManualTestSourceResponseDto
+    = sourceModule.parseManualTestSourceV1
+  const parseAnalysis: (candidate: unknown) => ManualAnalysisResultResponseDto
+    = proposalModule.parseManualAnalysisResultV1
+  const source = parseSource(response.source, false)
+  const analysis = parseAnalysis(response.analysis)
+  const outcomeAuthority = analysis.outcome.kind === 'proposal'
+    ? analysis.outcome.proposal
+    : analysis.outcome.refusal
+  if (outcomeAuthority.projectId !== source.projectId
+    || outcomeAuthority.sourceAuthority.sourceId !== source.sourceId
+    || outcomeAuthority.sourceAuthority.sourceContentHash !== source.contentHash) {
+    throw new Error('Manual Analyze response authorities do not match.')
+  }
+  validateManualGroundingSourceRefs(source, outcomeAuthority.sourceGrounding)
+  return { source, analysis }
 }
 
 export class ExecutionContext {
@@ -262,6 +519,60 @@ export class ExecutionContext {
   private readonly queue = new SerialQueue()
   private lastDbPath: string | null = null
   private activeProductExecution: { appName: string; executionId: string; completion: Promise<void> } | null = null
+  private certificationAuthority: DynamicDatabaseAuthority | null = null
+  private certificationAppName: string | null = null
+  private certificationManualTestService: any | null = null
+
+  /**
+   * M3-only harness construction seam. The ordinary constructor remains
+   * Product-workspace-only; the disposable authority is created by Core's
+   * governed factory and is never accepted from HTTP or other public input.
+   */
+  static async createM3CertificationHarness(input: {
+    appName: string
+    sqlitePath: string
+    workspaces: typeof workspaceResolver
+    optIn: typeof M3_CERTIFICATION_EXECUTION_CONTEXT_OPT_IN
+  }): Promise<M3CertificationExecutionContextHarness> {
+    if (input.optIn !== M3_CERTIFICATION_EXECUTION_CONTEXT_OPT_IN) {
+      throw new Error('M3 certification ExecutionContext requires the explicit in-process harness opt-in.')
+    }
+    const authorityModule: any = await import(ENGINE.databaseAuthority)
+    const authority = authorityModule.disposableCertificationDatabaseAuthority(input.sqlitePath)
+    const context = new ExecutionContext(input.workspaces)
+    context.certificationAuthority = Object.freeze({ ...authority })
+    context.certificationAppName = input.appName
+    await context.switchDatabaseIfNeeded(input.appName)
+    const [persistenceModule, repositoryModule, ingestionModule]: any[] = await Promise.all([
+      import(ENGINE.certificationPersistence),
+      import(ENGINE.testSetRepository),
+      import(ENGINE.manualTestIngestion),
+    ])
+    const persistence = new persistenceModule.ManualTestCertificationPersistenceAdapter()
+    context.certificationManualTestService = new ingestionModule.ManualTestIngestionService(
+      undefined,
+      new repositoryModule.TestSetRepository(persistence),
+    )
+    let observedSaveCause: unknown | null = null
+    const controllerEngine: M3CertificationManualTestControllerEngine = Object.freeze({
+      analyzeProductManualTest: (appName: string, request: unknown) => context.analyzeProductManualTest(appName, request),
+      saveProductManualTest: async (appName: string, request: unknown) => {
+        observedSaveCause = null
+        try {
+          return await context.saveProductManualTest(appName, request)
+        } catch (cause) {
+          observedSaveCause = cause
+          throw cause
+        }
+      },
+      takeObservedSaveCause: () => {
+        const cause = observedSaveCause
+        observedSaveCause = null
+        return cause
+      },
+    })
+    return { executionContext: context, controllerEngine, persistence }
+  }
 
   submit(job: Job): Promise<JobResult> {
     // Serialize the WHOLE run sequence (creds pre-flight → DB switch → engine)
@@ -349,6 +660,27 @@ export class ExecutionContext {
         workspaceRoot: this.workspaces.resolve(appName).root,
         credentialReference: credentialStore.read(appName) ?? CredentialStore.defaultReference(appName),
       })
+    })
+  }
+
+  /** M3 Analyze: the route supplies only the decoded manual-source DTO. */
+  analyzeProductManualTest(appName: string, input: unknown): Promise<ManualTestAnalyzeResponseDto> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.manualTestIngestion)
+      const service = this.certificationManualTestService ?? mod.manualTestIngestionService
+      const result = await service.analyze(appName, this.workspaces.resolve(appName).root, input)
+      return parseProductManualTestAnalyzeResponse(result)
+    })
+  }
+
+  /** M3 Save: project/workspace authority remains outside the identity-only body. */
+  saveProductManualTest(appName: string, input: unknown): Promise<unknown> {
+    return this.queue.run(async () => {
+      await this.switchDatabaseIfNeeded(appName)
+      const mod: any = await import(ENGINE.manualTestIngestion)
+      const service = this.certificationManualTestService ?? mod.manualTestIngestionService
+      return service.save(appName, this.workspaces.resolve(appName).root, input)
     })
   }
 
@@ -658,7 +990,11 @@ export class ExecutionContext {
    */
   private async switchDatabaseIfNeeded(appName: string): Promise<void> {
     const workspaceRoot = this.workspaces.resolve(appName).root
-    const targetDbPath = path.join(workspaceRoot, '.forge', 'forge.db')
+    if (this.certificationAppName !== null && appName !== this.certificationAppName) {
+      throw new Error('M3 certification ExecutionContext is bound to one exact harness project.')
+    }
+    const targetDbPath = this.certificationAuthority?.sqlitePath
+      ?? path.join(workspaceRoot, '.forge', 'forge.db')
     if (this.activeProductExecution
       && this.activeProductExecution.appName !== appName
       && this.lastDbPath !== targetDbPath) {
@@ -670,7 +1006,8 @@ export class ExecutionContext {
     }
     // Scope every DB-touching runtime operation. CrawlRunner remains the owner
     // that applies lazy migrations; reads/generate/verify do not apply them.
-    dbMod.initProductWorkspaceDatabase(workspaceRoot, targetDbPath)
+    if (this.certificationAuthority) dbMod.initDatabaseAuthority(this.certificationAuthority)
+    else dbMod.initProductWorkspaceDatabase(workspaceRoot, targetDbPath)
     this.lastDbPath = targetDbPath
   }
 

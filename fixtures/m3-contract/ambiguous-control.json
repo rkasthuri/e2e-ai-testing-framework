@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "forge-manual-analysis-result/v1",
+  "outcome": {
+    "kind": "refusal",
+    "refusal": {
+      "schemaVersion": "forge-manual-automation-refusal/v1",
+      "projectId": "project-storefront",
+      "sourceAuthority": {
+        "sourceId": "manual-source-ambiguous-control-01",
+        "sourceContentHash": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "code": "ambiguous_evidence",
+      "evidenceState": "ambiguous",
+      "safeMessage": "Two observed Continue controls satisfy the authored click step.",
+      "sourceGrounding": [
+        {
+          "sourceRef": {
+            "kind": "step",
+            "ordinal": 1
+          },
+          "status": "grounded",
+          "canonicalBinding": {
+            "kind": "action",
+            "ordinal": 0
+          },
+          "basis": {
+            "kind": "governed_route",
+            "flowStepIndex": null,
+            "evidenceIds": [
+              "obs-checkout-route"
+            ]
+          }
+        },
+        {
+          "sourceRef": {
+            "kind": "step",
+            "ordinal": 2
+          },
+          "status": "ambiguous_evidence",
+          "canonicalBinding": null,
+          "basis": {
+            "kind": "observed_flow_step",
+            "flowStepIndex": 0,
+            "evidenceIds": [
+              "obs-continue-control-primary",
+              "obs-continue-control-secondary"
+            ]
+          }
+        },
+        {
+          "sourceRef": {
+            "kind": "expected_outcome"
+          },
+          "status": "grounded",
+          "canonicalBinding": {
+            "kind": "oracle",
+            "oracleKind": "subject_observable"
+          },
+          "basis": {
+            "kind": "governed_subject",
+            "flowStepIndex": null,
+            "evidenceIds": [
+              "obs-overview-subject"
+            ]
+          }
+        }
+      ],
+      "limitations": [
+        "The evidence does not identify one unique observed Continue control."
+      ]
+    }
+  }
+}

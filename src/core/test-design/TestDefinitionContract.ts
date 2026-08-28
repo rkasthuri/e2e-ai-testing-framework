@@ -1156,11 +1156,12 @@ export interface CanonicalV3FlowGenerationInput extends CanonicalV2GenerationInp
   normalizedIntent: MaterializedNormalizedTestIntentV1
 }
 
-/** Materializes the one bounded M1 observed-flow definition. */
-export function generateCanonicalFlowTestSetV3(
+/** Shared materializer for the frozen v3 shape. Public producers remain source-specific. */
+function generateCanonicalFlowTestSetV3ForSource(
   input: CanonicalV3FlowGenerationInput,
   generationId: string,
   revision: number,
+  expectedSource: 'discovered' | 'manual',
 ): MaterializedTestSet<CanonicalTestSetV3> {
   const { authority, routeEvidence, authenticationExpectation } = input
   let normalized: MaterializedNormalizedTestIntentV1
@@ -1171,7 +1172,7 @@ export function generateCanonicalFlowTestSetV3(
   }
   if (normalized.fingerprint !== input.normalizedIntent.fingerprint || normalized.json !== input.normalizedIntent.json
     || !ID.test(input.projectId) || !ID.test(generationId) || !ISO.test(input.generatedAt)
-    || normalized.value.source !== 'discovered'
+    || normalized.value.source !== expectedSource
     || normalized.value.projectId !== input.projectId || authority.projectId !== input.projectId
     || routeEvidence.projectId !== input.projectId || routeEvidence.modelRowId !== authority.modelRowId
     || routeEvidence.supportSealHash !== authority.supportSealHash
@@ -1291,4 +1292,22 @@ export function generateCanonicalFlowTestSetV3(
     coverage: 'unknown',
     freshness: 'not_evaluated',
   })
+}
+
+/** Materializes the one bounded M1 discovered observed-flow definition. */
+export function generateCanonicalFlowTestSetV3(
+  input: CanonicalV3FlowGenerationInput,
+  generationId: string,
+  revision: number,
+): MaterializedTestSet<CanonicalTestSetV3> {
+  return generateCanonicalFlowTestSetV3ForSource(input, generationId, revision, 'discovered')
+}
+
+/** Materializes the one bounded M3 manual-source definition without changing v3. */
+export function generateCanonicalManualFlowTestSetV3(
+  input: CanonicalV3FlowGenerationInput,
+  generationId: string,
+  revision: number,
+): MaterializedTestSet<CanonicalTestSetV3> {
+  return generateCanonicalFlowTestSetV3ForSource(input, generationId, revision, 'manual')
 }

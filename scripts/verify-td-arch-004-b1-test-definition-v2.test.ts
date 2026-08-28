@@ -16,7 +16,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { closeDb, getDatabaseProvenance, getDb, initDb } from '../src/core/storage/db'
-import { runMigrations } from '../src/core/storage/migrate'
+import { runMigrations, runSqliteMigrationCoordinator } from '../src/core/storage/migrate'
 import { runWithMigrationContext } from '../src/core/storage/MigrationContext'
 import { TestSetService } from '../src/core/storage/TestSetService'
 import { TestSetRepository } from '../src/core/storage/repositories/TestSetRepository'
@@ -155,9 +155,24 @@ test('Migration 026 preserves v1 payload bytes, rolls back without v2 rows, and 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-td-arch-004-b1-rollback-'))
   initDb(path.join(root, 'forge.db'))
   try {
-    await runMigrations()
-    const service = new TestSetService(new TestSetRepository(), () => '2026-08-12T12:00:00.000Z')
-    await service.generate(v1Fixture(), 'generation-v1')
+    const migrationsDirectory = path.resolve(__dirname, '..', 'src', 'core', 'storage', 'migrations')
+    const through026 = Object.fromEntries(fs.readdirSync(migrationsDirectory)
+      .filter(file => /^\d+_.*\.ts$/.test(file) && file <= '026_canonical_test_definition_v2.ts')
+      .sort()
+      .map(file => [file.replace(/\.ts$/, ''), require(path.join(migrationsDirectory, file))]))
+    await runSqliteMigrationCoordinator(getDb(), through026)
+    const materialized = generateEvidenceBackedTestSet(v1Fixture(), 'generation-v1', 1)
+    await getDb().insertInto('test_set_revisions').values({
+      test_set_id: materialized.value.testSetId, revision: materialized.value.revision,
+      project_id: materialized.value.projectId, generation_id: materialized.value.generationId,
+      schema_version: 1, source_observation_id: materialized.value.sourceObservationId,
+      model_row_id: materialized.value.modelRowId, model_version: materialized.value.modelVersion,
+      observation_run_id: null, support_seal_hash: null,
+      characterization_policy_id: null, characterization_policy_version: null,
+      generated_at: materialized.value.generatedAt, outcome: materialized.value.outcome,
+      definition_count: materialized.value.definitions.length, payload_json: materialized.json,
+      content_hash: materialized.fingerprint,
+    }).execute()
     const before = await getDb().selectFrom('test_set_revisions').select(['payload_json', 'content_hash']).executeTakeFirstOrThrow()
     const authority = getDatabaseProvenance()
     await runWithMigrationContext(authority, () => migrateDown(getDb()))
