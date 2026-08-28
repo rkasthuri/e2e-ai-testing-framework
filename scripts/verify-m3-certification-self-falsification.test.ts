@@ -1970,11 +1970,14 @@ describe('M3 certification self-falsification', () => {
 
   test('contains no certification-owned Product hash or proposal-ID algorithm', () => {
     const files = [
-      'driver.ts', 'fixture-loader.ts', 'suite.ts', 'broken-adapter.ts',
-      '..\\verify-m3-certification-contract.test.ts',
-      '..\\verify-m3-certification-self-falsification.test.ts',
+      path.resolve(__dirname, 'm3-certification', 'driver.ts'),
+      path.resolve(__dirname, 'm3-certification', 'fixture-loader.ts'),
+      path.resolve(__dirname, 'm3-certification', 'suite.ts'),
+      path.resolve(__dirname, 'm3-certification', 'broken-adapter.ts'),
+      path.resolve(__dirname, 'verify-m3-certification-contract.test.ts'),
+      path.resolve(__dirname, 'verify-m3-certification-self-falsification.test.ts'),
     ];
-    const source = files.map(file => readFileSync(path.resolve(__dirname, 'm3-certification', file), 'utf8')).join('\n');
+    const source = files.map(file => readFileSync(file, 'utf8')).join('\n');
     assert.equal(/from\s+['"]node:crypto['"]/.test(source), false);
     assert.equal(/createHash\s*\(/.test(source), false);
     assert.equal(/derive(?:Product)?ProposalId|compute(?:Product)?(?:Source|Proposal|TestSet)Hash/i.test(source), false);
