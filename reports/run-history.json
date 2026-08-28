@@ -2,36 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-08T13-43-06",
-      "timestamp": "2026-07-08T13:43:31.258Z",
-      "durationMs": 437884,
-      "stats": {
-        "total": 316,
-        "passed": 315,
-        "failed": 1,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "99.7%"
-      },
-      "failures": [
-        {
-          "testTitle": "TC066 - Filter bookings by checkin and checkout date parameters",
-          "suiteName": "desktop/api/restful-booker/tests/migrated/tc066-api.spec.ts > API - Booking Date Filter Tests",
-          "file": "desktop/api/restful-booker/tests/migrated/tc066-api.spec.ts",
-          "browser": "api",
-          "priority": "Unknown",
-          "verdict": "test-defect",
-          "confidence": "High",
-          "reasoning": "The massive timestamp mismatch (2001 vs 2024) indicates the test's date filter logic or assertion expectation is wrong, not an app defect.",
-          "suggestedAction": "Review tc066-api.spec.ts line 38 to verify the checkin/checkout filter parameters match the expected timestamp assertion.",
-          "errorMessage": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThanOrEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: >= \u001b[32m1704067200000\u001b[39m\nReceived:    \u001b[31m995155200000\u001b[39m"
-        }
-      ],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
       "runId": "2026-07-08T15-05-27",
       "timestamp": "2026-07-08T15:05:56.735Z",
       "durationMs": 500369,
@@ -1964,6 +1934,31 @@
       },
       "failures": [],
       "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-28T17-57-49",
+      "timestamp": "2026-08-28T17:59:51.752Z",
+      "durationMs": 456663,
+      "stats": {
+        "total": 320,
+        "passed": 319,
+        "failed": 0,
+        "flaky": 1,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [
+        {
+          "testTitle": "TC041 - Logout functionality and session termination",
+          "file": "desktop/ui/saucedemo/tests/migrated/tc041-login.spec.ts",
+          "browser": "webkit",
+          "retries": 1,
+          "durationMs": 38035
+        }
+      ],
       "inputHealth": "healthy",
       "inputHealthReason": null
     }
