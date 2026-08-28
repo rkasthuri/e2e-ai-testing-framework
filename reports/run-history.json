@@ -2,31 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-08T15-05-27",
-      "timestamp": "2026-07-08T15:05:56.735Z",
-      "durationMs": 500369,
-      "stats": {
-        "total": 316,
-        "passed": 315,
-        "failed": 0,
-        "flaky": 1,
-        "skipped": 0,
-        "passRate": "100.0%"
-      },
-      "failures": [],
-      "flakyTests": [
-        {
-          "testTitle": "TC041 - Logout functionality and session termination",
-          "file": "desktop/ui/saucedemo/tests/migrated/tc041-login.spec.ts",
-          "browser": "webkit",
-          "retries": 1,
-          "durationMs": 38497
-        }
-      ],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
       "runId": "2026-07-08T19-11-28",
       "timestamp": "2026-07-08T19:11:54.789Z",
       "durationMs": 429432,
@@ -1959,6 +1934,23 @@
           "durationMs": 38035
         }
       ],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-08-28T21-58-17",
+      "timestamp": "2026-08-28T22:00:35.098Z",
+      "durationMs": 473573,
+      "stats": {
+        "total": 316,
+        "passed": 316,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [],
       "inputHealth": "healthy",
       "inputHealthReason": null
     }
