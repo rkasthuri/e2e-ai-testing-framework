@@ -387,6 +387,32 @@ export interface SuiteRevisionsTable {
 }
 export interface SuiteRevisionMembersTable { suite_id: string; suite_revision: number; member_ordinal: number; definition_id: string }
 
+export interface ManualTestSourcesTable {
+  source_id: string;
+  project_id: string;
+  schema_version: string;
+  source_kind: string;
+  payload_json: string;
+  content_hash: string;
+  admitted_at: string;
+}
+
+export interface ManualTestPromotionsTable {
+  proposal_id: string;
+  project_id: string;
+  proposal_schema_version: string;
+  source_id: string;
+  source_content_hash: string;
+  proposal_payload_json: string;
+  proposal_content_hash: string;
+  test_set_row_id: number;
+  test_set_id: string;
+  test_set_revision: number;
+  test_set_content_hash: string;
+  definition_id: string;
+  promoted_at: string;
+}
+
 export interface ExecutionItemsTable {
   execution_id: string;
   item_ordinal: number;
@@ -570,6 +596,8 @@ export interface Database {
   suites: SuitesTable;
   suite_revisions: SuiteRevisionsTable;
   suite_revision_members: SuiteRevisionMembersTable;
+  manual_test_sources: ManualTestSourcesTable;
+  manual_test_promotions: ManualTestPromotionsTable;
   observation_runs: ObservationRunsTable;
   observations: ObservationsTable;
   observation_gaps: ObservationGapsTable;

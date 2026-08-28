@@ -111,7 +111,7 @@ export function validateCanonicalV3DefinitionPresentation(value: unknown): asser
   text(oracle.explanation)
   const normalized = record(definition.normalizedIntent)
   exactKeys(normalized, ['intentId', 'source', 'sourceFlowId', 'selectedFlowStepIndexes', 'excludedFlowStepIndexes', 'limitations'])
-  if (id(normalized.intentId) !== provenance.intentId || normalized.source !== 'discovered') fail()
+  if (id(normalized.intentId) !== provenance.intentId || normalized.source !== 'discovered' && normalized.source !== 'manual') fail()
   id(normalized.sourceFlowId)
   if (indexes(normalized.selectedFlowStepIndexes).length !== 1) fail()
   indexes(normalized.excludedFlowStepIndexes); strings(normalized.limitations)

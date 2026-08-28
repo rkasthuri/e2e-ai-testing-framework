@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FORGE M3 independent certification fixture contract",
+  "oneOf": [
+    { "$ref": "#/definitions/GoldenMatrix" },
+    { "$ref": "#/definitions/HostileMatrix" }
+  ],
+  "definitions": {
+    "NonEmptyText": {
+      "type": "string",
+      "minLength": 1
+    },
+    "GoldenItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item", "name", "requiredTruth"],
+      "properties": {
+        "item": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "name": { "$ref": "#/definitions/NonEmptyText" },
+        "requiredTruth": { "$ref": "#/definitions/NonEmptyText" }
+      }
+    },
+    "GoldenMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "certificationAuthority", "referenceHarnessAuthority", "sharedFixtures", "items"],
+      "properties": {
+        "schemaVersion": { "const": "forge-m3-golden-matrix/v1" },
+        "certificationAuthority": { "const": "product_driver_required" },
+        "referenceHarnessAuthority": { "const": "mechanics_only" },
+        "sharedFixtures": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/NonEmptyText" }
+        },
+        "items": {
+          "type": "array",
+          "minItems": 12,
+          "maxItems": 12,
+          "items": { "$ref": "#/definitions/GoldenItem" }
+        }
+      }
+    },
+    "HostileItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "expected"],
+      "properties": {
+        "id": { "$ref": "#/definitions/NonEmptyText" },
+        "category": {
+          "enum": ["source_integrity", "grounding", "partial_automation", "save_authority"]
+        },
+        "expected": {
+          "enum": ["accepted_stable", "accepted_changed_authority", "transport_invalid", "semantic_refusal", "save_refused", "idempotent_replay", "atomic_promotion", "certification_detected"]
+        }
+      }
+    },
+    "HostileMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "items"],
+      "properties": {
+        "schemaVersion": { "const": "forge-m3-hostile-matrix/v1" },
+        "items": {
+          "type": "array",
+          "minItems": 41,
+          "maxItems": 41,
+          "items": { "$ref": "#/definitions/HostileItem" }
+        }
+      }
+    }
+  }
+}

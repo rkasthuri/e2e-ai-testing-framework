@@ -79,7 +79,7 @@
       "supportSealHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "sourceFlowId": "flow-cart-checkout",
       "selectedFlowStepIndexes": [
-        0
+        7
       ],
       "excludedFlowStepIndexes": [],
       "subjectSupport": [
@@ -142,7 +142,7 @@
       },
       "basis": {
         "kind": "observed_flow_step",
-        "flowStepIndex": 0,
+        "flowStepIndex": 7,
         "evidenceIds": [
           "obs-checkout-control"
         ]

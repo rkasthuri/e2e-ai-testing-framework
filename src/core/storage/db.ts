@@ -26,6 +26,7 @@ import {
   normalizeDatabasePath,
   productWorkspaceDatabaseAuthority,
 } from './DatabaseAuthority'
+import { parseCanonicalTestSetV3 } from '../test-design/TestDefinitionContract'
 
 let _db: Kysely<Database> | null = null
 let _dbPath: string | null = null
@@ -33,6 +34,30 @@ let _authority: DatabaseAuthority | null = null
 let _provenance: ActiveDatabaseProvenance | null = null
 
 const REPOSITORY_ROOT = path.resolve(__dirname, '../../..')
+
+function isExactCanonicalV3DefinitionMember(
+  payloadJson: unknown,
+  contentHash: unknown,
+  testSetId: unknown,
+  revision: unknown,
+  projectId: unknown,
+  definitionCount: unknown,
+  definitionId: unknown,
+): number {
+  if (![payloadJson, contentHash, testSetId, projectId, definitionId].every(value => typeof value === 'string')) return 0
+  try {
+    const parsed = parseCanonicalTestSetV3(payloadJson as string)
+    return parsed.fingerprint === contentHash
+      && parsed.value.testSetId === testSetId
+      && parsed.value.revision === Number(revision)
+      && parsed.value.projectId === projectId
+      && parsed.value.definitions.length === Number(definitionCount)
+      && parsed.value.definitions.filter(definition => definition.id === definitionId).length === 1
+      ? 1 : 0
+  } catch {
+    return 0
+  }
+}
 
 /**
  * Compatibility-only path resolver. It does not establish database authority.
@@ -166,6 +191,7 @@ export function getDb(): Kysely<Database> {
     try {
       const BetterSqlite3 = require('better-sqlite3')
       const sqlite = new BetterSqlite3(dbPath)
+      sqlite.function('forge_is_exact_canonical_v3_definition_member', { deterministic: true }, isExactCanonicalV3DefinitionMember)
       try { sqlite.pragma('journal_mode = WAL') } catch { /* in-memory / unsupported */ }
       _db = new Kysely<Database>({
         dialect: new SqliteDialect({ database: sqlite }),
@@ -177,6 +203,7 @@ export function getDb(): Kysely<Database> {
       const { NodeWasmDialect } = require('kysely-wasm')
       const { Database: WasmDatabase } = require('node-sqlite3-wasm')
       const wasmDb = new WasmDatabase(dbPath)
+      wasmDb.function('forge_is_exact_canonical_v3_definition_member', isExactCanonicalV3DefinitionMember, { deterministic: true })
       try { wasmDb.exec('PRAGMA journal_mode=WAL') } catch { /* best-effort */ }
       _db = new Kysely<Database>({
         dialect: new NodeWasmDialect({ database: wasmDb }),

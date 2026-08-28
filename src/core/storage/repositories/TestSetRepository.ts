@@ -10,10 +10,12 @@
  * of this software is strictly prohibited.
  */
 
-import { getProductDb } from '../db'
+import { getDatabaseProvenance, getProductDb } from '../db'
+import { DatabaseAuthorityMode } from '../DatabaseAuthority'
 import {
   generateCanonicalTestSetV2,
   generateCanonicalFlowTestSetV3,
+  generateCanonicalManualFlowTestSetV3,
   generateEvidenceBackedTestSet,
   parseCanonicalTestSet,
   TestDefinitionContractError,
@@ -28,6 +30,11 @@ import {
   type TestGenerationOutcome,
 } from '../../test-design/TestDefinitionContract'
 import type { MaterializedNormalizedTestIntentV1 } from '../../test-design/NormalizedTestIntentContract'
+import {
+  parseManualAutomationProposalV1,
+  type ManualAutomationProposalV1,
+  type ManualPromotionResultV1,
+} from '../../test-design/ManualAutomationProposalContract'
 
 export const DEFAULT_TEST_SET_HISTORY_LIMIT = 25
 export const MAX_TEST_SET_HISTORY_LIMIT = 50
@@ -89,6 +96,14 @@ export interface TestGenerationStatusRead {
   temporalIntegrity: 'verified' | 'failed'
 }
 
+export interface ManualPromotionTransactionFaultInjector {
+  afterTestSetRevisionInsertBeforePromotion(input: {
+    projectId: string
+    generationId: string
+    testSetRowId: number
+  }): void | Promise<void>
+}
+
 function isMissingSchema(cause: unknown): boolean {
   return cause instanceof Error && /no such table: test_(?:set_revisions|generation_events|generation_locks)/i.test(cause.message)
 }
@@ -112,6 +127,46 @@ function parseHistoryCursor(cursor: string | null, projectId: string, limit: num
  * intentionally separate. Only this repository may assemble their transaction.
  */
 export class TestSetRepository {
+  constructor(private readonly manualPromotionFaultInjector?: ManualPromotionTransactionFaultInjector) {}
+
+  async findManualPromotion(
+    projectId: string,
+    proposalId: string,
+  ): Promise<ManualPromotionResultV1 | null> {
+    const db = getProductDb()
+    const row = await db.selectFrom('manual_test_promotions').selectAll()
+      .where('project_id', '=', projectId).where('proposal_id', '=', proposalId).executeTakeFirst()
+    if (!row) return null
+    let proposal: ManualAutomationProposalV1
+    try { proposal = parseManualAutomationProposalV1(JSON.parse(row.proposal_payload_json), true) } catch { throw new MalformedTestSetError() }
+    if (proposal.projectId !== projectId || proposal.proposalId !== row.proposal_id
+      || proposal.proposalContentHash !== row.proposal_content_hash
+      || proposal.sourceAuthority.sourceId !== row.source_id
+      || proposal.sourceAuthority.sourceContentHash !== row.source_content_hash
+      || JSON.stringify(proposal) !== row.proposal_payload_json) throw new MalformedTestSetError()
+    const testSetRow = await db.selectFrom('test_set_revisions').selectAll()
+      .where('id', '=', row.test_set_row_id).executeTakeFirst()
+    if (!testSetRow) throw new MalformedTestSetError()
+    const testSet = parseCanonicalTestSet(testSetRow.payload_json)
+    if (testSet.value.schemaVersion !== 3 || testSet.fingerprint !== testSetRow.content_hash
+      || testSetRow.project_id !== projectId || testSetRow.test_set_id !== row.test_set_id
+      || testSetRow.revision !== row.test_set_revision || testSetRow.content_hash !== row.test_set_content_hash
+      || !testSet.value.definitions.some(definition => definition.id === row.definition_id)) throw new MalformedTestSetError()
+    return {
+      schemaVersion: 'forge-manual-promotion-result/v1',
+      outcome: 'promoted',
+      sourceAuthority: { ...proposal.sourceAuthority },
+      proposalAuthority: { proposalId: proposal.proposalId, proposalContentHash: proposal.proposalContentHash },
+      definitionAuthority: {
+        definitionId: row.definition_id,
+        definitionSchemaVersion: 3,
+        testSetId: row.test_set_id,
+        testSetRevision: row.test_set_revision,
+        testSetContentHash: row.test_set_content_hash,
+      },
+    }
+  }
+
   async findCanonicalV3Intent(
     projectId: string,
     reviewed: MaterializedNormalizedTestIntentV1,
@@ -289,11 +344,43 @@ export class TestSetRepository {
     }>
   }
 
+  async commitCanonicalV3ManualPromotion(
+    input: CanonicalV3FlowGenerationInput,
+    generationId: string,
+    processInstanceId: string,
+    proposal: ManualAutomationProposalV1,
+    revalidateNonDatabaseAuthority: () => boolean | Promise<boolean>,
+  ): Promise<{ rowId: number; testSet: CanonicalTestSetV3; contentHash: string; result: ManualPromotionResultV1 }> {
+    const committed = await this.commitCanonicalGeneration(
+      input, generationId, processInstanceId, 3, { proposal, revalidateNonDatabaseAuthority },
+    ) as { rowId: number; testSet: CanonicalTestSetV3; contentHash: string }
+    return {
+      ...committed,
+      result: {
+        schemaVersion: 'forge-manual-promotion-result/v1',
+        outcome: 'promoted',
+        sourceAuthority: { ...proposal.sourceAuthority },
+        proposalAuthority: { proposalId: proposal.proposalId, proposalContentHash: proposal.proposalContentHash },
+        definitionAuthority: {
+          definitionId: committed.testSet.definitions[0].id,
+          definitionSchemaVersion: 3,
+          testSetId: committed.testSet.testSetId,
+          testSetRevision: committed.testSet.revision,
+          testSetContentHash: committed.contentHash,
+        },
+      },
+    }
+  }
+
   private async commitCanonicalGeneration(
     input: CanonicalV2GenerationInput | CanonicalV3FlowGenerationInput,
     generationId: string,
     processInstanceId: string,
     schemaVersion: 2 | 3,
+    manualPromotion?: {
+      proposal: ManualAutomationProposalV1
+      revalidateNonDatabaseAuthority: () => boolean | Promise<boolean>
+    },
   ): Promise<{ rowId: number; testSet: CanonicalTestSetV2 | CanonicalTestSetV3; contentHash: string }> {
     const db = getProductDb()
     return db.transaction().execute(async trx => {
@@ -318,8 +405,13 @@ export class TestSetRepository {
         || seal.characterization_policy_version !== input.authority.characterizationPolicy.version) {
         throw new TestDefinitionContractError('STALE_AUTHORITY')
       }
+      if (manualPromotion && !await manualPromotion.revalidateNonDatabaseAuthority()) {
+        throw new TestDefinitionContractError('STALE_AUTHORITY')
+      }
       const materialized = schemaVersion === 3 && 'normalizedIntent' in input
-        ? generateCanonicalFlowTestSetV3(input, generationId, (latest?.revision ?? 0) + 1)
+        ? manualPromotion
+          ? generateCanonicalManualFlowTestSetV3(input, generationId, (latest?.revision ?? 0) + 1)
+          : generateCanonicalFlowTestSetV3(input, generationId, (latest?.revision ?? 0) + 1)
         : schemaVersion === 2 && !('normalizedIntent' in input)
           ? generateCanonicalTestSetV2(input, generationId, (latest?.revision ?? 0) + 1)
           : (() => { throw new TestDefinitionContractError('INVALID_DEFINITION') })()
@@ -343,6 +435,49 @@ export class TestSetRepository {
         content_hash: materialized.fingerprint,
       }).returning('id').executeTakeFirstOrThrow()
       const rowId = Number(inserted.id)
+      if (manualPromotion) {
+        if (schemaVersion !== 3 || !('normalizedIntent' in input)) {
+          throw new TestDefinitionContractError('INVALID_DEFINITION')
+        }
+        const manualInput = input
+        const proposal = parseManualAutomationProposalV1(manualPromotion.proposal, true)
+        if (proposal.projectId !== input.projectId
+          || proposal.normalizedIntentContentHash !== manualInput.normalizedIntent.fingerprint
+          || JSON.stringify(proposal.normalizedIntent) !== manualInput.normalizedIntent.json
+          || proposal.authority.modelRowId !== input.authority.modelRowId
+          || proposal.authority.modelVersion !== input.authority.modelVersion
+          || proposal.authority.observationRunId !== input.authority.observationRunId
+          || proposal.authority.supportSealHash !== input.authority.supportSealHash
+          || proposal.authority.routeEvidenceIdentityHash !== input.routeEvidence.identityHash
+          || proposal.authority.authenticationExpectationIdentityHash !== input.authenticationExpectation.identityHash) {
+          throw new TestDefinitionContractError('AUTHORITY_MISMATCH')
+        }
+        if (this.manualPromotionFaultInjector) {
+          if (getDatabaseProvenance().authorityMode !== DatabaseAuthorityMode.DISPOSABLE_CERTIFICATION) {
+            throw new Error('Manual promotion fault injection requires disposable certification database authority.')
+          }
+          await this.manualPromotionFaultInjector.afterTestSetRevisionInsertBeforePromotion({
+            projectId: input.projectId,
+            generationId,
+            testSetRowId: rowId,
+          })
+        }
+        await trx.insertInto('manual_test_promotions').values({
+          proposal_id: proposal.proposalId,
+          project_id: input.projectId,
+          proposal_schema_version: proposal.schemaVersion,
+          source_id: proposal.sourceAuthority.sourceId,
+          source_content_hash: proposal.sourceAuthority.sourceContentHash,
+          proposal_payload_json: JSON.stringify(proposal),
+          proposal_content_hash: proposal.proposalContentHash,
+          test_set_row_id: rowId,
+          test_set_id: materialized.value.testSetId,
+          test_set_revision: materialized.value.revision,
+          test_set_content_hash: materialized.fingerprint,
+          definition_id: materialized.value.definitions[0].id,
+          promoted_at: input.generatedAt,
+        }).execute()
+      }
       await trx.insertInto('test_generation_events').values({
         generation_id: generationId,
         project_id: input.projectId,

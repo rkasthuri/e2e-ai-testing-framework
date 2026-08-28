@@ -30,6 +30,7 @@ import {
 } from './DatabaseAuthority';
 import { runWithMigrationContext } from './MigrationContext';
 import { MIGRATION_032_TRIGGER_DEFINITIONS_V1 } from './migrations/032_canonical_suite_revision_authority';
+import { MIGRATION_033_TRIGGER_DEFINITIONS_V1 } from './migrations/033_manual_test_source_promotion_authority';
 
 // Kysely's Migrator and migration types live in a subpath export (kysely/migration)
 // that is not declared as a types path in kysely's package.json exports map under
@@ -102,6 +103,7 @@ const CANONICAL_RESULT_DETAIL_MIGRATION = '029_canonical_result_detail_evidence'
 const CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION = '030_canonical_execution_start_idempotency'
 const CANONICAL_TEST_DEFINITION_V3_MIGRATION = '031_canonical_test_definition_v3'
 const CANONICAL_SUITE_REVISION_MIGRATION = '032_canonical_suite_revision_authority'
+const MANUAL_TEST_SOURCE_PROMOTION_MIGRATION = '033_manual_test_source_promotion_authority'
 const LEGACY_JSON_IMPORT_MIGRATION = '004_json_import'
 const MIGRATION_TABLE = 'kysely_migration'
 const MIGRATION_LOCK_TABLE = 'kysely_migration_lock'
@@ -924,6 +926,21 @@ export interface SqliteMigrationCoordinatorOptions {
   migration029SnapshotObserver?: (snapshotRoot: string) => void
 }
 
+function openSqliteSemanticGuardSnapshot(snapshotPath: string): Kysely<any> {
+  try {
+    const BetterSqlite3 = require('better-sqlite3')
+    const sqlite = new BetterSqlite3(snapshotPath, { fileMustExist: true })
+    return new Kysely<any>({ dialect: new SqliteDialect({ database: sqlite }) })
+  } catch {
+    const { NodeWasmDialect } = require('kysely-wasm')
+    const { Database: WasmDatabase } = require('node-sqlite3-wasm')
+    const sqlite = new WasmDatabase(snapshotPath, { fileMustExist: true })
+    return new Kysely<any>({
+      dialect: new NodeWasmDialect({ database: sqlite }),
+    } as any)
+  }
+}
+
 async function certifyCanonicalResultDetailGuardsOnSnapshot(
   db: Kysely<any>,
   options: SqliteMigrationCoordinatorOptions = {},
@@ -931,7 +948,6 @@ async function certifyCanonicalResultDetailGuardsOnSnapshot(
   const fault = options.migration029SnapshotVerificationFault
   let root: string | null = null
   let snapshot: Kysely<any> | null = null
-  let snapshotSqlite: { close: () => void } | null = null
   let setupComplete = false
   let certification: CanonicalResultDetailGuardCertification = { valid: false, failedGuard: 'snapshot_setup' }
   try {
@@ -940,10 +956,7 @@ async function certifyCanonicalResultDetailGuardsOnSnapshot(
     options.migration029SnapshotObserver?.(root)
     const snapshotPath = path.join(root, 'forge.db')
     await sql`VACUUM INTO ${snapshotPath}`.execute(db)
-    const BetterSqlite3 = require('better-sqlite3')
-    const sqlite = new BetterSqlite3(snapshotPath, { fileMustExist: true })
-    snapshotSqlite = sqlite
-    snapshot = new Kysely<any>({ dialect: new SqliteDialect({ database: sqlite }) })
+    snapshot = openSqliteSemanticGuardSnapshot(snapshotPath)
     setupComplete = true
     certification = await inspectCanonicalResultDetailGuardBehavior(snapshot)
   } catch {
@@ -954,19 +967,9 @@ async function certifyCanonicalResultDetailGuardsOnSnapshot(
       if (snapshot) {
         await snapshot.destroy()
         snapshot = null
-        snapshotSqlite = null
-      } else if (snapshotSqlite) {
-        snapshotSqlite.close()
-        snapshotSqlite = null
       }
     } catch {
       cleanupFailed = true
-      try {
-        snapshotSqlite?.close()
-        snapshotSqlite = null
-      } catch {
-        cleanupFailed = true
-      }
     }
     if (root) {
       try {
@@ -989,17 +992,13 @@ async function certifyCanonicalResultDetailGuardsOnSnapshot(
 async function certifyExecutionIntentGuardsOnSnapshot(db: Kysely<any>): Promise<ExecutionIntentGuardCertification> {
   let root: string | null = null
   let snapshot: Kysely<any> | null = null
-  let snapshotSqlite: { close: () => void } | null = null
   let setupComplete = false
   let certification: ExecutionIntentGuardCertification = { valid: false, failedGuard: 'snapshot_setup' }
   try {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-m030-routine-cert-'))
     const snapshotPath = path.join(root, 'forge.db')
     await sql`VACUUM INTO ${snapshotPath}`.execute(db)
-    const BetterSqlite3 = require('better-sqlite3')
-    const sqlite = new BetterSqlite3(snapshotPath, { fileMustExist: true })
-    snapshotSqlite = sqlite
-    snapshot = new Kysely<any>({ dialect: new SqliteDialect({ database: sqlite }) })
+    snapshot = openSqliteSemanticGuardSnapshot(snapshotPath)
     setupComplete = true
     certification = await inspectExecutionIntentGuardBehavior(snapshot)
   } catch {
@@ -1010,14 +1009,9 @@ async function certifyExecutionIntentGuardsOnSnapshot(db: Kysely<any>): Promise<
       if (snapshot) {
         await snapshot.destroy()
         snapshot = null
-        snapshotSqlite = null
-      } else if (snapshotSqlite) {
-        snapshotSqlite.close()
-        snapshotSqlite = null
       }
     } catch {
       cleanupFailed = true
-      try { snapshotSqlite?.close() } catch { cleanupFailed = true }
     }
     if (root) {
       try {
@@ -1172,6 +1166,32 @@ async function inspectCanonicalSuiteRevisionSchema(db: Kysely<any>): Promise<Tab
     : 'canonical Suite revision authority does not match the exact Migration 032 contract' }
 }
 
+async function inspectManualTestSourcePromotionSchema(db: Kysely<any>): Promise<TableContract> {
+  const rows = (await sql<{ type: string; name: string; definition: string | null }>`
+    SELECT type, name, sql AS definition FROM sqlite_schema
+    WHERE name IN ('manual_test_sources', 'manual_test_promotions')
+      OR (type='trigger' AND tbl_name IN ('manual_test_sources', 'manual_test_promotions'))
+  `.execute(db)).rows
+  const identities = new Set(rows.map(row => `${row.type}:${row.name}`))
+  const triggers = new Map(rows.filter(row => row.type === 'trigger').map(row => [row.name, row.definition]))
+  const triggersValid = Object.entries(MIGRATION_033_TRIGGER_DEFINITIONS_V1).every(([name, expected]) => {
+    const actual = triggers.get(name)
+    return typeof actual === 'string'
+      && normalizeMigrationSqlDefinition(actual) === normalizeMigrationSqlDefinition(expected)
+  })
+  const present = identities.has('table:manual_test_sources') || identities.has('table:manual_test_promotions')
+    || triggers.size > 0
+  const valid = identities.has('table:manual_test_sources') && identities.has('table:manual_test_promotions')
+    && triggers.size === Object.keys(MIGRATION_033_TRIGGER_DEFINITIONS_V1).length && triggersValid
+  return {
+    present,
+    valid,
+    detail: valid
+      ? 'immutable Manual Test source and exact canonical v3 promotion membership guards match Migration 033'
+      : 'Manual Test source or promotion authority does not match the exact Migration 033 trigger contract',
+  }
+}
+
 async function appModelColumns(db: Kysely<any>): Promise<Set<string>> {
   if (!await tableExists(db, 'app_models')) return new Set()
   return new Set((await sql<{ name: string }>`PRAGMA table_info(app_models)`.execute(db)).rows.map(row => row.name))
@@ -1250,6 +1270,7 @@ async function assertManagedSchemaHistoryConsistency(
   const canonicalExecutionIntent = await inspectCanonicalExecutionIntentSchema(db)
   const canonicalTestDefinitionV3 = await inspectCanonicalTestDefinitionV3Schema(db)
   const canonicalSuiteRevision = await inspectCanonicalSuiteRevisionSchema(db)
+  const manualTestSourcePromotion = await inspectManualTestSourcePromotionSchema(db)
   const discrepancies: string[] = []
   if (migration016Applied && !activeIndex.valid) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is applied, but ${activeIndex.detail}`)
   else if (!migration016Applied && activeIndex.present) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is pending, but ${activeIndex.detail}`)
@@ -1346,6 +1367,9 @@ async function assertManagedSchemaHistoryConsistency(
   if (appliedNames.has(CANONICAL_SUITE_REVISION_MIGRATION)) {
     if (!canonicalSuiteRevision.valid) discrepancies.push(`history says ${CANONICAL_SUITE_REVISION_MIGRATION} is applied, but ${canonicalSuiteRevision.detail}`)
   } else if (canonicalSuiteRevision.present) discrepancies.push(`history says ${CANONICAL_SUITE_REVISION_MIGRATION} is pending, but ${canonicalSuiteRevision.detail}`)
+  if (appliedNames.has(MANUAL_TEST_SOURCE_PROMOTION_MIGRATION)) {
+    if (!manualTestSourcePromotion.valid) discrepancies.push(`history says ${MANUAL_TEST_SOURCE_PROMOTION_MIGRATION} is applied, but ${manualTestSourcePromotion.detail}`)
+  } else if (manualTestSourcePromotion.present) discrepancies.push(`history says ${MANUAL_TEST_SOURCE_PROMOTION_MIGRATION} is pending, but ${manualTestSourcePromotion.detail}`)
   if (discrepancies.length > 0) throw new MigrationStateMismatchError(discrepancies)
 }
 
@@ -1417,6 +1441,9 @@ async function assertMigrationPostconditions(db: Kysely<any>, migrationName: str
   }
   if (migrationName === CANONICAL_SUITE_REVISION_MIGRATION) {
     const suite=await inspectCanonicalSuiteRevisionSchema(db); if(!suite.valid) throw new Error(suite.detail)
+  }
+  if (migrationName === MANUAL_TEST_SOURCE_PROMOTION_MIGRATION) {
+    const manual = await inspectManualTestSourcePromotionSchema(db); if(!manual.valid) throw new Error(manual.detail)
   }
 }
 

@@ -211,9 +211,13 @@ describe('M3 frozen shared Contract Spine', () => {
 
     const normalized = object(proposal.normalizedIntent, 'normalizedIntent');
     const normalizedGrounding = object(normalized.grounding, 'normalized grounding');
-    const observedFlowIndexes = new Set(
-      array(normalizedGrounding.selectedFlowStepIndexes, 'selected flow step indexes'),
+    const selectedFlowStepIndexes = array(
+      normalizedGrounding.selectedFlowStepIndexes,
+      'selected flow step indexes',
     );
+    assert.deepEqual(selectedFlowStepIndexes, [7]);
+    assert.deepEqual(normalizedGrounding.excludedFlowStepIndexes, []);
+    const observedFlowIndexes = new Set(selectedFlowStepIndexes);
     for (const item of positiveGrounding) {
       const binding = item.canonicalBinding === null
         ? null
@@ -225,6 +229,7 @@ describe('M3 frozen shared Contract Spine', () => {
       }
       if (binding?.kind === 'action' && binding.ordinal === 1) {
         assert.equal(basis.kind, 'observed_flow_step');
+        assert.equal(basis.flowStepIndex, 7);
         assert.equal(observedFlowIndexes.has(basis.flowStepIndex), true);
       }
       if (binding?.kind === 'oracle') {
