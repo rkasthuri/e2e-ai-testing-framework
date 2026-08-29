@@ -33,6 +33,7 @@ export type SuiteRunEligibility =
 export interface SavedSuitesWorkspaceProps {
   projectId: string
   state: SavedSuitesState
+  initialDefinitionId?: string | null
   readRevision?: (suiteId: string, revision: number) => Promise<CanonicalSuiteRevision>
   refreshCurrentHead?: (suiteId: string) => Promise<CanonicalSuiteRevision>
   save?: (request: SuiteChangeRequest) => Promise<CanonicalSuiteRevision>
@@ -57,7 +58,7 @@ function SuiteRevisionView({ suite, onEdit, runEligibility }: { suite: Canonical
   </section>
 }
 
-export function SavedSuitesWorkspace({ projectId, state, readRevision, refreshCurrentHead, save, preflight, runEligibility = { kind: 'unverified' } }: SavedSuitesWorkspaceProps) {
+export function SavedSuitesWorkspace({ projectId, state, initialDefinitionId, readRevision, refreshCurrentHead, save, preflight, runEligibility = { kind: 'unverified' } }: SavedSuitesWorkspaceProps) {
   const [draft, setDraft] = useState<{ suiteId?: string; expectedRevision?: number; name: string; members: SuiteDefinitionAuthority[] } | null>(null)
   const [opened, setOpened] = useState<CanonicalSuiteRevision | null>(null)
   const [pending, setPending] = useState(false)
@@ -67,7 +68,12 @@ export function SavedSuitesWorkspace({ projectId, state, readRevision, refreshCu
 
   if (state.kind === 'transport_unavailable') return <section aria-labelledby="saved-suites-heading" className="rounded-lg border border-flaky/40 bg-surface p-5"><div className="flex gap-3"><AlertTriangle className="shrink-0 text-flaky" size={20} /><div><h2 id="saved-suites-heading" className="text-lg font-semibold text-primary">Saved Suites</h2><p className="mt-1 text-sm text-secondary">Saved Suite authority is not available in this branch. No endpoint, membership, or current-head state was guessed.</p><p className="mt-2 text-xs text-muted">Dependency: frozen M2 Core Suite DTOs and transport routes.</p></div></div></section>
 
-  function startCreate() { setOpened(null); setMessage(null); setDraft({ name: 'Checkout Sanity', members: [] }) }
+  function startCreate() {
+    const initialCandidate = initialDefinitionId ? candidateById.get(initialDefinitionId) : undefined
+    setOpened(null)
+    setMessage(initialCandidate ? `Definition ${initialDefinitionId} was preselected from the explicit handoff. Review the ordered Suite draft before Save.` : null)
+    setDraft({ name: 'Checkout Sanity', members: initialCandidate ? [initialCandidate.definitionAuthority] : [] })
+  }
   function startEdit(suite: CanonicalSuiteRevision) { setMessage(null); setDraft({ suiteId: suite.suiteId, expectedRevision: suite.revision, name: suite.name, members: suite.members.map(member => member.definitionAuthority) }) }
   function toggle(authority: SuiteDefinitionAuthority) { setDraft(current => current ? { ...current, members: current.members.some(member => member.definitionId === authority.definitionId) ? current.members.filter(member => member.definitionId !== authority.definitionId) : [...current.members, authority] } : current) }
   function move(index: number, offset: number) { setDraft(current => { if (!current) return current; const next = index + offset; if (next < 0 || next >= current.members.length) return current; const members = [...current.members]; [members[index], members[next]] = [members[next], members[index]]; return { ...current, members } }) }
@@ -113,14 +119,14 @@ export function SavedSuitesWorkspace({ projectId, state, readRevision, refreshCu
   </section>
 }
 
-export function SavedSuitesProductWorkspace({projectId}:{projectId:string}){
+export function SavedSuitesProductWorkspace({projectId,initialDefinitionId}:{projectId:string;initialDefinitionId?:string|null}){
   const [state,setState]=useState<SavedSuitesState|null>(null)
   const [error,setError]=useState(false)
   useEffect(()=>{let active=true;setState(null);setError(false);Promise.all([suiteTransport.listHeads(projectId),suiteTransport.readCandidates(projectId)])
-    .then(([heads,candidates])=>{if(active)setState({kind:'ready',heads,candidates})}).catch(()=>{if(active)setError(true)});return()=>{active=false}},[projectId])
+    .then(([heads,candidates])=>{if(active)setState({kind:'ready',heads,candidates})}).catch(()=>{if(active)setError(true)});return()=>{active=false}},[projectId,initialDefinitionId])
   if(error)return <section role="alert" className="rounded-lg border border-fail/40 bg-surface p-5"><h2 className="text-lg font-semibold text-primary">Saved Suites unavailable</h2><p className="mt-1 text-sm text-secondary">Canonical Suite authority or current Definition candidates could not be read safely.</p></section>
   if(!state)return <div role="status" className="flex items-center gap-2 text-secondary"><Loader2 size={18} className="animate-spin" /> Loading Saved Suites…</div>
-  return <SavedSuitesWorkspace projectId={projectId} state={state}
+  return <SavedSuitesWorkspace projectId={projectId} state={state} initialDefinitionId={initialDefinitionId}
     readRevision={(suiteId,revision)=>suiteTransport.readRevision(projectId,suiteId,revision)}
     refreshCurrentHead={async suiteId=>{const current=await suiteTransport.refreshCurrentHead(projectId,suiteId);setState(value=>value?.kind==='ready'?{...value,heads:[...value.heads.filter(item=>item.suiteId!==suiteId),current]}:value);return current}}
     save={async request=>{const saved=await suiteTransport.save(projectId,request);setState(value=>value?.kind==='ready'?{...value,heads:[...value.heads.filter(item=>item.suiteId!==saved.suiteId),saved]}:value);return saved}}

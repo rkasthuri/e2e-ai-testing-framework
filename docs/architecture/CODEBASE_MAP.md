@@ -17,7 +17,7 @@ Module ownership, entry points, persistence boundaries, UI routes, or validation
 paths change
 
 Last Verified:
-2026-08-14
+2026-08-29
 
 ---
 
@@ -60,7 +60,7 @@ counts and status labels here as permanent.
 
 The implemented, adopted Product authority chain is:
 
-`Crawl -> ObservationRun/Observation/Gap -> App Model + support seal -> CanonicalTestDefinition v2 -> ExecutablePlan v2 -> Execution -> Run/Result -> Results Projection -> API/UI`
+`Crawl/manual admission -> Observation/App Model or immutable manual source -> CanonicalTestDefinition v2/v3 -> optional Suite revision -> ExecutablePlan v2 -> Execution -> Run/Result -> Results Projection -> project-scoped API/UI`
 
 Each arrow crosses an explicit contract. Observation truth commits before App
 Model derivation; Test Definition v2 references exact sealed support; execution
@@ -75,7 +75,7 @@ projection recomputes Gap artifact integrity and warns without repairing state.
 
 | Classification | Current paths | Authority rule |
 |---|---|---|
-| CANONICAL | Core Observation, App Model support, Test Definition v2, Execution v2, Run/Result, and read projections | May create or interpret active Product truth |
+| CANONICAL | Core Observation, App Model support, Test Definition v2/v3, manual source/proposal, Suite revisions, Execution v2, Run/Result, and read projections | May create or interpret active Product truth |
 | COMPATIBILITY | Legacy Observation readers/endpoints and v1 Test Definition presentation | Readable and explicitly labelled; never fallback canonical authority |
 | LEGACY | CLI/CI run identity, result storage, healing, reporting, and generated-source manifests | Retains its own historical/runtime contract; never merged into Product authority |
 | EXPERIMENTAL | Agent memory and bounded AI/agentic paths not adopted into the Product authority chain | No authority over canonical Product facts |
@@ -162,6 +162,18 @@ and generation intent to core and consumes the canonical presentation; it does
 not assemble support, route, or authentication authority. The pre-existing
 generated-source manifest remains compatibility-only.
 
+Canonical v3 Definition and manual-promotion authority extend the same Test Set
+boundary through `ManualTestIngestionService`, `ManualTestSourceRepository`, and
+migrations 031 and 033. Analyze admits an immutable source and returns a
+deterministic proposal or refusal; identity-only Save atomically promotes
+successful authority. Unsupported source is not partially promoted.
+
+Immutable ordered Sanity Suite revision authority is owned by
+`src/core/suites/`, `SuiteRepository`, migration 032, and
+`forge-ui/server/context/SuiteController.ts`. Saved Suites reads canonical
+candidates, saves explicit reviewed order, and executes an exact revision; it
+does not reconstruct membership from current Test Set state.
+
 The pure CanonicalTestDefinition-to-ExecutablePlan projection is owned by
 `src/core/execution/ExecutablePlanContract.ts` and
 `src/core/execution/ExecutionProjectionService.ts`. It performs no
@@ -233,6 +245,10 @@ operations remain the only durable App Model write authority.
 
 - Migration 018 adds paired nullable `recovery_source_row_id` and
   `recovery_source_fingerprint` fields.
+- Migration 031 adds canonical Test Definition v3 authority.
+- Migration 032 adds immutable Suite revision authority.
+- Migration 033 adds immutable manual source/proposal and atomic promotion
+  authority.
 - Normal and historical rows retain `NULL`/`NULL`; guarded recovery rows carry
   both provenance values.
 - Invalid stored JSON remains raw evidence and is not returned as a valid
@@ -252,6 +268,12 @@ source before changing this boundary.
 `forge-ui/` is the canonical UI surface. Its Express API is transport-only and
 delegates business behavior to engine contexts. The server binds to loopback and
 rejects unsafe browser origins by design.
+
+Top-level `/api/v1/tests`, `/runs`, `/results`, `/insights`, `/settings`, and the
+run stream are mounted legacy compatibility stubs that return 501. They are not
+supported Product contracts. Canonical M1-M3 transport is project-scoped under
+`/api/v1/projects/:appName`; remove the stubs only after a separate consumer
+audit proves removal safe.
 
 `src/platform/` is deprecated historical code. The monolithic
 `platform-server.ts` is retired and fails closed before dotenv loading or

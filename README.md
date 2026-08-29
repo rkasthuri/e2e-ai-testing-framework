@@ -20,11 +20,15 @@
 
 ## What FORGE Is
 
-FORGE is an AI-augmented Quality Engineering platform and applied research project focused on building reliable, evidence-driven software testing.
+FORGE is an evidence-first, local single-user Quality Engineering Product and
+applied research project. Its certified Product scope is intentionally narrower
+than its long-term vision: it turns observed or admitted source into canonical
+Test Definitions, immutable Suite revisions, local execution, and immutable
+Results without inventing missing authority.
 
-Rather than treating AI as a code generator, FORGE applies AI throughout the testing lifecycle — application understanding, test generation, execution, triage, healing, and continuous learning — while grounding every decision in observable evidence.
-
-The project serves as both an engineering platform and an experimental environment for advancing trustworthy, explainable AI-assisted Quality Engineering.
+M1, M2, and M3 are closed. General AI authoring, canonical Product failure
+triage, automatic healing, Insights, scheduling, bulk import, cloud persistence,
+multi-tenancy, and external-user packaging are not shipped Product capabilities.
 
 > *"This isn't just another Playwright framework. It's a question about how to build AI that earns its confidence rather than assumes it."*
 
@@ -47,7 +51,10 @@ These aren't slogans — they are reflected in the Architecture Decision Records
 
 ---
 
-## Vision
+## Target Vision (not current Product status)
+
+The following diagram is research and product direction. It must not be read as
+an implemented end-to-end autonomous loop.
 
 ```mermaid
 flowchart TD
@@ -76,22 +83,16 @@ flowchart TD
 
 | Capability | Status | Notes |
 |---|---|---|
-| Application Crawling (UI) | ✅ Shipped | BFS, SPA, Hybrid — auto-detected |
-| Application Crawling (API) | ✅ Shipped | REST API + GraphQL |
-| App Model Generation | ✅ Shipped | Pages, elements, flows, roles, confidence |
-| AI Element Classification | ✅ Shipped | Names elements by meaning, not DOM label |
-| AI Flow Detection | ✅ Shipped | Identifies user journeys automatically |
-| AI Test Generation | ✅ Shipped | Produces runnable Playwright specs |
-| AI Failure Triage | ✅ Shipped | 5-category evidence-gated classification |
-| Evidence-driven Healing | ✅ Shipped | Selector repair with confidence safeguards |
-| Flaky Test Prediction | ✅ Shipped | Risk-scored from historical run data |
-| Evaluation Harnesses | ✅ Shipped | Measurable evals for triage, generation, healing |
-| Agentic Crawl Planner | 🔄 In progress | Goal-directed, stateful exploration |
-| Bootstrap Mode | 🔄 In progress | Auto-config from URL — no manual setup |
-| Cross-session Goal Memory | 🔄 In progress | Agent learns across runs, not just within them |
-| Dashboard | 🗓️ Planned | After pipeline is fully stable |
-| Mobile Testing | 🗓️ Planned | Same pipeline, different surface |
-| IoT Testing | 🗓️ Planned | Future direction |
+| Local crawl, Observation, App Model, evidence, and readiness | ✅ Shipped — bounded | General completeness across “any application” is not certified |
+| Canonical Test Definition v2/v3 inventory and history | ✅ Shipped | Exact provenance and fail-closed integrity states |
+| M1 observed app-area intent to v3 Definition | ✅ Certified | Narrow observed grammar; not broad AI authoring |
+| M2 immutable ordered Sanity Suites | ✅ Certified | Exact revision history and historical execution |
+| M3 manual source analysis/refusal and v3 promotion | ✅ Certified | Narrow deterministic grammar; unsupported semantics are refused |
+| Local execution, cancellation/recovery, immutable Results | ✅ Shipped | Local single-host authority only |
+| Results history and detail | ✅ Shipped | Canonical diagnostics and aggregation remain incomplete |
+| Canonical Product failure triage and Insights | 🗓️ Proposed M4 | Legacy/eval machinery is not Product authority |
+| Human-reviewed healing/stability proposals | 🗓️ Proposed M5 | Automatic healing is not a current Product claim |
+| External-user, multi-tenant, or cloud deployment | 🗓️ Deferred | Requires separate security and platform architecture |
 
 ---
 
@@ -180,7 +181,12 @@ graph TD
 
 ---
 
-## Where AI Changes the Game
+## Target Differentiation
+
+> This section describes intended differentiation, not the current certified
+> Product surface. Today, only the bounded M1-M3 paths in the capability table
+> above are canonical Product behavior; triage, healing, contract-drift repair,
+> and general “any application” scale remain legacy, experimental, or planned.
 
 Traditional automation still relies heavily on people to notice change, diagnose it, and manually update scripts. The table below shows where AI closes that gap — and where human judgment still leads.
 
@@ -200,9 +206,10 @@ Traditional automation still relies heavily on people to notice change, diagnose
 
 ---
 
-## Agentic Capabilities — What's Being Built
+## Agentic Research (not canonical Product authority)
 
-FORGE is moving beyond scripted pipeline steps toward AI agents that can plan, act, observe, and decide autonomously.
+The repository contains bounded agentic research for planning, acting,
+observing, and deciding. It is not part of the certified M1-M3 Product spine.
 
 ```mermaid
 flowchart LR
@@ -234,9 +241,12 @@ flowchart LR
 
 ---
 
-## AI Failure Triage — Evidence Gate
+## AI Failure Triage Research — Evidence Gate
 
-Every test failure is classified by AI before a human looks at it. The classification cannot exceed the quality of available evidence.
+The repository contains a five-category triage contract and evaluation assets.
+They are not yet connected as authoritative Product Result classification; M4
+is the proposed milestone for that integration. Any future classification must
+not exceed the quality of available evidence.
 
 ```mermaid
 flowchart TD
@@ -345,10 +355,10 @@ FORGE is validated against three structurally different real applications — no
 
 | Dimension | Status |
 |---|---|
-| Current phase | AI-Augmented Automation Platform |
-| Current focus | Agentic Crawl Architecture + Bootstrap Mode |
+| Current phase | Post-M3 Product Truth Alignment |
+| Current focus | Truthful local Product positioning and M4 planning |
 | Repository | Active research & development |
-| Validation | Live against 3 structurally different real apps |
+| Certified Product scope | Local single-user M1-M3 verticals |
 
 ---
 
@@ -392,20 +402,21 @@ forge-framework/
 
 | Milestone | Status |
 |---|---|
-| ✅ AI Failure Triage | Shipped |
-| ✅ Evidence-based Test Generation | Shipped |
-| ✅ Honest Self-Healing | Shipped |
-| ✅ Evaluation Harnesses | Shipped |
-| 🔄 Agentic Crawl Planner | In progress |
-| 🔄 Bootstrap Mode | In progress |
-| 🔄 Cross-session Goal Memory | In progress |
-| 🗓️ Learning Loops | Planned |
-| 🗓️ Dashboard | Planned — after pipeline is stable |
-| 🗓️ Autonomous QE Platform | Long-term direction |
+| ✅ M1 — observed intent to v3 Definition, Execution, Result | Closed |
+| ✅ M2 — immutable Sanity Suite revisions and exact execution | Closed |
+| ✅ M3 — manual source proposal/refusal and v3 promotion | Closed |
+| 🔄 Post-M3 Product Truth Alignment | Active |
+| 🗓️ M4 — Evidence-Gated Failure Intelligence | Proposed; not started |
+| 🗓️ M5 — Human-Reviewed Healing / Stability Proposals | Proposed after M4 |
+| 🗓️ External-user / cloud platform | Deferred |
 
 ---
 
 ## Getting Started
+
+Full setup and the Windows fallback for broken global npm/npx shims are in
+[`docs/project/BUILD_AND_RUN.md`](docs/project/BUILD_AND_RUN.md). The canonical
+local UI can be launched from the repository root with `forgeUI.bat`.
 
 ```bash
 git clone https://github.com/rkasthuri/forge-framework.git

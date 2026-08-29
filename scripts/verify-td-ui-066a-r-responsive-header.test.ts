@@ -44,9 +44,34 @@ test('Escape closes each disclosure and returns focus predictably', () => {
   assert.match(header, /document\.removeEventListener\('keydown', closeOnEscape\)/)
 })
 
-test('all primary destinations share one route authority and retain project scoping', () => {
-  const expected = ['/onboard', '/crawl', '/tests', '/run', '/results', '/insights', '/truth-board', '/application/overview', '/settings']
-  for (const route of expected) assert.match(header, new RegExp(`to: '${route.replaceAll('/', '\\/')}'`))
+test('truthful primary destinations share one route authority and retain project scoping', () => {
+  const primaryNavigation = header.match(/const TABS = \[([\s\S]*?)\n\]/)?.[1]
+  assert.ok(primaryNavigation, 'Header must declare the shared TABS route authority')
+
+  const expected = [
+    { to: '/onboard', label: 'Onboard', scoped: false },
+    { to: '/crawl', label: 'Crawl', scoped: true },
+    { to: '/tests', label: 'Tests', scoped: true },
+    { to: '/run', label: 'Run', scoped: true },
+    { to: '/results', label: 'Results', scoped: true },
+    { to: '/application/overview', label: 'Application', scoped: true },
+  ]
+  for (const item of expected) {
+    assert.match(
+      primaryNavigation,
+      new RegExp(`\\{ to: '${item.to.replaceAll('/', '\\/')}', label: '${item.label}', scoped: ${item.scoped} \\}`),
+    )
+  }
+
+  for (const placeholder of [
+    { to: '/insights', label: 'Insights' },
+    { to: '/truth-board', label: 'Truth Board' },
+    { to: '/settings', label: 'Settings' },
+  ]) {
+    assert.doesNotMatch(primaryNavigation, new RegExp(`to: '${placeholder.to.replaceAll('/', '\\/')}'`))
+    assert.doesNotMatch(primaryNavigation, new RegExp(`label: '${placeholder.label}'`))
+  }
+
   assert.equal((header.match(/TABS\.map/g) ?? []).length, 2)
   assert.equal((header.match(/buildProjectRoute\(t\.to, currentProject\)/g) ?? []).length, 2)
 })

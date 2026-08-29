@@ -13,7 +13,8 @@
 import { Router } from 'express'
 import { notImplemented } from '../http'
 
-// TD-UI: /api/v1/settings — filled by its tab brief. Foundation: 501 stub.
+// Legacy compatibility stub: mounted but always 501. No canonical Product
+// Settings transport exists in the current certified local Product.
 const router = Router()
 router.use(notImplemented)
 export default router

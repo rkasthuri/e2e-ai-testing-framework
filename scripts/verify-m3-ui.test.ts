@@ -309,9 +309,9 @@ test('successful promotion sends the exact minimal body and exposes backend auth
     const hrefs = renderer.root.findAllByType('a').map(anchor => anchor.props.href)
     assert.ok(hrefs.some(href => String(href).startsWith('/run?')))
     assert.ok(hrefs.includes(`/run?project=${encodeURIComponent(source.projectId)}&definition=${encodeURIComponent(saveResult.definitionAuthority.definitionId)}&revision=${saveResult.definitionAuthority.testSetRevision}`))
-    assert.ok(hrefs.includes('#saved-suites-workspace'))
+    assert.ok(hrefs.includes(`/tests?project=${encodeURIComponent(source.projectId)}&suiteDefinition=${encodeURIComponent(saveResult.definitionAuthority.definitionId)}#saved-suites-workspace`))
     assert.match(text, /normal canonical v3 preflight\/Start route/)
-    assert.match(text, /separate explicit M2 workflow/)
+    assert.match(text, /separate explicit M2 workflow with this Definition preselected/)
     assert.equal(JSON.parse([...values.values()][0]).definitionId, saveResult.definitionAuthority.definitionId)
   } finally {
     renderer?.unmount()

@@ -95,6 +95,9 @@ export async function startServer(port = 3000): Promise<number> {
   app.use('/api/v1/validate', validateRouter)   // ruling F: before other routes
   app.use('/api/v1/projects', projectsRouter)
   app.use('/api/v1/crawl', crawlRouter)
+  // Legacy compatibility stubs. These mounted routes return 501 and are not
+  // supported Product capability; canonical M1-M3 transport is project-scoped.
+  // Keep them mounted until a separate consumer audit proves removal safe.
   app.use('/api/v1/tests', testsRouter)
   app.use('/api/v1/runs', runsRouter)
   app.use('/api/v1/runs', streamRouter)

@@ -25,7 +25,7 @@ export function AppShell() {
         <Outlet />
       </main>
       <footer className="flex min-h-6 flex-wrap items-center justify-between gap-x-3 border-t border-border bg-surface px-4 py-1 text-[11px] text-muted sm:h-6 sm:flex-nowrap sm:py-0">
-        <span>FORGE™ v1.0.0 — Autonomous Quality Engineering</span>
+        <span>FORGE™ — Local evidence-first quality engineering</span>
         <span>DB: local</span>
       </footer>
     </div>

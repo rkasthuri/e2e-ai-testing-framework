@@ -13,7 +13,8 @@
 import { Router } from 'express'
 import { notImplemented } from '../http'
 
-// TD-UI: /api/v1/results — filled by its tab brief. Foundation: 501 stub.
+// Legacy compatibility stub: mounted but always 501. Canonical Product Results
+// transport is project-scoped under /api/v1/projects/:appName/executions.
 const router = Router()
 router.use(notImplemented)
 export default router

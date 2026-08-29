@@ -9,148 +9,89 @@ Owner:
 Milestone Owner
 
 Source of Truth:
-Roadmap decisions, completed commits, commit-matched validation evidence, and
-the current approved milestone scope
+Approved post-M3 truth-alignment brief, current repository evidence, and the
+Post-M3 Product Gap Board
 
 Refresh Trigger:
-Milestone transition, approved scope change, gate completion, or material
-blocker change
+Truth Alignment closes, approved scope changes, a gate completes, or M4 opens
 
 Last Verified:
-2026-07-29
+2026-08-29
 
 ---
 
-This document tracks the current milestone. It does not define architecture,
-governance, or technical-debt status. Verify implementation claims against Git,
-CI, code, tests, and root [`TECH_DEBT.md`](../../TECH_DEBT.md).
-
 ## Milestone
 
-**Name:** Stabilization and Product-Readiness Preparation
+**Name:** Post-M3 Product Truth Alignment + Prioritized Gap Board
 
-**Phase:** Stabilization and product-readiness preparation
+**Status:** Local implementation and validation in progress
 
-**Status:** Active
+**M4 status:** Proposed only; feature implementation not started
 
-The stabilization implementation has landed and passed its milestone CI run.
-The current objective is to convert that technical reality into trustworthy
-operational knowledge, close documentation authority gaps, and prepare the next
-product/UI work without beginning feature implementation in this milestone.
+## Objective
 
-## Current Objective
+Make Product UI, copy, current-state documentation, roadmap, tooling guidance,
+and API messaging state only what the certified local Product can demonstrate.
+Create one authoritative planning baseline before M4 begins.
 
-Establish a documentation and validation surface that lets a human or future
-FORGE Expert Agent determine:
+## Protected baseline
 
-- where to start;
-- which source governs a decision or workflow;
-- which behavior must be verified from executable evidence;
-- which current-state claims are dated snapshots; and
-- which material is historical only.
+M1, M2, and M3 are formally closed. This batch must preserve:
 
-This work is documentation alignment. It must not change application behavior,
-tests, CI configuration, package scripts, or architectural decisions.
+- observed App Model and canonical v3 Definition authority;
+- immutable manual source/proposal and identity-only Save authority;
+- immutable ordered Suite revision and exact historical execution authority;
+- Execution, Result, evidence aggregation, and Results projection semantics;
+- persistence, migration, recovery, and Certification contracts.
 
-## Completed Gates
+## In scope
 
-### Stabilization implementation
+- truthful local evidence-first Product positioning;
+- hiding placeholder routes from primary navigation while labelling direct
+  routes Preview / Coming Soon;
+- explicit legacy/deprecated messaging for mounted 501 API stubs;
+- post-M3 refresh of state, milestone, roadmap, codebase map, limitations, and
+  operational setup guidance;
+- the authoritative
+  [`POST_M3_PRODUCT_GAP_BOARD.md`](../governance/POST_M3_PRODUCT_GAP_BOARD.md);
+- a UI-only M3 Add-to-Suite handoff that preselects the exact canonical
+  candidate and leaves explicit Suite Save unchanged.
 
-- **CI evidence enforcement:** current-run identity is required; missing, stale,
-  malformed, unhealthy, or unavailable reporting evidence fails closed.
-- **TD-184A:** Migration 018 and durable paired recovery provenance shipped.
-- **TD-184B:** invalid-active inspection, guarded recovery execution, repository
-  persistence ownership, focused tests, and disposable rehearsal shipped.
-- **Legacy platform containment:** legacy launch commands and direct server
-  execution fail closed; `forge ui` is canonical.
-- **Local-only boundary:** forge-ui and relevant auxiliary servers enforce
-  loopback binding and local browser-origin restrictions.
+## Out of scope
 
-### Stabilization validation
+- M4 implementation;
+- failure classification, Insights aggregation, or healing behavior;
+- new API contracts, schemas, migrations, packages, or dependencies;
+- external authentication, tenanting, cloud, scheduling, bulk import, or
+  cross-project execution;
+- removal of legacy routes without a separate consumer audit.
 
-- Automated unit suite passed at the milestone's dated 684/684 baseline.
-- Root/eval TypeScript passed.
-- forge-ui TypeScript passed locally.
-- E2E AI Testing Pipeline run `30492630035` succeeded against
-  `3a1022f35992378d96cb273452042c5585f98ccc`.
-- The workflow's current-run evidence evaluation and reporting-completeness
-  checks passed.
+## Completion gates
 
-These results belong to that source state. Later changes require fresh evidence.
+1. All 12 audit discrepancies are represented and prioritized in the Gap Board.
+2. Product navigation and copy no longer present placeholders as shipped
+   capability.
+3. Current-state documents reflect M1-M3 closure and migration 033.
+4. Repository-local launcher guidance covers broken global npm/npx shims.
+5. Focused M2/M3 UI regression, root and UI TypeScript, UI build, documentation
+   integrity, and diff/whitespace checks pass.
+6. Package manifests and lockfiles remain unchanged.
+7. Aiden reviews the actual diff before any commit. No push occurs without a
+   fresh Rule-9 approval for exact commit SHA(s).
 
-### Documentation truth foundation
+## Next milestone recommendation
 
-- `START_HERE.md` establishes human and AI navigation and trust order.
-- `DOCUMENTATION_INDEX.md` maps authority class, owner, refresh trigger, and
-  source of truth.
-- The document-authority metadata template exists.
-- Primary build/run and CI operational guides have been aligned with executable
-  behavior.
-- Codex onboarding has been reduced to role-specific operational guidance.
-- The validation contract reflects Migration 018 and guarded-recovery
-  ownership.
-- Project-state and milestone snapshots reflect the stabilization milestone.
+**M4 — Evidence-Gated Failure Intelligence**
 
-## Active Gates
+```text
+Immutable Result
+-> diagnostic evidence projection
+-> evidence-gated classification
+-> explanation
+-> Result detail
+-> Insights aggregation
+```
 
-- Validate documentation links, whitespace, scope, and preservation.
-- Review the resulting documentation diff before any commit decision.
-
-## Remaining Gates
-
-### Documentation readiness
-
-- Modernize remaining high-value architecture and reference maps under approved
-  scope.
-- Reconcile known limitations and technical-debt summaries with root
-  `TECH_DEBT.md`.
-- Decide whether the dated handover should be archived; do not use it as current
-  operational guidance.
-- Remove or derive remaining fragile counts and duplicated status claims.
-
-### Product readiness
-
-- Scope and complete TD-UI-062 UI parity work.
-- Validate remaining forge-ui surfaces against current product claims.
-- Define the production-readiness gate after UI parity and documentation truth
-  are established.
-
-### Repository milestone
-
-- Keep documentation changes isolated from pre-existing image changes.
-- Obtain the required review and commit authority.
-- Push only when explicitly authorized, then verify CI behavior for the exact
-  committed SHA if the workflow is triggered.
-
-## Next Strategic Priorities
-
-1. Complete and review the documentation truth modernization.
-2. Reconcile remaining limitation and debt summaries with their authorities.
-3. Scope TD-UI-062 using current architecture and operational boundaries.
-4. Execute UI parity work with focused product validation.
-5. Perform a production-readiness assessment using commit-matched evidence.
-
-## Out of Scope for This Milestone
-
-- New product features or TD-UI-062 implementation.
-- Authentication or remote-access design.
-- Recovery architecture changes.
-- Migration changes.
-- CI workflow changes.
-- Legacy platform deletion or modernization.
-- Reclassification of technical debt without ledger authority.
-
-## Completion Criteria
-
-This milestone is complete when:
-
-1. The approved documentation-truth scope is internally consistent and
-   link-valid.
-2. Operational guides identify executable sources of truth and avoid stale
-   success assumptions.
-3. Agent guidance routes to governance instead of duplicating it.
-4. Snapshot documents clearly separate completed, active, and planned work.
-5. No code, tests, CI workflow, storage, App Model, or unrelated working-tree
-   state was changed by documentation work.
-6. The documentation diff receives the required review and repository action is
-   explicitly authorized.
+Automatic healing is explicitly excluded. M5 is the earliest recommended home
+for human-reviewed Healing / Stability proposals after M4 establishes canonical
+diagnostic evidence.

@@ -1,4 +1,4 @@
-# ROADMAP.md
+# FORGE Roadmap
 
 ---
 
@@ -9,92 +9,102 @@ Owner:
 Product Owner
 
 Source of Truth:
-Approved product direction, completed commits, current milestone evidence, and
-root `TECH_DEBT.md`
+Approved product direction, completed milestone evidence, current repository
+behavior, and the Post-M3 Product Gap Board
 
 Refresh Trigger:
 Milestone transition, capability completion, approved priority change, or
 product-direction decision
 
 Last Verified:
-2026-07-30
+2026-08-29
 
 ---
 
-This roadmap describes sequencing and status; it does not define architecture
-or prove implementation. Verify shipped claims against code, tests, CI, and
-commit-matched evidence. Use [PROJECT_STATE.md](PROJECT_STATE.md) for the
-current snapshot and [START_HERE.md](../START_HERE.md) for authority routing.
+This roadmap describes sequence; it does not prove implementation. Use
+[`PROJECT_STATE.md`](PROJECT_STATE.md) for the current snapshot and
+[`POST_M3_PRODUCT_GAP_BOARD.md`](../governance/POST_M3_PRODUCT_GAP_BOARD.md)
+for prioritized gap ownership.
 
-## Current Phase
+## Current phase
 
-**Stabilization and product-readiness preparation**
+**Post-M3 Product Truth Alignment**
 
-The core evidence-first engine and the canonical forge-ui control surface are
-established. The current focus is to preserve stabilization gains, complete UI
-parity, and prepare product-readiness work without weakening evidence or local
-security boundaries.
+The near-term goal is a coherent, trustworthy local single-user Product. Cloud
+and external-user readiness are separate tracks and must not be inferred from
+local behavior.
 
-## Completed
+## Closed milestones
 
-- TD-184A durable recovery provenance and Migration 018.
-- TD-184B guarded invalid-active recovery, focused tests, and disposable
-  rehearsal.
-- Legacy platform-server retirement containment; `forge ui` is canonical.
-- Local-only server binding and browser-origin enforcement.
-- Documentation authority foundation: `START_HERE.md`, the documentation index,
-  and the authority metadata template.
-- Operational truth modernization for build/run, CI, onboarding, validation,
-  project state, and milestone tracking.
+| Milestone | Certified Product capability | Status |
+|---|---|---|
+| M1 | Observed app-area intent -> canonical v3 Definition -> Execution -> immutable Result | Closed |
+| M2 | Immutable ordered Sanity Suite revision -> exact historical Execution -> immutable Result | Closed |
+| M3 | Immutable manual source -> deterministic proposal/refusal -> identity-only Save -> atomic v3 promotion -> Execution -> Result | Closed |
 
-## Active
+The closures are bounded. They do not ship general AI authoring, canonical
+failure triage, automatic healing, Insights, scheduling, bulk import,
+cross-project orchestration, external-user packaging, or cloud/tenant safety.
 
-### TD-UI-062 and UI parity
+## Active: Product Truth Alignment
 
-Complete the remaining forge-ui product surfaces and align their behavior with
-the established engine and validation contracts. The current work is product
-readiness, not a reason to revive the retired `src/platform` server.
+- correct Product positioning and primary navigation;
+- label mounted 501 routes as legacy compatibility surfaces;
+- refresh post-M3 state, limitations, architecture map, and setup guidance;
+- carry the promoted Definition into the explicit Suite draft without changing
+  Suite authority;
+- establish the authoritative prioritized Gap Board.
 
-### Product readiness
+No M4 feature code belongs in this phase.
 
-Define and validate the gates needed for a trustworthy product-facing release:
-current-run evidence, local security boundaries, UI parity, storage ownership,
-and human/operator validation where required.
+## Proposed M4 — Evidence-Gated Failure Intelligence
 
-### Technical-debt reconciliation
+**Objective:** turn immutable Result evidence into an honest, actionable Product
+diagnostic path.
 
-Use root `TECH_DEBT.md` as the debt authority. Summaries and snapshots should be
-refreshed from it rather than becoming competing status ledgers.
+```text
+Immutable Result
+-> diagnostic evidence projection
+-> evidence-gated classification or refusal
+-> explanation
+-> Result detail
+-> Insights aggregation
+```
 
-## Future Direction
+Dependencies include immutable Result authority, persisted-evidence aggregation,
+project scoping, a frozen classification/refusal vocabulary, and an evaluation
+harness. M4 explicitly excludes automatic healing and Result mutation.
 
-These are future directions, not current commitments:
+## Proposed M5 — Human-Reviewed Healing / Stability Proposals
 
-- broader API testing and surface coverage beyond the existing REST reference
-  validation;
-- an Expert FORGE Agent with evidence-bounded planning and execution; and
-- cloud/SaaS readiness, including an explicitly designed remote security and
-  tenancy model.
+After M4, use canonical diagnostics to create bounded repair or stability
+proposals for human review. Promotion, provenance, rollback, and certification
+must be designed before any automatic mutation claim.
 
-Remote access must not be inferred from local development behavior. It requires
-separate architecture, authentication, tenancy, and operational decisions.
+## Parallel tracks
 
-## Sequencing Principles
+- Crawl completeness and removal of app-specific assumptions.
+- Bounded architecture decomposition at high-change integration seams.
+- Tooling/setup diagnostics and reduced validation noise.
 
-1. Preserve the evidence-first and fail-closed foundation before expanding
-   automation or agent autonomy.
-2. Complete UI parity on top of the canonical forge-ui and existing service
-   ownership boundaries.
-3. Validate product claims against executable evidence, not roadmap prose.
-4. Treat broader API, Expert Agent, and cloud/SaaS work as future until their
-   scope and gates are approved.
+These tracks must preserve the certified M1-M3 authority spine and must not
+delay M4 unless executable evidence establishes a dependency.
 
-## Status Vocabulary
+## Deferred platform track
 
-- **Completed:** implemented and supported by the required evidence for its
-  milestone.
-- **Active:** approved work currently being pursued.
-- **Future:** directional work not yet committed to the current milestone.
+- external authentication, RBAC, tenant isolation, and secrets;
+- cloud persistence, queues, workers, distributed coordination, and recovery;
+- environment/profile UX beyond a proven Product dependency;
+- packaging, upgrades, support boundaries, scheduling, and metering.
 
-The roadmap intentionally avoids permanent test counts and detailed TD status;
-those belong to validation evidence and the technical-debt authority.
+## Sequencing principles
+
+1. Shared physical contract first.
+2. Convergence spike before parallel Core/UI/Certification implementation.
+3. Apply authority-critical, Product-integration, or Product-polish review depth
+   according to actual risk.
+4. Product fixtures define semantics; real Product owns opaque and derived
+   authority.
+5. Introduce the real Product driver early.
+6. Stop certification when frozen invariants are proven; avoid speculative
+   micro-hardening.

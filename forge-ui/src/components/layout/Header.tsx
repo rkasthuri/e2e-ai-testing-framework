@@ -27,10 +27,7 @@ const TABS = [
   { to: '/tests', label: 'Tests', scoped: true },
   { to: '/run', label: 'Run', scoped: true },
   { to: '/results', label: 'Results', scoped: true },
-  { to: '/insights', label: 'Insights', scoped: true },
-  { to: '/truth-board', label: 'Truth Board', scoped: true },
   { to: '/application/overview', label: 'Application', scoped: true },
-  { to: '/settings', label: 'Settings', scoped: true },
 ]
 
 /** Header: logo · tab nav · project switcher · theme toggle. Height 48px. */

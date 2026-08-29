@@ -17,7 +17,7 @@ Prerequisites, package scripts, CLI commands, launch paths, ports, server
 boundaries, validation commands, or troubleshooting behavior change
 
 Last Verified:
-2026-07-29
+2026-08-29
 
 ---
 
@@ -69,6 +69,23 @@ cd forge-ui && npm run check
 The stabilization milestone passed 684/684 unit tests. Treat that as a dated
 reference, not a permanent expected count: run the current suite and use its
 actual output plus commit-matched CI evidence.
+
+### Windows launcher fallback
+
+If the machine's global PowerShell `npm` or `npx` shim is broken, do not treat
+that environment failure as a FORGE Product failure. For the canonical local UI,
+use the repository-owned launcher from the repository root:
+
+```powershell
+.\forgeUI.bat
+```
+
+After dependencies are installed, individual project tools can also be invoked
+through their repository-local Windows launchers, for example
+`.\node_modules\.bin\tsc.cmd`, `.\node_modules\.bin\tsx.cmd`, and
+`.\node_modules\.bin\playwright.cmd`. On Windows, `npm.cmd` / `npx.cmd` may be
+used when only the PowerShell `.ps1` shim is broken. These are setup workarounds;
+they do not change package files or validation semantics.
 
 ---
 

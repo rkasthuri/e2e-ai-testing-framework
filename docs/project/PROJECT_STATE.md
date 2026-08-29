@@ -17,122 +17,83 @@ A major milestone completes or repository, validation, blocker, or strategic
 priority state changes materially
 
 Last Verified:
-2026-07-29
+2026-08-29
 
 ---
 
-This is a dated orientation snapshot, not an authority. Verify every volatile
-claim against Git, CI, code, tests, migrations, and the on-disk
-[`TECH_DEBT.md`](../../TECH_DEBT.md) before acting on it.
+This snapshot records the post-M3 baseline. Verify volatile claims against Git,
+CI, code, tests, migrations, and root [`TECH_DEBT.md`](../../TECH_DEBT.md).
 
-## Snapshot
+## Repository snapshot
 
 | Item | Verified state |
 |---|---|
-| Repository | `github.com/rkasthuri/forge-framework` |
 | Branch | `main` |
-| Stabilization HEAD | `3a1022f35992378d96cb273452042c5585f98ccc` |
-| Remote relationship | Stabilization HEAD matched `origin/main` when this snapshot was verified |
-| Current phase | Stabilization and product-readiness preparation |
-| Canonical UI | `forge ui` / `forgeUI.bat` → `forge-ui` |
+| Local / remote baseline | `2e7851ad8ea294d23fb958d88d4d4a06df7de14b`; local `main` and `origin/main` matched at audit start |
+| Certified M3 Product SHA | `917023a816ce7aa984f80874a5973045fe36ffe4` |
+| Current phase | Post-M3 Product Truth Alignment; M4 feature implementation not started |
+| Canonical UI | `forge-ui` through `forge ui` or the repository launcher |
+| Product topology | Local, single-user, single-host, workspace SQLite |
 | Technical-debt authority | Root `TECH_DEBT.md` |
+| Product planning baseline | [`POST_M3_PRODUCT_GAP_BOARD.md`](../governance/POST_M3_PRODUCT_GAP_BOARD.md) |
 
-Documentation truth-foundation work is present in the working tree and is not
-yet committed. Pre-existing local image changes remain separate. Run
-`git status`, `git diff`, and `git diff --cached` before using this paragraph as
-current repository evidence.
+Unrelated local artifacts existed before this phase and remain outside its
+scope: modified `Forge-Tool.png`, untracked `Forge-Tool.ico`, and untracked
+`reports/validation/`.
 
-## Stabilization Milestone
+## Certified Product capabilities
 
-The pushed stabilization milestone contains:
+- **M1 closed:** observed application intent becomes a canonical v3 Test
+  Definition, executes through the Product authority chain, and produces an
+  immutable Result.
+- **M2 closed:** an immutable ordered Sanity Suite revision can be reopened,
+  revised, and executed by exact historical authority to immutable Results.
+- **M3 closed:** immutable manual source receives deterministic proposal or
+  refusal, identity-only Save, atomic v3 promotion, execution, and Result
+  provenance.
 
-| Area | State | Evidence |
-|---|---|---|
-| CI missing-evidence enforcement | Completed | `aaab02e` — current-run evidence is required; missing, stale, malformed, unhealthy, or unavailable evidence fails closed |
-| TD-184A durable recovery provenance | Completed | `ee504ed` — Migration 018 and paired nullable recovery provenance |
-| Legacy platform retirement | Completed | `5e1df13` — legacy launch commands and direct server execution fail closed |
-| TD-184B guarded recovery | Completed | `97ae96b` — inspection, guarded execution, focused tests, and explicit disposable rehearsal |
-| Local-only server boundary | Completed | `3a1022f` — loopback binding and local browser-origin enforcement |
+The shared certified spine is:
 
-The canonical UI remains `forge-ui`. The retired monolithic legacy platform
-server is retained only for history and cannot be used as an alternate launch
-path.
+```text
+Observed or admitted source
+-> canonical Test Definition v3
+-> optional immutable Suite revision
+-> local Product Execution
+-> immutable Result
+-> Results projection
+```
 
-## Validated Baseline
+These closures do not establish general AI authoring, canonical Product failure
+triage, automatic healing, Insights aggregation, scheduling, bulk import,
+cross-project execution, external-user packaging, cloud persistence, or
+multi-tenancy.
 
-The following is milestone evidence, not a permanent count:
+## Product maturity boundary
 
-| Gate | Stabilization evidence |
-|---|---|
-| Automated unit suite | 684/684 passing at the stabilization milestone |
-| Root/eval TypeScript | Passing |
-| forge-ui TypeScript | Passing locally |
-| E2E AI Testing Pipeline | Run `30492630035` completed successfully |
-| CI tested SHA | `3a1022f35992378d96cb273452042c5585f98ccc` |
-| Current-run evidence checks | Passed in the milestone workflow |
+- The M1-M3 local vertical is mature and trustworthy within its certified
+  grammar and topology.
+- The broader local-product vision remains incomplete.
+- External-user beta and cloud/enterprise readiness require separate Product,
+  security, deployment, and operational work.
 
-The CI run is available at
-[GitHub Actions run 30492630035](https://github.com/rkasthuri/forge-framework/actions/runs/30492630035).
-Re-run applicable validation for a later source state; do not copy these results
-forward.
+Do not extrapolate local workspace isolation, process registries, or environment
+credential resolution into remote, shared, or tenant-safe claims.
 
-## Current Architecture Boundaries
+## Current work
 
-- The App Model remains the application-state authority defined by ADR-001.
-- SQLite repositories retain persistence ownership; guarded recovery does not
-  introduce a parallel writer.
-- Migration 018 records recovery source row identity and fingerprint as a paired
-  nullable contract.
-- Invalid stored JSON remains raw evidence and is not returned as a valid
-  App Model.
-- Guarded recovery requires explicit acknowledgement and matching provenance.
-- The TD-184B SauceDemo rehearsal is explicit, disposable, and outside normal
-  unit discovery.
-- CI reporting evidence must match `CURRENT_RUN_ID`.
-- FORGE development servers enforce local-only binding and browser-origin
-  boundaries; remote mode is unsupported.
+The active batch aligns Product copy, navigation, legacy API messaging, current
+documentation, tooling guidance, and the post-M3 planning baseline. It may carry
+the promoted M3 Definition into the existing M2 Suite draft as a preselection,
+but it does not change Definition, Suite, Execution, Result, persistence, or
+Certification authority.
 
-Refer to the applicable ADRs, implementation, migrations, and tests for binding
-details. This snapshot does not create architecture.
+The proposed next milestone is **M4 — Evidence-Gated Failure Intelligence**.
+Its scope and dependencies are defined in the Gap Board; implementation has not
+begun.
 
-## Active Work
+## Validation context
 
-### Documentation truth modernization
-
-Active:
-
-- establish navigation and authority metadata;
-- align high-value operational and onboarding documents with executable truth;
-- refresh milestone and state snapshots; and
-- preserve historical documents without treating them as current guidance.
-
-Remaining documentation work should update or consolidate stale architecture
-maps, limitations, roadmap, testing strategy, glossary, and handover material
-under separately approved scope.
-
-### Product and UI readiness
-
-Planned or remaining:
-
-- TD-UI-062 UI parity/completion work;
-- product-facing validation of remaining forge-ui surfaces;
-- clear capability/non-capability communication; and
-- production-readiness review after the documentation and UI truth gaps close.
-
-### Technical debt
-
-Open and deferred work remains. Root
-[`TECH_DEBT.md`](../../TECH_DEBT.md), not this snapshot or a summary document,
-owns TD status and priority.
-
-## Next Verification
-
-At the next major milestone:
-
-1. Re-read Git status, HEAD, branch divergence, and recent commits.
-2. Run the applicable typechecks, unit suite, focused tests, and validation
-   profile.
-3. Confirm CI against the exact intended SHA and inspect the reporting decision.
-4. Verify storage and App Model preservation where relevant.
-5. Reconcile active and completed work against root `TECH_DEBT.md`.
-6. Update this snapshot with evidence from that source state.
+The deep audit reported 1,869 passing tests, zero failures, and zero skips on the
+post-M3 baseline, with root/eval and forge-ui TypeScript checks passing. Those
+counts belong to that audited source state and must not be copied forward as
+evidence for this working tree. Fresh local validation is required before review.

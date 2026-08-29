@@ -2,6 +2,12 @@
 
 # FORGE — Autonomous Quality Engineering
 
+> **Long-term vision, not current capability.** The certified Product today is a
+> local, single-user, evidence-first M1-M3 vertical. General autonomous authoring,
+> canonical Product triage, healing, continuous learning, enterprise deployment,
+> and the broader domains below remain planned or research directions unless
+> executable Product evidence says otherwise.
+
 ## Mission
 
 Enable enterprise teams to onboard any application and rapidly create, execute, maintain, and continuously improve automated quality coverage with minimal human effort.
@@ -93,7 +99,7 @@ Secondary:
 
 # Supported Domains
 
-Current:
+Research / legacy coverage (not a statement of canonical Product breadth):
 
 * Web UI
 * REST APIs
@@ -211,7 +217,9 @@ Generate → Execute → Heal → Learn
 
 Positioning:
 
-Enterprise-grade Autonomous Quality Engineering.
+Long-term direction: Enterprise-grade Autonomous Quality Engineering.
+
+Current Product positioning: Local evidence-first Quality Engineering.
 
 ---
 

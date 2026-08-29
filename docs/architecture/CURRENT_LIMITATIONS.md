@@ -17,20 +17,12 @@ A local-product constraint, accepted debt fingerprint, compatibility surface,
 deployment claim, deferred capability, or migration ceiling changes
 
 Implementation Baseline:
-`7fbee850504df65aac1e80d2588cdad75ca29c7b`
-
-Publication Provenance:
-Prepared against that committed implementation plus the governed
-TD-CONFIG-003 documentation tree, then introduced by commit
-`919d5a1352801e5a1efb9c7ee9273de09daf1648`. The authority-chain correction
-was audited on 2026-08-14 under TD-CONFIG-003-R1 against that parent commit;
-Git history records the resulting commit identity.
+`2e7851ad8ea294d23fb958d88d4d4a06df7de14b`
 
 Current Verification Context:
-Reverified on 2026-08-18 against committed `main` at
-`44f140bab0b1dd5a11b4cf1dcf4c22373f628e02`, including committed
-TD-PRODUCT-004-A Migration 030 authority. Uncommitted Product work is not
-included in this verification claim.
+Reverified by the post-M3 deep audit on 2026-08-29 against committed `main`,
+including certified M1-M3 Product behavior and migrations through 033.
+Uncommitted truth-alignment work is not Product capability evidence.
 
 ---
 
@@ -94,6 +86,9 @@ accepted debt. Use the governed comparison procedure in
   is not silently merged with Product Execution, Run, or Result.
 - Legacy healing and reporting remain outside the canonical Product authority
   spine.
+- Top-level `/api/v1/tests`, `/runs`, `/results`, `/insights`, `/settings`, and
+  run-stream routes remain mounted 501 compatibility stubs. They are not
+  supported Product contracts; canonical M1-M3 transport is project-scoped.
 - Bootstrap evidence and agent memory remain compatibility or experimental
   evidence and are not auto-promoted into canonical Observation authority.
 - The retired `src/platform` surface is not a supported Product UI; `forge-ui`
@@ -126,6 +121,11 @@ certified local Product vertical:
   slice;
 - distributed execution, retries, shards, and cloud workers;
 - complete legacy healing/reporting migration;
+- canonical Result diagnostics, evidence-gated failure classification, and
+  Insights aggregation;
+- automatic healing or human-reviewed repair promotion;
+- Product Settings and reusable environment profiles;
+- bulk import, scheduling, and cross-project orchestration;
 - multi-tenant authorization and cloud secret management;
 - mobile and IoT Product support; and
 - complete operator remedy coverage for every gap-producing subsystem.
@@ -139,27 +139,29 @@ Its resolved or unverified entries are not current capability claims.
 The implemented Product path is:
 
 ```text
-Crawl
--> ObservationRun / Observation / ObservationGap
--> App Model + immutable support seal
--> Canonical Test Definition v2
+Crawl / admitted manual source
+-> Observation and App Model authority / immutable manual source authority
+-> Canonical Test Definition v2 or v3
+-> optional immutable ordered Suite revision
 -> ExecutablePlan v2
 -> Execution
 -> Run / immutable Result
 -> Results Projection
--> API / forge-ui
+-> project-scoped API / forge-ui
 ```
 
 For SQLite Product and disposable-certification authorities, the current
-migration ceiling is `030_canonical_execution_start_idempotency`. Legacy PostgreSQL
-remains capped at `020_execution_lifecycle` and is not Product authority.
+migration ceiling is `033_manual_test_source_promotion_authority`. Migrations
+031-033 add canonical v3 Definition, Suite revision, and manual-source promotion
+authority. Legacy PostgreSQL remains capped at `020_execution_lifecycle` and is
+not Product authority.
 
 ## Safe next work
 
-Product development may resume on the certified local authority spine when it
-preserves the canonical owners, fail-closed boundaries, and registered debt
-comparison. Work that changes deployment topology, authority ownership,
-persistence identity, or legacy retirement requires its own approved TD and
-architecture review. The highest-value governance follow-up after this closure
-is release-candidate configuration and CI evidence alignment; cloud design and
-historical data repair remain separate.
+Product development may resume on the certified local M1-M3 authority spine when
+it preserves canonical owners, fail-closed boundaries, and registered debt
+comparison. The proposed next milestone is evidence-gated failure intelligence,
+not healing. Work that changes deployment topology, authority ownership,
+persistence identity, or legacy retirement requires its own approved design and
+architecture review. See
+[`POST_M3_PRODUCT_GAP_BOARD.md`](../governance/POST_M3_PRODUCT_GAP_BOARD.md).

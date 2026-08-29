@@ -110,6 +110,7 @@ export function TestCasesPage() {
   const project = params.get('project')
   const cursor = params.get('cursor')
   const selectedFromUrl = params.get('test')
+  const suiteDefinitionFromUrl = params.get('suiteDefinition')
   const [previousCursors, setPreviousCursors] = useState<Array<string | null>>([])
   const query = useEvidenceBackedTests(project, cursor, selectedFromUrl)
   const generate = useGenerateEvidenceBackedTests()
@@ -130,7 +131,7 @@ export function TestCasesPage() {
     <p aria-live="polite" className="sr-only">{announcement}</p>
     {project && <M3ManualTestWorkspace key={`manual-${project}`} projectId={project} />}
     {project && <M1TestDesignWorkspace key={project} projectId={project} />}
-    {project && <div id="saved-suites-workspace"><SavedSuitesProductWorkspace projectId={project} /></div>}
+    {project && <div id="saved-suites-workspace"><SavedSuitesProductWorkspace projectId={project} initialDefinitionId={suiteDefinitionFromUrl} /></div>}
     {!project ? <section className="rounded-lg border border-border bg-surface"><ProjectSelector title="Canonical Test Cases" subtitle="Select a project to read its authoritative Test Set history." basePath="/tests" /></section>
       : query.isLoading ? <div role="status" className="flex items-center gap-2 text-secondary"><Loader2 className="animate-spin" size={18} /> Loading Test Cases…</div>
       : query.isError ? <section role="alert" className="rounded-lg border border-fail/40 bg-surface p-6"><h2 className="font-semibold text-primary">Test Cases unavailable</h2><p className="mt-2 text-sm text-secondary">{query.error instanceof TestInventoryPayloadError ? 'The canonical inventory response was malformed. FORGE refused to display or run it.' : query.error instanceof ApiError && query.error.status === 404 ? 'The selected project was not found.' : query.error instanceof ApiError && query.error.status === 422 ? 'Persisted Test Definition authority could not be validated safely.' : 'The FORGE backend or Test Definition authority is unavailable.'}</p></section>

@@ -284,6 +284,21 @@ test('opened Suite remains readable while Run is disabled without exact backend 
   }
 })
 
+test('explicit Definition handoff preselects only the matching canonical Suite candidate', async () => {
+  const head = decodeCanonicalSuiteRevision(revision(), 'project-1')
+  let renderer: ReactTestRenderer | undefined
+  await act(async () => { renderer = create(readyWorkspace(head, { initialDefinitionId: 'definition-b' })) })
+  try {
+    await act(async () => { button(renderer!, /Create Suite/).props.onClick(); await Promise.resolve() })
+    const checkboxes = renderer!.root.findAllByType('input').filter(input => input.props.type === 'checkbox')
+    assert.deepEqual(checkboxes.map(input => input.props.checked), [false, true])
+    assert.match(textOf(renderer!.root), /definition-b was preselected from the explicit handoff/)
+    assert.match(textOf(renderer!.root), /Ordered selection \(\s*1\s*\/50\)/)
+  } finally {
+    if (renderer) await act(async () => { renderer!.unmount() })
+  }
+})
+
 test('authoritative preflight with mismatched immutable provenance cannot expose Run', async () => {
   const head = decodeCanonicalSuiteRevision(revision(), 'project-1')
   let renderer: ReactTestRenderer | undefined

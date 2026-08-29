@@ -16,7 +16,7 @@ A document is added, moved, renamed, archived, or changes authority, ownership,
 or purpose
 
 Last Verified:
-2026-08-13
+2026-08-29
 
 ---
 
@@ -44,6 +44,7 @@ reading order, architecture, operational behavior, or project status.
 | [`governance/INDEPENDENT_ARCHITECTURE_REVIEW_PROCESS.md`](governance/INDEPENDENT_ARCHITECTURE_REVIEW_PROCESS.md) | Operational procedure for milestone-triggered independent architecture review | B — Operational | Architecture Authority | ADR-026 changes or an accepted review exposes a process defect | ADR-026 |
 | [`governance/TD-GOV-001_FIRST_PARTY_SOURCE_AUDIT.md`](governance/TD-GOV-001_FIRST_PARTY_SOURCE_AUDIT.md) | Dated first-party source-header and commentary audit, applicability rules, and exact correction manifest | B — Operational | Governance Owner | Constitutional header, applicable source types, exclusions, or commentary standard changes | `AI_CONSTITUTION.md` Section 3.9, Git source inventory, and focused policy verifier |
 | [`governance/DECISION_LOG.md`](governance/DECISION_LOG.md) | Chronological map of accepted decisions and ADRs | E — Reference | Architecture Authority | A decision is accepted, superseded, or retired | Individual ADRs and approved decision records |
+| [`governance/POST_M3_PRODUCT_GAP_BOARD.md`](governance/POST_M3_PRODUCT_GAP_BOARD.md) | Authoritative post-M3 Product gap priorities, dependencies, milestone ownership, and process reset | A — Authoritative | Product Owner | A gap, priority, dependency, milestone, or evidence-backed status changes | Post-M3 deep audit, certified M1-M3 behavior, and approved roadmap decisions |
 
 ## Architecture and Decisions
 
