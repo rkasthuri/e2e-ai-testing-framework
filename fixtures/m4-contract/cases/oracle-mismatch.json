@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"oracle-mismatch","base":"oracle_mismatch","operations":[],"expected":{"stage":"classification","kind":"classified_failure","code":"oracle_mismatch"}}

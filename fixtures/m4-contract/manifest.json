@@ -1,0 +1,221 @@
+{
+  "schemaVersion": "forge.m4.contract-manifest/v1",
+  "evidenceSchema": "schema/diagnostic-evidence.schema.json",
+  "outcomeSchema": "schema/diagnostic-outcome.schema.json",
+  "fixtureCaseSchema": "schema/fixture-case.schema.json",
+  "classifierVersion": "forge.m4.diagnostic-classifier/v1",
+  "authorityModel": {
+    "diagnosticEvidence": "append_only_versioned",
+    "classification": "deterministic_version_pinned_recomputable_read_model",
+    "persistedClassificationRecord": "not_frozen",
+    "optionalDisposableCacheKey": ["evidenceHash", "classifierVersion"]
+  },
+  "presentationModel": {
+    "authoritativeOutcomeFields": ["failureMode_or_refusalCode", "explanationCode", "explanationParameters", "integrityFindings_when_applicable"],
+    "persistedFreeFormExplanation": false,
+    "optionalDisplayString": {
+      "authority": "derived_non_authoritative",
+      "producer": "same_version_pinned_classifier_presenter",
+      "reproducibleFrom": ["explanationCode", "explanationParameters"],
+      "transportRule": "may_cross_transport_only_as_derived_non_authoritative"
+    }
+  },
+  "suiteAuthorityGate": {
+    "status": "mandatory_before_writer_integration",
+    "contractFreezeImpact": "non_blocking_pre_writer_proof_gate",
+    "requirements": [
+      "real_suite_originated_product_execution",
+      "derive_suite_authority_from_accepted_execution_only",
+      "exact_results_round_trip_binding",
+      "reject_floated_suite_id_revision_or_content_hash",
+      "reject_current_head_suite_substitution",
+      "reject_suite_authority_on_direct_definition_execution"
+    ]
+  },
+  "historyAndInsightsRules": {
+    "groupBy": ["evidenceSchemaVersion", "classifierVersion"],
+    "dimensions": ["classified_failure", "insufficient_evidence", "integrity_invalid"],
+    "historicalAuthorityLookup": "accepted_snapshot_only",
+    "currentHeadJoinAllowed": false
+  },
+  "authorityTemplates": {
+    "observed_result": {
+      "projectId": "project-m4-contract",
+      "executionId": "execution-product-owned",
+      "runId": "run-product-owned",
+      "itemOrdinal": 1,
+      "resultId": "result-product-owned",
+      "definitionId": "definition-product-owned",
+      "executablePlanHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "acceptedDefinitionAuthority": {
+        "definitionSchemaVersion": 3,
+        "testSetId": "test-set-product-owned",
+        "testSetRevision": 7,
+        "testSetContentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "definitionId": "definition-product-owned",
+        "definitionContentHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "supportSealHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "routeEvidenceIdentityHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "authenticationExpectationIdentityHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "snapshotHash": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "suiteAuthority": null
+    },
+    "absent_result": {
+      "projectId": "project-m4-contract",
+      "executionId": "execution-product-owned-no-result",
+      "runId": "run-product-owned-no-result",
+      "itemOrdinal": 1,
+      "resultId": null,
+      "definitionId": "definition-product-owned",
+      "executablePlanHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "acceptedDefinitionAuthority": {
+        "definitionSchemaVersion": 3,
+        "testSetId": "test-set-product-owned",
+        "testSetRevision": 7,
+        "testSetContentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "definitionId": "definition-product-owned",
+        "definitionContentHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "supportSealHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "routeEvidenceIdentityHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "authenticationExpectationIdentityHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "snapshotHash": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "suiteAuthority": null
+    }
+  },
+  "currentHeadDefinitionAuthority": {
+    "definitionSchemaVersion": 3,
+    "testSetId": "test-set-product-owned",
+    "testSetRevision": 8,
+    "testSetContentHash": "2222222222222222222222222222222222222222222222222222222222222222",
+    "definitionId": "definition-product-owned",
+    "definitionContentHash": "3333333333333333333333333333333333333333333333333333333333333333",
+    "supportSealHash": "4444444444444444444444444444444444444444444444444444444444444444",
+    "routeEvidenceIdentityHash": "5555555555555555555555555555555555555555555555555555555555555555",
+    "authenticationExpectationIdentityHash": "6666666666666666666666666666666666666666666666666666666666666666",
+    "snapshotHash": "7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "evidenceBases": {
+    "oracle_mismatch": {
+      "authorityTemplate": "observed_result",
+      "executor": { "outcome": "completed" },
+      "authentication": { "state": "established", "attemptOccurred": true },
+      "navigation": { "outcome": "completed", "intendedRoute": "/cart.html", "observedRoute": "/cart.html" },
+      "targetObservation": {
+        "outcome": "observed",
+        "targetAuthority": { "subjectId": "subject-cart", "elementId": "control-checkout", "selectorKind": "data_test", "selectorValue": "checkout" },
+        "cardinality": "one"
+      },
+      "action": { "outcome": "completed", "interactionAttempted": true, "semantic": "click_observed_data_test" },
+      "oracle": {
+        "outcome": "mismatched",
+        "oracleAuthority": { "kind": "subject_observable", "subjectId": "subject-checkout" },
+        "expected": "/checkout-step-one.html",
+        "actual": "/wrong.html"
+      }
+    },
+    "target_not_observed": {
+      "authorityTemplate": "observed_result",
+      "executor": { "outcome": "completed" },
+      "authentication": { "state": "established", "attemptOccurred": true },
+      "navigation": { "outcome": "completed", "intendedRoute": "/cart.html", "observedRoute": "/cart.html" },
+      "targetObservation": {
+        "outcome": "not_observed",
+        "targetAuthority": { "subjectId": "subject-cart", "elementId": "control-checkout", "selectorKind": "data_test", "selectorValue": "checkout" },
+        "cardinality": "zero"
+      },
+      "action": { "outcome": "not_performed" },
+      "oracle": { "outcome": "not_performed" }
+    },
+    "action_not_completed": {
+      "authorityTemplate": "observed_result",
+      "executor": { "outcome": "completed" },
+      "authentication": { "state": "established", "attemptOccurred": true },
+      "navigation": { "outcome": "completed", "intendedRoute": "/cart.html", "observedRoute": "/cart.html" },
+      "targetObservation": {
+        "outcome": "observed",
+        "targetAuthority": { "subjectId": "subject-cart", "elementId": "control-checkout", "selectorKind": "data_test", "selectorValue": "checkout" },
+        "cardinality": "one"
+      },
+      "action": { "outcome": "not_completed", "interactionAttempted": true, "semantic": "click_observed_data_test", "failureClass": "target_not_actionable" },
+      "oracle": { "outcome": "not_performed" }
+    },
+    "navigation_not_completed": {
+      "authorityTemplate": "observed_result",
+      "executor": { "outcome": "completed" },
+      "authentication": { "state": "established", "attemptOccurred": true },
+      "navigation": { "outcome": "not_completed", "intendedRoute": "/cart.html", "observedRoute": null, "failureClass": "destination_unavailable" },
+      "targetObservation": { "outcome": "not_performed" },
+      "action": { "outcome": "not_performed" },
+      "oracle": { "outcome": "not_performed" }
+    },
+    "authentication_not_established": {
+      "authorityTemplate": "observed_result",
+      "executor": { "outcome": "completed" },
+      "authentication": { "state": "not_established", "attemptOccurred": true },
+      "navigation": { "outcome": "not_performed" },
+      "targetObservation": { "outcome": "not_performed" },
+      "action": { "outcome": "not_performed" },
+      "oracle": { "outcome": "not_performed" }
+    },
+    "executor_failure": {
+      "authorityTemplate": "observed_result",
+      "executor": { "outcome": "failed", "failureClass": "browser_session_unavailable" },
+      "authentication": { "state": "not_performed" },
+      "navigation": { "outcome": "not_performed" },
+      "targetObservation": { "outcome": "not_performed" },
+      "action": { "outcome": "not_performed" },
+      "oracle": { "outcome": "not_performed" }
+    },
+    "insufficient_evidence": {
+      "authorityTemplate": "absent_result",
+      "executor": { "outcome": "completed" },
+      "authentication": { "state": "established", "attemptOccurred": true },
+      "navigation": { "outcome": "completed", "intendedRoute": "/cart.html", "observedRoute": "/cart.html" },
+      "targetObservation": { "outcome": "not_performed" },
+      "action": { "outcome": "not_performed" },
+      "oracle": { "outcome": "not_performed" }
+    }
+  },
+  "cases": [
+    "cases/oracle-mismatch.json",
+    "cases/target-not-observed.json",
+    "cases/action-not-completed.json",
+    "cases/navigation-not-completed.json",
+    "cases/authentication-not-established.json",
+    "cases/executor-failure.json",
+    "cases/insufficient-evidence.json",
+    "cases/integrity-invalid-contradiction.json"
+  ],
+  "hostile": [
+    "hostile/floated-run-authority.json",
+    "hostile/floated-result-authority.json",
+    "hostile/historical-current-head-leakage.json",
+    "hostile/executor-failed-with-later-action.json",
+    "hostile/auth-not-established-with-navigation-completed.json",
+    "hostile/navigation-failed-with-action-performed.json",
+    "hostile/target-not-observed-with-action-attempted.json",
+    "hostile/action-not-completed-with-oracle-performed.json",
+    "hostile/executor-failed-without-failure-class.json",
+    "hostile/action-failed-without-bounded-failure-class.json",
+    "hostile/incomplete-bundle-must-refuse.json",
+    "hostile/legacy-triage-substitution.json",
+    "hostile/selector-drift-overclaim.json",
+    "hostile/auth-root-cause-overclaim.json",
+    "hostile/oracle-mismatch-free-form-explanation.json",
+    "hostile/oracle-mismatch-wrong-explanation-code.json",
+    "hostile/oracle-mismatch-extra-explanation-parameter.json",
+    "hostile/oracle-mismatch-causal-field.json"
+  ],
+  "corpus": [
+    { "caseId": "success", "pathKind": "full_browser_real_product", "contractMapping": "control_no_diagnostic_outcome" },
+    { "caseId": "oracle-mismatch", "pathKind": "full_browser_real_product", "contractMapping": "oracle_mismatch" },
+    { "caseId": "target-absent", "pathKind": "full_browser_real_product", "contractMapping": "target_not_observed" },
+    { "caseId": "interaction-disabled", "pathKind": "full_browser_real_product", "contractMapping": "action_not_completed" },
+    { "caseId": "navigation-failure", "pathKind": "full_browser_real_product", "contractMapping": "navigation_not_completed" },
+    { "caseId": "authentication-rejected", "pathKind": "full_browser_real_product", "contractMapping": "authentication_not_established" },
+    { "caseId": "executor-failure", "pathKind": "controlled_executor_session_failure", "contractMapping": "executor_failure" },
+    { "caseId": "unstructured-insufficient-evidence", "pathKind": "controlled_unstructured_adapter_failure", "contractMapping": "insufficient_evidence" }
+  ]
+}

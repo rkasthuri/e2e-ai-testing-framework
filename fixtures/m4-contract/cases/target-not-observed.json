@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"target-not-observed","base":"target_not_observed","operations":[],"expected":{"stage":"classification","kind":"classified_failure","code":"target_not_observed"}}

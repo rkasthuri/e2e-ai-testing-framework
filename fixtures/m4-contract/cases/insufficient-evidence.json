@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"insufficient-evidence","base":"insufficient_evidence","operations":[],"expected":{"stage":"classification","kind":"refusal","code":"insufficient_evidence"}}

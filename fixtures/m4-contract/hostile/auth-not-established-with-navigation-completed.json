@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"auth-not-established-with-navigation-completed","base":"authentication_not_established","operations":[{"op":"replace","path":"/navigation","value":{"outcome":"completed","intendedRoute":"/cart.html","observedRoute":"/cart.html"}}],"expected":{"stage":"classification","kind":"refusal","code":"integrity_invalid"}}

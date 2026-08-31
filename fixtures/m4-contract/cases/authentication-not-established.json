@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"authentication-not-established","base":"authentication_not_established","operations":[],"expected":{"stage":"classification","kind":"classified_failure","code":"authentication_not_established"}}

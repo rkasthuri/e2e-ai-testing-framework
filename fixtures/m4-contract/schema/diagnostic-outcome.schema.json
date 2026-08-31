@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FORGE M4 diagnostic outcome candidate",
+  "oneOf": [
+    { "$ref": "#/definitions/ExecutorFailure" },
+    { "$ref": "#/definitions/AuthenticationNotEstablished" },
+    { "$ref": "#/definitions/NavigationNotCompleted" },
+    { "$ref": "#/definitions/TargetNotObserved" },
+    { "$ref": "#/definitions/ActionNotCompleted" },
+    { "$ref": "#/definitions/OracleMismatch" },
+    { "$ref": "#/definitions/InsufficientEvidenceRefusal" },
+    { "$ref": "#/definitions/IntegrityInvalidRefusal" }
+  ],
+  "definitions": {
+    "Hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "OpaqueId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$" },
+    "Route": { "type": "string", "pattern": "^/(?!/)(?:[^?#\\s]*)$", "maxLength": 500 },
+    "ExecutorFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceSchemaVersion", "classifierVersion", "evidenceHash", "kind", "failureMode", "explanationCode", "explanationParameters"],
+      "properties": {
+        "schemaVersion": { "const": "forge.m4.diagnostic-outcome/v1" },
+        "evidenceSchemaVersion": { "const": "forge.m4.diagnostic-evidence/v1" },
+        "classifierVersion": { "const": "forge.m4.diagnostic-classifier/v1" },
+        "evidenceHash": { "$ref": "#/definitions/Hash" },
+        "kind": { "const": "classified_failure" },
+        "failureMode": { "const": "executor_failure" },
+        "explanationCode": { "const": "executor_failed_before_completion" },
+        "explanationParameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["failureClass"],
+          "properties": { "failureClass": { "enum": ["browser_session_unavailable", "executor_internal_failure", "process_failure", "timeout"] } }
+        }
+      }
+    },
+    "AuthenticationNotEstablished": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceSchemaVersion", "classifierVersion", "evidenceHash", "kind", "failureMode", "explanationCode", "explanationParameters"],
+      "properties": {
+        "schemaVersion": { "const": "forge.m4.diagnostic-outcome/v1" },
+        "evidenceSchemaVersion": { "const": "forge.m4.diagnostic-evidence/v1" },
+        "classifierVersion": { "const": "forge.m4.diagnostic-classifier/v1" },
+        "evidenceHash": { "$ref": "#/definitions/Hash" },
+        "kind": { "const": "classified_failure" },
+        "failureMode": { "const": "authentication_not_established" },
+        "explanationCode": { "const": "authentication_attempt_not_established" },
+        "explanationParameters": { "type": "object", "additionalProperties": false, "maxProperties": 0 }
+      }
+    },
+    "NavigationNotCompleted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceSchemaVersion", "classifierVersion", "evidenceHash", "kind", "failureMode", "explanationCode", "explanationParameters"],
+      "properties": {
+        "schemaVersion": { "const": "forge.m4.diagnostic-outcome/v1" },
+        "evidenceSchemaVersion": { "const": "forge.m4.diagnostic-evidence/v1" },
+        "classifierVersion": { "const": "forge.m4.diagnostic-classifier/v1" },
+        "evidenceHash": { "$ref": "#/definitions/Hash" },
+        "kind": { "const": "classified_failure" },
+        "failureMode": { "const": "navigation_not_completed" },
+        "explanationCode": { "const": "governed_navigation_not_completed" },
+        "explanationParameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["failureClass", "expectedRoute", "actualRoute"],
+          "properties": {
+            "failureClass": { "enum": ["destination_unavailable", "browser_navigation_error", "timeout"] },
+            "expectedRoute": { "$ref": "#/definitions/Route" },
+            "actualRoute": { "oneOf": [{ "type": "null" }, { "$ref": "#/definitions/Route" }] }
+          }
+        }
+      }
+    },
+    "TargetNotObserved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceSchemaVersion", "classifierVersion", "evidenceHash", "kind", "failureMode", "explanationCode", "explanationParameters"],
+      "properties": {
+        "schemaVersion": { "const": "forge.m4.diagnostic-outcome/v1" },
+        "evidenceSchemaVersion": { "const": "forge.m4.diagnostic-evidence/v1" },
+        "classifierVersion": { "const": "forge.m4.diagnostic-classifier/v1" },
+        "evidenceHash": { "$ref": "#/definitions/Hash" },
+        "kind": { "const": "classified_failure" },
+        "failureMode": { "const": "target_not_observed" },
+        "explanationCode": { "const": "governed_target_not_observed" },
+        "explanationParameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["subjectId", "elementId", "observedCardinality"],
+          "properties": {
+            "subjectId": { "$ref": "#/definitions/OpaqueId" },
+            "elementId": { "$ref": "#/definitions/OpaqueId" },
+            "observedCardinality": { "const": "zero" }
+          }
+        }
+      }
+    },
+    "ActionNotCompleted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceSchemaVersion", "classifierVersion", "evidenceHash", "kind", "failureMode", "explanationCode", "explanationParameters"],
+      "properties": {
+        "schemaVersion": { "const": "forge.m4.diagnostic-outcome/v1" },
+        "evidenceSchemaVersion": { "const": "forge.m4.diagnostic-evidence/v1" },
+        "classifierVersion": { "const": "forge.m4.diagnostic-classifier/v1" },
+        "evidenceHash": { "$ref": "#/definitions/Hash" },
+        "kind": { "const": "classified_failure" },
+        "failureMode": { "const": "action_not_completed" },
+        "explanationCode": { "const": "governed_action_not_completed" },
+        "explanationParameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["subjectId", "elementId", "failureClass"],
+          "properties": {
+            "subjectId": { "$ref": "#/definitions/OpaqueId" },
+            "elementId": { "$ref": "#/definitions/OpaqueId" },
+            "failureClass": { "enum": ["target_not_actionable", "interaction_failed", "timeout"] }
+          }
+        }
+      }
+    },
+    "OracleMismatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceSchemaVersion", "classifierVersion", "evidenceHash", "kind", "failureMode", "explanationCode", "explanationParameters"],
+      "properties": {
+        "schemaVersion": { "const": "forge.m4.diagnostic-outcome/v1" },
+        "evidenceSchemaVersion": { "const": "forge.m4.diagnostic-evidence/v1" },
+        "classifierVersion": { "const": "forge.m4.diagnostic-classifier/v1" },
+        "evidenceHash": { "$ref": "#/definitions/Hash" },
+        "kind": { "const": "classified_failure" },
+        "failureMode": { "const": "oracle_mismatch" },
+        "explanationCode": { "const": "governed_oracle_mismatch" },
+        "explanationParameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["subjectId", "expectedRoute", "actualRoute"],
+          "properties": {
+            "subjectId": { "$ref": "#/definitions/OpaqueId" },
+            "expectedRoute": { "$ref": "#/definitions/Route" },
+            "actualRoute": { "$ref": "#/definitions/Route" }
+          }
+        }
+      }
+    },
+    "InsufficientEvidenceRefusal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceSchemaVersion", "classifierVersion", "evidenceHash", "kind", "refusalCode", "explanationCode", "explanationParameters"],
+      "properties": {
+        "schemaVersion": { "const": "forge.m4.diagnostic-outcome/v1" },
+        "evidenceSchemaVersion": { "const": "forge.m4.diagnostic-evidence/v1" },
+        "classifierVersion": { "const": "forge.m4.diagnostic-classifier/v1" },
+        "evidenceHash": { "$ref": "#/definitions/Hash" },
+        "kind": { "const": "refusal" },
+        "refusalCode": { "const": "insufficient_evidence" },
+        "explanationCode": { "const": "diagnostic_predicates_not_satisfied" },
+        "explanationParameters": { "type": "object", "additionalProperties": false, "maxProperties": 0 }
+      }
+    },
+    "IntegrityInvalidRefusal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceSchemaVersion", "classifierVersion", "evidenceHash", "kind", "refusalCode", "integrityFindings", "explanationCode", "explanationParameters"],
+      "properties": {
+        "schemaVersion": { "const": "forge.m4.diagnostic-outcome/v1" },
+        "evidenceSchemaVersion": { "const": "forge.m4.diagnostic-evidence/v1" },
+        "classifierVersion": { "const": "forge.m4.diagnostic-classifier/v1" },
+        "evidenceHash": { "$ref": "#/definitions/Hash" },
+        "kind": { "const": "refusal" },
+        "refusalCode": { "const": "integrity_invalid" },
+        "integrityFindings": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["diagnostic_evidence_contradiction", "diagnostic_authority_binding_invalid", "diagnostic_historical_authority_substitution"] }
+        },
+        "explanationCode": { "const": "diagnostic_integrity_validation_failed" },
+        "explanationParameters": { "type": "object", "additionalProperties": false, "maxProperties": 0 }
+      }
+    }
+  }
+}

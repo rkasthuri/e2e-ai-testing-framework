@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"floated-run-authority","base":"oracle_mismatch","operations":[{"op":"replace","path":"/authority/runId","value":"run-floated"}],"expected":{"stage":"classification","kind":"refusal","code":"integrity_invalid"}}

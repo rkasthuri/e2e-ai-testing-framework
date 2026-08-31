@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"action-not-completed","base":"action_not_completed","operations":[],"expected":{"stage":"classification","kind":"classified_failure","code":"action_not_completed"}}

@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"integrity-invalid-contradiction","base":"target_not_observed","operations":[{"op":"replace","path":"/action","value":{"outcome":"completed","interactionAttempted":true,"semantic":"click_observed_data_test"}}],"expected":{"stage":"classification","kind":"refusal","code":"integrity_invalid"}}

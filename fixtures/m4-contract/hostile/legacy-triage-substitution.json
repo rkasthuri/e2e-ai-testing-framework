@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"legacy-triage-substitution","base":"oracle_mismatch","operations":[{"op":"add","path":"/legacyTriage","value":{"verdict":"app-bug"}}],"expected":{"stage":"evidence_schema_rejected"}}

@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"executor-failed-without-failure-class","base":"executor_failure","operations":[{"op":"remove","path":"/executor/failureClass","value":null}],"expected":{"stage":"evidence_schema_rejected"}}

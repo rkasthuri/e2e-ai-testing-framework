@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FORGE M4 diagnostic evidence candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "authority", "executor", "authentication", "navigation", "targetObservation", "action", "oracle"],
+  "properties": {
+    "schemaVersion": { "const": "forge.m4.diagnostic-evidence/v1" },
+    "authority": { "$ref": "#/definitions/Authority" },
+    "executor": { "$ref": "#/definitions/Executor" },
+    "authentication": { "$ref": "#/definitions/Authentication" },
+    "navigation": { "$ref": "#/definitions/Navigation" },
+    "targetObservation": { "$ref": "#/definitions/TargetObservation" },
+    "action": { "$ref": "#/definitions/Action" },
+    "oracle": { "$ref": "#/definitions/Oracle" }
+  },
+  "definitions": {
+    "OpaqueId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$" },
+    "Hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "Route": { "type": "string", "pattern": "^/(?!/)(?:[^?#\\s]*)$", "maxLength": 500 },
+    "AcceptedDefinitionAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["definitionSchemaVersion", "testSetId", "testSetRevision", "testSetContentHash", "definitionId", "definitionContentHash", "supportSealHash", "routeEvidenceIdentityHash", "authenticationExpectationIdentityHash", "snapshotHash"],
+      "properties": {
+        "definitionSchemaVersion": { "const": 3 },
+        "testSetId": { "$ref": "#/definitions/OpaqueId" },
+        "testSetRevision": { "type": "integer", "minimum": 1 },
+        "testSetContentHash": { "$ref": "#/definitions/Hash" },
+        "definitionId": { "$ref": "#/definitions/OpaqueId" },
+        "definitionContentHash": { "$ref": "#/definitions/Hash" },
+        "supportSealHash": { "$ref": "#/definitions/Hash" },
+        "routeEvidenceIdentityHash": { "$ref": "#/definitions/Hash" },
+        "authenticationExpectationIdentityHash": { "$ref": "#/definitions/Hash" },
+        "snapshotHash": { "$ref": "#/definitions/Hash" }
+      }
+    },
+    "SuiteAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["suiteId", "suiteRevision", "suiteContentHash"],
+      "properties": {
+        "suiteId": { "$ref": "#/definitions/OpaqueId" },
+        "suiteRevision": { "type": "integer", "minimum": 1 },
+        "suiteContentHash": { "$ref": "#/definitions/Hash" }
+      }
+    },
+    "Authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "executionId", "runId", "itemOrdinal", "resultId", "definitionId", "executablePlanHash", "acceptedDefinitionAuthority", "suiteAuthority"],
+      "properties": {
+        "projectId": { "$ref": "#/definitions/OpaqueId" },
+        "executionId": { "$ref": "#/definitions/OpaqueId" },
+        "runId": { "$ref": "#/definitions/OpaqueId" },
+        "itemOrdinal": { "type": "integer", "minimum": 1 },
+        "resultId": { "oneOf": [{ "type": "null" }, { "$ref": "#/definitions/OpaqueId" }] },
+        "definitionId": { "$ref": "#/definitions/OpaqueId" },
+        "executablePlanHash": { "$ref": "#/definitions/Hash" },
+        "acceptedDefinitionAuthority": { "$ref": "#/definitions/AcceptedDefinitionAuthority" },
+        "suiteAuthority": { "oneOf": [{ "type": "null" }, { "$ref": "#/definitions/SuiteAuthority" }] }
+      }
+    },
+    "Executor": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["outcome"], "properties": { "outcome": { "const": "completed" } } },
+        { "type": "object", "additionalProperties": false, "required": ["outcome", "failureClass"], "properties": { "outcome": { "const": "failed" }, "failureClass": { "enum": ["browser_session_unavailable", "executor_internal_failure", "process_failure", "timeout"] } } },
+        { "type": "object", "additionalProperties": false, "required": ["outcome"], "properties": { "outcome": { "const": "not_started" } } }
+      ]
+    },
+    "Authentication": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["state"], "properties": { "state": { "const": "not_required" } } },
+        { "type": "object", "additionalProperties": false, "required": ["state", "attemptOccurred"], "properties": { "state": { "const": "established" }, "attemptOccurred": { "type": "boolean" } } },
+        { "type": "object", "additionalProperties": false, "required": ["state", "attemptOccurred"], "properties": { "state": { "const": "not_established" }, "attemptOccurred": { "const": true } } },
+        { "type": "object", "additionalProperties": false, "required": ["state"], "properties": { "state": { "const": "not_performed" } } }
+      ]
+    },
+    "Navigation": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["outcome", "intendedRoute", "observedRoute"], "properties": { "outcome": { "const": "completed" }, "intendedRoute": { "$ref": "#/definitions/Route" }, "observedRoute": { "$ref": "#/definitions/Route" } } },
+        { "type": "object", "additionalProperties": false, "required": ["outcome", "intendedRoute", "observedRoute", "failureClass"], "properties": { "outcome": { "const": "not_completed" }, "intendedRoute": { "$ref": "#/definitions/Route" }, "observedRoute": { "oneOf": [{ "type": "null" }, { "$ref": "#/definitions/Route" }] }, "failureClass": { "enum": ["destination_unavailable", "browser_navigation_error", "timeout"] } } },
+        { "type": "object", "additionalProperties": false, "required": ["outcome"], "properties": { "outcome": { "const": "not_performed" } } }
+      ]
+    },
+    "TargetAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subjectId", "elementId", "selectorKind", "selectorValue"],
+      "properties": {
+        "subjectId": { "$ref": "#/definitions/OpaqueId" },
+        "elementId": { "$ref": "#/definitions/OpaqueId" },
+        "selectorKind": { "const": "data_test" },
+        "selectorValue": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" }
+      }
+    },
+    "TargetObservation": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["outcome", "targetAuthority", "cardinality"], "properties": { "outcome": { "const": "observed" }, "targetAuthority": { "$ref": "#/definitions/TargetAuthority" }, "cardinality": { "enum": ["one", "many"] } } },
+        { "type": "object", "additionalProperties": false, "required": ["outcome", "targetAuthority", "cardinality"], "properties": { "outcome": { "const": "not_observed" }, "targetAuthority": { "$ref": "#/definitions/TargetAuthority" }, "cardinality": { "const": "zero" } } },
+        { "type": "object", "additionalProperties": false, "required": ["outcome"], "properties": { "outcome": { "const": "not_performed" } } }
+      ]
+    },
+    "Action": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["outcome", "interactionAttempted", "semantic"], "properties": { "outcome": { "const": "completed" }, "interactionAttempted": { "const": true }, "semantic": { "const": "click_observed_data_test" } } },
+        { "type": "object", "additionalProperties": false, "required": ["outcome", "interactionAttempted", "semantic", "failureClass"], "properties": { "outcome": { "const": "not_completed" }, "interactionAttempted": { "const": true }, "semantic": { "const": "click_observed_data_test" }, "failureClass": { "enum": ["target_not_actionable", "interaction_failed", "timeout"] } } },
+        { "type": "object", "additionalProperties": false, "required": ["outcome"], "properties": { "outcome": { "const": "not_performed" } } }
+      ]
+    },
+    "OracleAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "subjectId"],
+      "properties": { "kind": { "const": "subject_observable" }, "subjectId": { "$ref": "#/definitions/OpaqueId" } }
+    },
+    "Oracle": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["outcome", "oracleAuthority", "expected", "actual"], "properties": { "outcome": { "const": "matched" }, "oracleAuthority": { "$ref": "#/definitions/OracleAuthority" }, "expected": { "$ref": "#/definitions/Route" }, "actual": { "$ref": "#/definitions/Route" } } },
+        { "type": "object", "additionalProperties": false, "required": ["outcome", "oracleAuthority", "expected", "actual"], "properties": { "outcome": { "const": "mismatched" }, "oracleAuthority": { "$ref": "#/definitions/OracleAuthority" }, "expected": { "$ref": "#/definitions/Route" }, "actual": { "$ref": "#/definitions/Route" } } },
+        { "type": "object", "additionalProperties": false, "required": ["outcome"], "properties": { "outcome": { "const": "not_performed" } } }
+      ]
+    }
+  }
+}

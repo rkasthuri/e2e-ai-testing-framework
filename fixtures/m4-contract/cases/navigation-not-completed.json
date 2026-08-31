@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"navigation-not-completed","base":"navigation_not_completed","operations":[],"expected":{"stage":"classification","kind":"classified_failure","code":"navigation_not_completed"}}

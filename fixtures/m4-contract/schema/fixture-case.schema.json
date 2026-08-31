@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FORGE M4 contract fixture case",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "caseId", "base", "operations", "expected"],
+  "properties": {
+    "schemaVersion": { "const": "forge.m4.fixture-case/v1" },
+    "caseId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,99}$" },
+    "base": { "enum": ["oracle_mismatch", "target_not_observed", "action_not_completed", "navigation_not_completed", "authentication_not_established", "executor_failure", "insufficient_evidence"] },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op", "path", "value"],
+        "properties": {
+          "op": { "enum": ["add", "replace", "remove"] },
+          "path": { "type": "string", "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*$" },
+          "value": {}
+        }
+      }
+    },
+    "assertedOutcome": {
+      "type": "object"
+    },
+    "expected": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stage", "kind", "code"],
+          "properties": {
+            "stage": { "const": "classification" },
+            "kind": { "const": "classified_failure" },
+            "code": { "enum": ["oracle_mismatch", "target_not_observed", "action_not_completed", "navigation_not_completed", "authentication_not_established", "executor_failure"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stage", "kind", "code"],
+          "properties": {
+            "stage": { "const": "classification" },
+            "kind": { "const": "refusal" },
+            "code": { "enum": ["insufficient_evidence", "integrity_invalid"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stage"],
+          "properties": { "stage": { "enum": ["evidence_schema_rejected", "outcome_schema_rejected"] } }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "expected": {
+            "type": "object",
+            "properties": { "stage": { "const": "outcome_schema_rejected" } }
+          }
+        }
+      },
+      "then": {
+        "required": ["assertedOutcome"],
+        "properties": { "assertedOutcome": { "type": "object" } }
+      },
+      "else": {
+        "not": { "required": ["assertedOutcome"] }
+      }
+    }
+  ]
+}

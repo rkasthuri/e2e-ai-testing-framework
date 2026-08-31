@@ -1,0 +1,1 @@
+{"schemaVersion":"forge.m4.fixture-case/v1","caseId":"incomplete-bundle-must-refuse","base":"insufficient_evidence","operations":[],"expected":{"stage":"classification","kind":"refusal","code":"insufficient_evidence"}}
