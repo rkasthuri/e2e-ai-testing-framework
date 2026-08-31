@@ -89,7 +89,7 @@ const authSetup = {
 test('TD069C-D-1 auth-free navigation and subject_observable oracle complete', async () => {
   const harness = sessionFactory()
   const result = await new PlaywrightPlanExecutor(new Resolver(null), harness.factory).execute(plan(), { baseUrl: 'https://example.test' })
-  assert.deepEqual(result, { status: 'completed', reasonCode: 'completed', finalUrl: 'https://example.test/inventory.html' })
+  assert.deepEqual(result, { status: 'completed', reasonCode: 'completed', finalUrl: 'https://example.test/inventory.html', navigationUrl: 'https://example.test/inventory.html' })
   assert.equal(harness.state.authCalls, 0)
   assert.equal(harness.state.closeCalls, 1)
 })
@@ -158,14 +158,15 @@ test('TD069C-D-4 authentication rejection and authentication exception remain au
 test('TD069C-D-5 navigation failure is distinct and cleans up', async () => {
   const harness = sessionFactory({ navigation: new Error(`must-not-leak-${secret}`) })
   const result = await new PlaywrightPlanExecutor(new Resolver(null), harness.factory).execute(plan(), { baseUrl: 'https://example.test' })
-  assert.deepEqual(result, { status: 'navigation_failed', reasonCode: 'navigation_failed' })
+  assert.deepEqual(result, { status: 'navigation_failed', reasonCode: 'navigation_failed',
+    failureClass: 'browser_navigation_error', observedUrl: 'https://example.test/inventory.html' })
   assert.equal(harness.state.closeCalls, 1)
 })
 
 test('TD069C-D-6 final URL mismatch is oracle_failed, not navigation_failed', async () => {
   const harness = sessionFactory({ finalUrl: 'https://example.test/other.html' })
   const result = await new PlaywrightPlanExecutor(new Resolver(null), harness.factory).execute(plan(), { baseUrl: 'https://example.test' })
-  assert.deepEqual(result, { status: 'oracle_failed', reasonCode: 'oracle_failed', finalUrl: 'https://example.test/other.html' })
+  assert.deepEqual(result, { status: 'oracle_failed', reasonCode: 'oracle_failed', finalUrl: 'https://example.test/other.html', navigationUrl: 'https://example.test/other.html' })
 })
 
 test('TD069C-D-7 unsupported action fails closed before session creation', async () => {

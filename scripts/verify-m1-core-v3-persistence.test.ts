@@ -34,7 +34,7 @@ test('Migration 031 persists explicit v3 Test Set and Execution authority withou
     `.execute(db)
     assert.equal(tables.rows.length, 2)
     assert.match(tables.rows.find(row => row.name === 'test_set_revisions')!.sql, /schema_version IN \(1, 2, 3\)/)
-    assert.match(tables.rows.find(row => row.name === 'executions')!.sql, /definition_schema_version IN \(1, 2, 3\)/)
+    assert.match(tables.rows.find(row => row.name === 'executions')!.sql, /definition_schema_version IN \(1,\s*2,\s*3\)/)
 
     const hash = 'a'.repeat(64)
     await db.insertInto('test_set_revisions').values({

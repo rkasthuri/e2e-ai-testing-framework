@@ -732,7 +732,7 @@ test('TD-PRODUCT-001-C Migration 029 is explicitly forward-only', async () => {
   )
 })
 
-test('TD069B-C-D-5 duplicate Result append is rejected and cannot overwrite the first observation', async () => {
+test('TD069B-C-D-5 exact duplicate Result append replays and cannot overwrite the first observation', async () => {
   const context = await authority('duplicate-result')
   const repository = new ExecutionRepository()
   await repository.beginExecution({
@@ -758,7 +758,8 @@ test('TD069B-C-D-5 duplicate Result append is rejected and cannot overwrite the 
     startedAt: NOW, completedAt: '2026-08-10T20:00:01.000Z',
   }
   const first = await coordinator.recordResult(observation)
-  await assert.rejects(coordinator.recordResult(observation), DuplicateProductResultError)
+  const replay = await coordinator.recordResult(observation)
+  assert.equal(replay.result_id, first.result_id)
   const persisted = await getDb().selectFrom('test_results').selectAll().where('run_id', '=', run.run_id).execute()
   assert.equal(persisted.length, 1)
   assert.equal(persisted[0].result_id, first.result_id)

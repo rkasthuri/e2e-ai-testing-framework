@@ -110,7 +110,7 @@ after(async () => {
 
 test('Migration 028 remains installed below the current restart-safe schema ceiling', async () => {
   const history = await getProductDb().selectFrom('kysely_migration').select('name').orderBy('name').execute()
-  assert.equal(history.at(-1)?.name, '033_manual_test_source_promotion_authority')
+  assert.equal(history.at(-1)?.name, '035_suite_v2_multi_source_execution_authority')
   const columns = await sql<{ name: string }>`PRAGMA table_info(observation_gaps)`.execute(getProductDb())
   assert.ok(columns.rows.some(column => column.name === 'artifact_links_sealed'))
   const triggers = await sql<{ name: string; definition: string }>`SELECT name, sql AS definition FROM sqlite_master WHERE type = 'trigger' AND name IN ('observation_artifact_links_closed_insert', 'observation_gaps_immutable_update') ORDER BY name`.execute(getProductDb())
@@ -320,6 +320,8 @@ test('Migration 028 is forward-only and schema-ahead state is refused without re
     '031_canonical_test_definition_v3',
     '032_canonical_suite_revision_authority',
     '033_manual_test_source_promotion_authority',
+    '034_diagnostic_evidence_authority',
+    '035_suite_v2_multi_source_execution_authority',
   ]).execute()
   await closeDb()
   await assert.rejects(

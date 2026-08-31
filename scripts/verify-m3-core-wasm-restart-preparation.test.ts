@@ -15,6 +15,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { createHash } from 'node:crypto'
 import { sql } from 'kysely'
 import type { AppModel } from '../src/core/onboarding/types'
 import { closeDb, getDb, initDb } from '../src/core/storage/db'
@@ -26,6 +27,15 @@ import {
 import { MIGRATION_033_TRIGGER_DEFINITIONS_V1 } from '../src/core/storage/migrations/033_manual_test_source_promotion_authority'
 import { ManualTestSourceRepository } from '../src/core/storage/repositories/ManualTestSourceRepository'
 import { TestSetRepository } from '../src/core/storage/repositories/TestSetRepository'
+import { ExecutionRepository } from '../src/core/storage/repositories/ExecutionRepository'
+import { ExecutionRunCoordinator } from '../src/core/execution/ExecutionRunCoordinator'
+import { projectExecutablePlan, routeEvidenceIdentity } from '../src/core/execution/ExecutionProjectionService'
+import { AppModelRepository } from '../src/core/storage/repositories/AppModelRepository'
+import {
+  DiagnosticEvidenceConflictError,
+  DiagnosticEvidenceRepository,
+} from '../src/core/storage/repositories/DiagnosticEvidenceRepository'
+import { parseDiagnosticEvidenceFactsV1 } from '../src/core/execution/DiagnosticEvidenceContract'
 import type { ManualTestSourceInputV1 } from '../src/core/test-design/ManualTestSourceContract'
 import {
   ManualTestIngestionService,
@@ -72,10 +82,13 @@ const SOURCE_INPUT: ManualTestSourceInputV1 = {
 
 function model(): AppModel {
   return {
-    schemaVersion: '1', generatedAt: NOW, generatedBy: 'engine',
+    schemaVersion: '2.0', generatedAt: NOW, generatedBy: 'engine', classificationRunId: OBSERVATION_RUN_ID,
     app: {
-      name: PROJECT, displayName: 'Storefront', baseUrl: 'https://example.invalid', appType: 'web',
-      modelVersion: 'app-model-v7', spaConfig: null, evidenceState: 'crawled', crawlMetadata: null,
+      name: PROJECT, displayName: 'Storefront', baseUrl: 'https://example.invalid', appType: 'web-ui',
+      modelVersion: 'app-model-v7', spaConfig: null, evidenceState: 'crawled', crawlMetadata: {
+        crawlConfigHash: HASH, crawledAt: NOW, crawledBy: 'engine', crawlDurationMs: 1000,
+        pagesBudget: 2, pagesDiscovered: 2, pagesSkipped: 0, aiBudgetStatus: 'within-budget', crawlDiagnostics: null,
+      },
     },
     roles: [{
       id: 'shopper', displayName: 'Shopper', authFlow: 'form-login', credentialsEnvKey: null,
@@ -84,28 +97,28 @@ function model(): AppModel {
     }],
     pages: [{
       id: 'subject-cart', displayName: 'cart', urlPattern: '/cart.html', urlPatternType: 'exact',
-      fingerprint: HASH, fingerprintBasis: 'url-only', appType: 'web', accessibleByRoles: ['shopper'],
+      fingerprint: HASH, fingerprintBasis: 'url+dom-hash', appType: 'web-ui', accessibleByRoles: ['shopper'],
       isAuthPage: false,
-      module: { name: 'checkout', confidence: 'high', method: 'rule', evidenceIds: ['subject-cart'] },
+      module: { name: 'checkout', confidence: 'high', method: 'rule', evidenceIds: ['subject-cart'], source: 'evidence-matched', reason: 'Observed cart.' },
       elements: [{
         id: 'subject-checkout-control', name: 'Checkout', kind: 'button', label: 'Checkout',
         critical: true, aiNamed: false,
         strategies: [{ type: 'data-test', value: 'checkout', confidence: 1 }],
-        tier3Assertions: [], cardinality: { kind: 'single' }, observedState: 'visible',
+        tier3Assertions: [], cardinality: { kind: 'single' }, observedState: 'visible', href: null,
       }],
     }, {
       id: 'subject-checkout-step-one', displayName: 'Checkout information',
       urlPattern: '/checkout-step-one.html', urlPatternType: 'exact', fingerprint: HASH,
-      fingerprintBasis: 'url-only', appType: 'web', accessibleByRoles: ['shopper'], isAuthPage: false,
+      fingerprintBasis: 'url+dom-hash', appType: 'web-ui', accessibleByRoles: ['shopper'], isAuthPage: false,
       elements: [],
-      module: { name: 'checkout', confidence: 'high', method: 'rule', evidenceIds: ['subject-checkout-step-one'] },
+      module: { name: 'checkout', confidence: 'high', method: 'rule', evidenceIds: ['subject-checkout-step-one'], source: 'evidence-matched', reason: 'Observed checkout.' },
     }],
     flows: [{
       id: 'flow-cart-checkout', displayName: 'Cart checkout', confidence: 'observed', source: 'inferred',
       roleId: 'shopper', linkedApiEndpointIds: [], steps: [{
-        stepIndex: 7, pageId: 'subject-cart', action: 'click', elementId: 'subject-checkout-control',
+        stepIndex: 0, pageId: 'subject-cart', action: 'click', elementId: 'subject-checkout-control',
         targetPageId: 'subject-checkout-step-one', value: null, grounding: 'observed',
-      }],
+      }], groundingWarnings: [],
     }],
     endpoints: null, api: null, diff: null,
   } as unknown as AppModel
@@ -199,8 +212,8 @@ async function createThenReopenWasm(
   }
 }
 
-test('CORE-D forced WASM reopen supports Analyze, Save, repeated preparation, exact replay, and Migration 033 authority', async () => {
-  await createThenReopenWasm('forge-m3-core-d-wasm-', async (_root, _dbPath, modelRowId) => {
+test('CORE-D forced WASM reopen supports Analyze, Save, diagnostic evidence replay, and Migration 033 authority', async () => {
+  await createThenReopenWasm('forge-m3-core-d-wasm-', async (root, dbPath, modelRowId) => {
     const currentEvidence = evidence(modelRowId)
     const certification = new ManualTestCertificationPersistenceAdapter()
     let generation = 0
@@ -278,6 +291,134 @@ test('CORE-D forced WASM reopen supports Analyze, Save, repeated preparation, ex
       proposal_content_hash: 'b'.repeat(64),
       definition_id: 'definition-not-in-canonical-v3-body',
     }).execute(), /definition membership mismatch/i)
+
+    const inventory = await new TestSetRepository(certification).readInventory(PROJECT, { limit: 1 })
+    if ('kind' in inventory || !inventory.current || inventory.current.testSet.schemaVersion !== 3) {
+      throw new Error('Forced WASM diagnostic evidence control requires canonical v3 authority.')
+    }
+    const definition = inventory.current.testSet.definitions[0]
+    if (!definition) throw new Error('Forced WASM diagnostic evidence control requires a Definition.')
+    const committed = await new AppModelRepository().getCommittedById(modelRowId)
+    const canonical = evidence(modelRowId)
+    const projected = projectExecutablePlan({
+      definition,
+      definitionSchemaVersion: 3,
+      definitionTestSetId: inventory.current.testSet.testSetId,
+      definitionRevision: inventory.current.testSet.revision,
+      testSetContentHash: inventory.current.contentHash,
+    }, {
+      currentRevision: {
+        testSetId: inventory.current.testSet.testSetId,
+        revision: inventory.current.testSet.revision,
+        contentHash: inventory.current.contentHash,
+      },
+      sealedAuthority: canonical.authority,
+      routeEvidence: canonical.routeEvidence,
+      authenticationExpectation: canonical.authenticationExpectation,
+      activeAppModel: { rowId: committed.rowId, modelVersion: committed.snapshot.app.modelVersion, snapshot: committed.snapshot },
+    }, NOW)
+    assert.equal(projected.kind, 'ok', projected.kind === 'failed' ? projected.failure.explanation : undefined)
+    if (projected.kind !== 'ok') throw new Error('Forced WASM plan projection failed.')
+    const plan = projected.plan
+    const executionId = 'execution-m4-wasm-evidence'
+    const processInstanceId = 'm4-wasm-evidence-process'
+    await new ExecutionRepository().beginExecution({
+      executionId,
+      projectId: PROJECT,
+      processInstanceId,
+      startedAt: NOW,
+      executionPlanHash: plan.fingerprint,
+      executionIntentKey: 'm4-wasm-evidence-start',
+      executionIntentFingerprint: '1'.repeat(64),
+      expectedTestSetId: inventory.current.testSet.testSetId,
+      expectedRevision: inventory.current.testSet.revision,
+      expectedTestSetContentHash: inventory.current.contentHash,
+      definitionSchemaVersion: 3,
+      expectedModelRowId: modelRowId,
+      expectedModelVersion: committed.snapshot.app.modelVersion,
+      sourceObservationId: null,
+      supportSealHash: canonical.authority.supportSealHash,
+      routeEvidenceIdentityHash: routeEvidenceIdentity(definition),
+      authenticationExpectationIdentityHash: createHash('sha256').update(JSON.stringify({
+        schemaVersion: 'forge-authentication-expectation/v1',
+        state: definition.authenticationExpectation.state,
+        mechanism: definition.authenticationExpectation.mechanism,
+        bases: definition.authenticationExpectation.bases,
+      })).digest('hex'),
+      manifestItems: [{
+        itemOrdinal: 1,
+        definitionId: definition.id,
+        executablePlanHash: plan.fingerprint,
+        oracleKind: plan.value.oracle.kind,
+        oracleSubjectId: plan.value.oracle.subjectId,
+      }],
+    })
+    const coordinator = new ExecutionRunCoordinator()
+    const run = await coordinator.admitRun({
+      executionId,
+      projectId: PROJECT,
+      processInstanceId,
+      expectedResultCount: 1,
+      runnerAdapter: 'playwright-plan-executor/v2',
+      environmentSnapshot: { environment: 'local', browser: 'chromium', headless: true },
+      startedAt: NOW,
+    })
+    await coordinator.recordResult({
+      executionId,
+      runId: run.run_id,
+      itemOrdinal: 1,
+      plan,
+      observed: {
+        status: 'completed',
+        reasonCode: 'completed',
+        navigationUrl: 'https://example.invalid/cart.html',
+        finalUrl: 'https://example.invalid/checkout-step-one.html',
+        targetCardinality: 'one',
+      },
+      startedAt: NOW,
+      completedAt: '2026-08-27T12:00:01.000Z',
+    })
+
+    const evidenceRepository = new DiagnosticEvidenceRepository()
+    const beforeReopen = await evidenceRepository.read(PROJECT, executionId)
+    assert.equal(beforeReopen.length, 1)
+    const stored = beforeReopen[0]!
+    const record = JSON.parse(stored.evidence_json)
+    const facts = parseDiagnosticEvidenceFactsV1({
+      executor: record.executor,
+      authentication: record.authentication,
+      navigation: record.navigation,
+      targetObservation: record.targetObservation,
+      action: record.action,
+      oracle: record.oracle,
+    })
+    const binding = {
+      projectId: stored.project_id,
+      executionId: stored.execution_id,
+      runId: stored.run_id,
+      itemOrdinal: Number(stored.item_ordinal),
+      resultId: stored.result_id,
+      definitionId: stored.definition_id,
+      executablePlanHash: stored.executable_plan_hash,
+    }
+    await assert.rejects(getDb().updateTable('diagnostic_evidence').set({ evidence_hash: '0'.repeat(64) })
+      .where('id', '=', stored.id).execute(), /immutable/i)
+    await assert.rejects(getDb().deleteFrom('diagnostic_evidence').where('id', '=', stored.id).execute(), /immutable/i)
+    assert.equal((await evidenceRepository.append({ binding, facts })).replayed, true)
+    await assert.rejects(evidenceRepository.append({
+      binding,
+      facts: { ...facts, oracle: facts.oracle.outcome === 'matched'
+        ? { ...facts.oracle, outcome: 'mismatched', actual: `${facts.oracle.actual}-conflict` }
+        : { outcome: 'not_performed' } },
+    }), DiagnosticEvidenceConflictError)
+
+    await closeDb()
+    initDb(dbPath)
+    await runMigrations()
+    const afterReopen = await new DiagnosticEvidenceRepository().read(PROJECT, executionId)
+    assert.deepEqual(afterReopen.map(row => [row.evidence_hash, row.evidence_json]),
+      beforeReopen.map(row => [row.evidence_hash, row.evidence_json]))
+    assert.equal((await new DiagnosticEvidenceRepository().append({ binding, facts })).replayed, true)
     assert.ok(forcedWasmLoads >= 3)
   })
 })

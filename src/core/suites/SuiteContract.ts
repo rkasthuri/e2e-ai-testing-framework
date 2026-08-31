@@ -27,14 +27,18 @@ export interface DefinitionRevisionRef {
   testSetContentHash: string
 }
 
-export interface CanonicalSuiteRevision {
-  schemaVersion: 1
+export interface MultiSourceDefinitionRevisionRef extends DefinitionRevisionRef {
+  testSetRowId: number
+}
+
+interface CanonicalSuiteRevisionBase<TSchema extends 1 | 2, TAuthority extends DefinitionRevisionRef> {
+  schemaVersion: TSchema
   suiteId: string
   projectId: string
   revision: number
   name: string
   purpose: 'sanity'
-  members: Array<{ ordinal: number; definitionAuthority: DefinitionRevisionRef }>
+  members: Array<{ ordinal: number; definitionAuthority: TAuthority }>
   createdAt: string
   provenance: {
     source: 'product_api'
@@ -45,6 +49,10 @@ export interface CanonicalSuiteRevision {
   }
   contentHash: string
 }
+
+export type CanonicalSuiteRevisionV1 = CanonicalSuiteRevisionBase<1, DefinitionRevisionRef>
+export type CanonicalSuiteRevisionV2 = CanonicalSuiteRevisionBase<2, MultiSourceDefinitionRevisionRef>
+export type CanonicalSuiteRevision = CanonicalSuiteRevisionV1 | CanonicalSuiteRevisionV2
 
 export class SuiteContractError extends Error {
   constructor(readonly code: SuiteRefusalCode, message: string) { super(message); this.name = 'SuiteContractError' }
@@ -70,6 +78,10 @@ function definitionRevisionMaterial(value: DefinitionRevisionRef) {
   }
 }
 
+function multiSourceDefinitionRevisionMaterial(value: MultiSourceDefinitionRevisionRef) {
+  return { testSetRowId: value.testSetRowId, ...definitionRevisionMaterial(value) }
+}
+
 export function suiteHash(value: Omit<CanonicalSuiteRevision, 'contentHash'>): string {
   const material = {
     schemaVersion: value.schemaVersion,
@@ -80,7 +92,9 @@ export function suiteHash(value: Omit<CanonicalSuiteRevision, 'contentHash'>): s
     purpose: value.purpose,
     members: value.members.map(member => ({
       ordinal: member.ordinal,
-      definitionAuthority: definitionRevisionMaterial(member.definitionAuthority),
+      definitionAuthority: value.schemaVersion === 1
+        ? definitionRevisionMaterial(member.definitionAuthority)
+        : multiSourceDefinitionRevisionMaterial(member.definitionAuthority as MultiSourceDefinitionRevisionRef),
     })),
     createdAt: value.createdAt,
     provenance: {
@@ -95,18 +109,22 @@ export function suiteHash(value: Omit<CanonicalSuiteRevision, 'contentHash'>): s
 }
 
 export function suiteChangeFingerprint(input: {
+  schemaVersion?: 1 | 2
   operation: 'created' | 'revised'; projectId: string; suiteId: string | null; expectedRevision: number | null
-  name: string; members: DefinitionRevisionRef[]
+  name: string; members: Array<DefinitionRevisionRef | MultiSourceDefinitionRevisionRef>
 }): string {
+  const schemaVersion = input.schemaVersion ?? 1
   const material = {
-    schemaVersion: 1,
+    schemaVersion,
     operation: input.operation,
     projectId: input.projectId,
     suiteId: input.suiteId,
     expectedRevision: input.expectedRevision,
     name: input.name,
     purpose: 'sanity',
-    members: input.members.map(definitionRevisionMaterial),
+    members: input.members.map(member => schemaVersion === 1
+      ? definitionRevisionMaterial(member)
+      : multiSourceDefinitionRevisionMaterial(member as MultiSourceDefinitionRevisionRef)),
   }
   return crypto.createHash('sha256').update(JSON.stringify(material)).digest('hex')
 }

@@ -37,7 +37,7 @@ import {
   credentialExecutionScope,
   type CredentialExecutionScope,
 } from '../security/CredentialExecutionScope'
-import { projectExecutablePlan, type CurrentProjectionAuthority, type CurrentV2ProjectionAuthority, type ProjectionResult } from './ExecutionProjectionService'
+import { projectExecutablePlan, routeEvidenceIdentity, type CurrentProjectionAuthority, type CurrentV2ProjectionAuthority, type ProjectionResult } from './ExecutionProjectionService'
 import { TestDefinitionAuthorityProjectionService } from '../test-design/TestDefinitionAuthorityProjectionService'
 import { CanonicalRouteEvidenceProjection } from '../test-design/CanonicalRouteEvidenceProjection'
 import { AuthenticationExpectationProjectionService } from '../test-design/AuthenticationExpectationProjection'
@@ -46,6 +46,8 @@ import type { CredentialReference } from '../security/CredentialExecutionScope'
 import type { MaterializedExecutablePlan } from './ExecutablePlanContract'
 import {
   ExecutionRunCoordinator,
+  unattemptedDiagnosticEvidence,
+  type MissingProductResultObservation,
   type ProductResultObservation,
   type ProductRunAdmission,
 } from './ExecutionRunCoordinator'
@@ -206,7 +208,7 @@ interface RunCoordinator {
 interface Dependencies {
   repository?: LifecycleRepository
   definitions?: DefinitionReader
-  suites?: Pick<SuiteRepository, 'read'>
+  suites?: Pick<SuiteRepository, 'read'|'readMemberDefinitions'>
   credentials?: CredentialExecutionScope
   executor?: PlanExecutor
   coordinator?: RunCoordinator
@@ -217,7 +219,7 @@ interface Dependencies {
   authorityProjection?: TestDefinitionAuthorityProjectionService
   routeProjection?: CanonicalRouteEvidenceProjection
   authenticationProjection?: AuthenticationExpectationProjectionService
-  appModels?: Pick<AppModelRepository, 'getActiveCommitted'>
+  appModels?: Pick<AppModelRepository, 'getActiveCommitted'|'getCommittedById'>
   /** Explicit non-Product compatibility harness. Production defaults to refuse. */
   v1ExecutionPolicy?: 'refuse' | 'historical_compatibility'
   now?: () => string
@@ -342,7 +344,7 @@ export function executionPreflightDefinitionResult(
 export class ExecutionService {
   private readonly repository: LifecycleRepository
   private readonly definitions: DefinitionReader
-  private readonly suites: Pick<SuiteRepository, 'read'>
+  private readonly suites: Pick<SuiteRepository, 'read'|'readMemberDefinitions'>
   private readonly credentials: CredentialExecutionScope
   private readonly executor: PlanExecutor
   private readonly coordinator: RunCoordinator
@@ -353,7 +355,7 @@ export class ExecutionService {
   private readonly authorityProjection: TestDefinitionAuthorityProjectionService
   private readonly routeProjection: CanonicalRouteEvidenceProjection
   private readonly authenticationProjection: AuthenticationExpectationProjectionService
-  private readonly appModels: Pick<AppModelRepository, 'getActiveCommitted'>
+  private readonly appModels: Pick<AppModelRepository, 'getActiveCommitted'|'getCommittedById'>
   private readonly v1ExecutionPolicy: 'refuse' | 'historical_compatibility'
   private readonly now: () => string
   private readonly mintExecutionId: () => string
@@ -514,6 +516,57 @@ export class ExecutionService {
       let suite: CanonicalSuiteRevision
       try { suite=await this.suites.read(request.projectId,request.selection.suiteId,request.selection.suiteRevision) }
       catch(cause){return {kind:'rejected',code:cause instanceof SuiteContractError && ['suite_not_found','suite_revision_not_found','suite_integrity_invalid'].includes(cause.code)?cause.code as ExecutionStartRejectionCode:'suite_integrity_invalid',safeMessage:cause instanceof Error?cause.message:'Suite authority could not be read safely.'}}
+      if(suite.schemaVersion===2){
+        const readiness=this.runnerReadiness()
+        if(!readiness.available)return {kind:'rejected',code:'runner_unavailable',safeMessage:readiness.safeMessage}
+        let historical:Awaited<ReturnType<SuiteRepository['readMemberDefinitions']>>
+        try{historical=await this.suites.readMemberDefinitions(request.projectId,suite.suiteId,suite.revision)}
+        catch{return {kind:'rejected',code:'suite_integrity_invalid',safeMessage:'Suite member authority could not be reconstructed safely.'}}
+        const plans:MaterializedExecutablePlan[]=[]
+        const authorities:CurrentV2ProjectionAuthority[]=[]
+        for(const member of historical.members){
+          const definition=member.definition
+          const testSet=member.testSet
+          if(!definition.authenticationExpectation||('flowRouteEvidence' in definition
+            ?definition.flowRouteEvidence.length<1:!definition.routeEvidence))
+            return {kind:'rejected',code:'suite_not_execution_eligible',safeMessage:'A historical Suite member lacks executable embedded route or authentication authority.'}
+          if(definition.authenticationExpectation.state==='unknown'||definition.authenticationExpectation.state==='conflicted')
+            return {kind:'rejected',code:'suite_not_execution_eligible',safeMessage:'A historical Suite member has non-executable authentication authority.'}
+          if(definition.authenticationExpectation.state==='required'&&!this.credentials.isAvailable(request.credentialReference))
+            return {kind:'rejected',code:'credentials_unavailable',safeMessage:'The governed credential reference does not currently resolve.'}
+          let committed:Awaited<ReturnType<AppModelRepository['getCommittedById']>>
+          try{committed=await this.appModels.getCommittedById(definition.provenance.modelRowId)}catch{return {kind:'rejected',code:'suite_not_execution_eligible',safeMessage:'A historical Suite member App Model authority is unavailable.'}}
+          if(committed.appName!==request.projectId||committed.rowId!==definition.provenance.modelRowId
+            ||committed.snapshot.app.modelVersion!==definition.provenance.modelVersion)
+            return {kind:'rejected',code:'suite_not_execution_eligible',safeMessage:'A historical Suite member App Model authority disagrees.'}
+          const routeSubjects='flowRouteEvidence' in definition
+            ?definition.flowRouteEvidence.map(route=>({canonicalSubjectId:route.subjectId,normalizedPath:route.normalizedPath,supportingObservationIds:[...route.supportingObservationIds]}))
+            :[{canonicalSubjectId:definition.canonicalSubjects[0],normalizedPath:definition.routeEvidence!.normalizedPath,supportingObservationIds:[...definition.routeEvidence!.supportingObservationIds]}]
+          const normalizationPolicy='flowRouteEvidence' in definition?definition.flowRouteEvidence[0].normalizationPolicy:definition.routeEvidence!.normalizationPolicy
+          const authIdentity=crypto.createHash('sha256').update(JSON.stringify(definition.authenticationExpectation)).digest('hex')
+          const authority:CurrentV2ProjectionAuthority={
+            currentRevision:{revision:member.authority.testSetRevision,testSetId:member.authority.testSetId,contentHash:member.authority.testSetContentHash},
+            sealedAuthority:{schemaVersion:'forge-test-definition-authority/v2',authorityClass:'canonical_v2',projectId:request.projectId,
+              modelRowId:testSet.canonicalSupport.modelRowId,modelVersion:testSet.canonicalSupport.modelVersion,
+              observationRunId:testSet.canonicalSupport.observationRunId,supportSealHash:testSet.canonicalSupport.supportSealHash,
+              characterizationPolicy:{...testSet.canonicalSupport.characterizationPolicy},supportingObservationIds:[...testSet.canonicalSupport.supportingObservationIds],
+              supportingGapIds:[...testSet.canonicalSupport.supportingGapIds],subjectSupport:definition.provenance.subjectSupport.map(subject=>({canonicalSubjectId:subject.canonicalSubjectId,supportingObservationIds:[...subject.supportingObservationIds],supportingGapIds:[...subject.supportingGapIds]}))},
+            routeEvidence:{schemaVersion:'forge-canonical-route-evidence/v1',projectId:request.projectId,modelRowId:testSet.canonicalSupport.modelRowId,
+              supportSealHash:testSet.canonicalSupport.supportSealHash,normalizationPolicy:{...normalizationPolicy},subjects:routeSubjects,identityHash:routeEvidenceIdentity(definition)??''},
+            authenticationExpectation:{schemaVersion:'forge-authentication-expectation/v1',state:definition.authenticationExpectation.state,
+              mechanism:definition.authenticationExpectation.mechanism,bases:definition.authenticationExpectation.bases.map(basis=>({...basis})),identityHash:authIdentity},
+            ...('normalizedIntent' in definition?{activeAppModel:{rowId:committed.rowId,modelVersion:committed.snapshot.app.modelVersion,snapshot:committed.snapshot}}:{}),
+          }
+          const projection=this.project({definition,definitionSchemaVersion:testSet.schemaVersion,definitionTestSetId:member.authority.testSetId,
+            definitionRevision:member.authority.testSetRevision,testSetContentHash:member.authority.testSetContentHash},authority,this.now())
+          if(projection.kind==='failed')return {kind:'rejected',code:'suite_not_execution_eligible',safeMessage:projection.failure.explanation}
+          plans.push(projection.plan);authorities.push(authority)
+        }
+        const first=historical.members[0]
+        const current={rowId:(first.authority as {testSetRowId:number}).testSetRowId,contentHash:first.authority.testSetContentHash,testSet:first.testSet,
+          startedAt:first.testSet.generatedAt,completedAt:first.testSet.generatedAt,temporalIntegrity:'verified' as const,temporalCode:null,temporalExplanation:'Immutable historical Suite member authority.'}
+        return {kind:'ready',plans,definitionResults:plans.map((plan,index)=>executionPreflightDefinitionResult(plan,historical.members[index].testSet.schemaVersion)),current,authority:authorities[0],suiteAuthority:suite}
+      }
       let inventory: TestInventoryRead | {kind:'invalid_cursor'}
       try{inventory=await this.definitions.readInventory(request.projectId,{limit:1})}catch{return {kind:'rejected',code:'preflight_source_invalid',safeMessage:'The current test-definition authority could not be re-read safely.'}}
       const pinned=suite.members[0].definitionAuthority
@@ -693,6 +746,7 @@ export class ExecutionService {
     cancellation: GovernedExecutionCancellationToken,
   ): Promise<void> {
     let runId: string | null = null
+    const missingResults: MissingProductResultObservation[] = []
     try {
       if (cancellation.isCancellationRequested()) {
         await this.coordinator.terminalizeCancellation({
@@ -759,7 +813,12 @@ export class ExecutionService {
           })
           return
         }
-        if (result.status !== 'completed') break
+        if (result.status !== 'completed') {
+          for (let later = index + 1; later < plans.length; later += 1) {
+            missingResults.push({ itemOrdinal: later + 1, plan: plans[later], facts: unattemptedDiagnosticEvidence() })
+          }
+          break
+        }
       }
       await this.coordinator.terminalize({
         executionId,
@@ -767,6 +826,7 @@ export class ExecutionService {
         processInstanceId: this.processInstanceId,
         runId: run.run_id,
         completedAt: this.now(),
+        missingResults,
       })
     } catch {
       // Admission, Result, or terminal persistence failure cannot be converted

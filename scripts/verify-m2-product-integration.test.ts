@@ -11,6 +11,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -26,6 +27,7 @@ import { MIGRATION_032_TRIGGER_DEFINITIONS_V1 } from '../src/core/storage/migrat
 import type { AppModelCandidate } from '../src/core/onboarding/types'
 import { CanonicalTestDefinitionGenerationService } from '../src/core/test-design/CanonicalTestDefinitionGenerationService'
 import { isSupportedNormalizedTestIntentV1 } from '../forge-ui/src/api/m1TestIntentContract'
+import { parseCanonicalTestSet } from '../src/core/test-design/TestDefinitionContract'
 import { TestSetRepository } from '../src/core/storage/repositories/TestSetRepository'
 import { SuiteService } from '../src/core/suites/SuiteService'
 import { SuiteContractError, type CanonicalSuiteRevision, type DefinitionRevisionRef } from '../src/core/suites/SuiteContract'
@@ -34,6 +36,29 @@ import { ExecutionRepository, type BeginExecutionInput } from '../src/core/stora
 import { PlaywrightPlanExecutor, type ExecutionSessionFactory } from '../src/core/execution/PlaywrightPlanExecutor'
 import { EnvironmentCredentialExecutionScope } from '../src/core/security/CredentialExecutionScope'
 import { ExecutionResultProjectionService, type ExecutionResultProjection } from '../src/core/execution/ExecutionResultProjectionService'
+import { PersistedEvidenceAggregator } from '../src/core/execution/PersistedEvidenceAggregator'
+import {
+  ExecutionRunCoordinator,
+  executorFailureDiagnosticEvidence,
+} from '../src/core/execution/ExecutionRunCoordinator'
+import {
+  ExecutionRecoveryCoordinator,
+  ExecutionRecoveryRefusedError,
+} from '../src/core/execution/ExecutionRecoveryCoordinator'
+import {
+  materializeExecutablePlan,
+  type MaterializedExecutablePlan,
+} from '../src/core/execution/ExecutablePlanContract'
+import {
+  DiagnosticEvidenceConflictError,
+  DiagnosticEvidenceRepository,
+} from '../src/core/storage/repositories/DiagnosticEvidenceRepository'
+import {
+  parseDiagnosticEvidenceFactsV1,
+  parseDiagnosticEvidenceV1,
+  type DiagnosticEvidenceFactsV1,
+} from '../src/core/execution/DiagnosticEvidenceContract'
+import { HistoricalDefinitionAuthorityResolver } from '../src/core/execution/HistoricalDefinitionAuthorityResolver'
 import { loadM2CertificationCase } from './m2-certification/fixture-loader'
 import { ProductM2CertificationDriver, type ProductM2ObservationPort } from './m2-certification/product-driver'
 import { assertM2CertificationPassed, certifyM2Case } from './m2-certification/suite'
@@ -58,6 +83,25 @@ const START = '2026-08-25T20:00:00.000Z'
 const END = '2026-08-25T20:00:01.000Z'
 const HASH = 'a'.repeat(64)
 const CREDENTIAL_REFERENCE = { usernameEnv: 'M2_PRODUCT_USER', passwordEnv: 'M2_PRODUCT_PASSWORD' }
+
+function frozenContradictionFacts(): DiagnosticEvidenceFactsV1 {
+  const contractRoot = path.resolve(process.cwd(), 'fixtures', 'm4-contract')
+  const manifest = JSON.parse(fs.readFileSync(path.join(contractRoot, 'manifest.json'), 'utf8')) as {
+    evidenceBases: Record<string, Record<string, unknown>>
+  }
+  const fixture = JSON.parse(fs.readFileSync(
+    path.join(contractRoot, 'cases', 'integrity-invalid-contradiction.json'), 'utf8',
+  )) as { base: string; operations: Array<{ path: string; value: unknown }> }
+  const base = structuredClone(manifest.evidenceBases[fixture.base])
+  for (const operation of fixture.operations) {
+    if (!operation.path.startsWith('/') || operation.path.slice(1).includes('/')) {
+      throw new Error('Frozen contradiction fixture operation is outside the supported top-level parity shape.')
+    }
+    base[operation.path.slice(1)] = structuredClone(operation.value)
+  }
+  const { authorityTemplate: _authorityTemplate, ...facts } = base
+  return parseDiagnosticEvidenceFactsV1(facts)
+}
 
 function boundary(scope: Record<string, unknown> = { acquisitionKind: 'web_crawl' }): ObservationBoundary {
   return {
@@ -99,7 +143,7 @@ function model(runId: string, generation: number): AppModelCandidate {
       },
     ],
     flows: [{
-      id: 'checkout-flow', displayName: 'Observed checkout', confidence: 'partial', source: 'agent-proposed', roleId: 'shopper', linkedApiEndpointIds: [],
+      id: generation>=20?`checkout-flow-${generation}`:'checkout-flow', displayName: 'Observed checkout', confidence: 'partial', source: 'agent-proposed', roleId: 'shopper', linkedApiEndpointIds: [],
       steps: [
         { stepIndex: 0, pageId: 'home', action: 'assert-navigation', elementId: null, targetPageId: 'subject-cart', value: null, grounding: 'inferred' },
         { stepIndex: 1, pageId: 'subject-cart', action: 'click', elementId: 'subject-checkout-control', targetPageId: 'subject-checkout', value: null, grounding: 'observed' },
@@ -271,6 +315,10 @@ class RealProductPort implements ProductM2ObservationPort {
     return { kind: 'accepted', executionId: result.executionId, replayed: result.replayed }
   }
 
+  startRawExecution(request: GovernedExecutionStartRequest) {
+    return this.execution.start(request)
+  }
+
   async readExecution(projectId: string, executionId: string): Promise<ExecutionObservation | null> {
     const observed = await this.observed(projectId, executionId)
     if (!observed) return null
@@ -320,6 +368,92 @@ class RaceWindowExecutionRepository extends ExecutionRepository {
   }
 }
 
+type Chunk0AcceptedDefinitionAuthority = {
+  definitionSchemaVersion: 3
+  testSetId: string
+  testSetRevision: number
+  testSetContentHash: string
+  definitionId: string
+  definitionContentHash: string
+  supportSealHash: string
+  routeEvidenceIdentityHash: string
+  authenticationExpectationIdentityHash: string
+  snapshotHash: string
+}
+
+type Chunk0SuiteAuthority = {
+  suiteId: string
+  suiteRevision: number
+  suiteContentHash: string
+}
+
+type Chunk0Authority = {
+  projectId: string
+  executionId: string
+  runId: string
+  itemOrdinal: number
+  resultId: string | null
+  definitionId: string
+  executablePlanHash: string
+  acceptedDefinitionAuthority: Chunk0AcceptedDefinitionAuthority
+  suiteAuthority: Chunk0SuiteAuthority | null
+}
+
+class Chunk0AuthorityIntegrityError extends Error {
+  constructor() {
+    super('Chunk 0 authority candidate does not match accepted historical Product authority.')
+    this.name = 'Chunk0AuthorityIntegrityError'
+  }
+}
+
+function hashJson(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+}
+
+async function deriveChunk0Authority(projectId: string, executionId: string): Promise<Chunk0Authority[]> {
+  const read = await new PersistedEvidenceAggregator().read(projectId, executionId)
+  if (read.kind !== 'ok' || read.aggregation.integrityState === 'invalid'
+    || read.evidence.runs.length !== 1 || !read.aggregation.run.runId) throw new Chunk0AuthorityIntegrityError()
+  const execution = read.evidence.execution
+
+  const suiteValues = [execution.suite_id, execution.suite_revision, execution.suite_content_hash]
+  const suiteAuthority = suiteValues.every(value => value === null)
+    ? null
+    : suiteValues.some(value => value === null)
+      ? (() => { throw new Chunk0AuthorityIntegrityError() })()
+      : {
+          suiteId: execution.suite_id!,
+          suiteRevision: Number(execution.suite_revision),
+          suiteContentHash: execution.suite_content_hash!,
+        }
+  if (suiteAuthority && (!Number.isSafeInteger(suiteAuthority.suiteRevision) || suiteAuthority.suiteRevision < 1)) {
+    throw new Chunk0AuthorityIntegrityError()
+  }
+
+  if(read.evidence.items.length===0)throw new Chunk0AuthorityIntegrityError()
+  const resolver=new HistoricalDefinitionAuthorityResolver()
+  return Promise.all(read.evidence.items.map(async item => {
+    const result = read.evidence.results.find(candidate => Number(candidate.execution_item_ordinal) === Number(item.item_ordinal))
+    const resolved=await resolver.resolve({projectId,executionId,runId:read.aggregation.run.runId!,itemOrdinal:Number(item.item_ordinal),
+      resultId:result?.result_id??null,definitionId:item.definition_id,executablePlanHash:item.executable_plan_hash})
+    return {
+      projectId,
+      executionId,
+      runId: read.aggregation.run.runId!,
+      itemOrdinal: Number(item.item_ordinal),
+      resultId: result?.result_id ?? null,
+      definitionId: item.definition_id,
+      executablePlanHash: item.executable_plan_hash,
+      acceptedDefinitionAuthority:resolved.acceptedDefinitionAuthority,
+      suiteAuthority:resolved.suiteAuthority,
+    }
+  }))
+}
+
+function validateChunk0Authority(candidate: unknown, accepted: Chunk0Authority): void {
+  if (JSON.stringify(candidate) !== JSON.stringify(accepted)) throw new Chunk0AuthorityIntegrityError()
+}
+
 async function productSetup(repository?: ExecutionRepository): Promise<{ root: string; port: RealProductPort; fixture: M2CertificationCase }> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-m2-product-integration-'))
   const workspace = createWorkspace(root)
@@ -334,7 +468,7 @@ async function productSetup(repository?: ExecutionRepository): Promise<{ root: s
     const createSession: ExecutionSessionFactory = async () => ({
       authenticateFormLogin: async () => { currentUrl = 'https://m2.example.test/'; return true },
       navigate: async url => { currentUrl = url },
-      clickDataTest: async value => { assert.equal(value, 'checkout'); currentUrl = 'https://m2.example.test/checkout.html' },
+      clickDataTest: async value => { assert.equal(value, 'checkout'); currentUrl = 'https://m2.example.test/checkout.html'; return 'one' as const },
       currentUrl: () => currentUrl,
       close: async () => undefined,
     })
@@ -542,9 +676,15 @@ test('M2 Start atomically rejects post-preflight Suite semantic, provenance, cou
     } },
     { label: 'member-gap', mutate: async suite => {
       await sql.raw('DROP TRIGGER suite_revision_members_immutable_update').execute(getDb())
-      await getDb().updateTable('suite_revision_members').set({ member_ordinal: 3 })
-        .where('suite_id', '=', suite.suiteId).where('suite_revision', '=', suite.revision)
-        .where('member_ordinal', '=', 2).execute()
+      await sql.raw('DROP TRIGGER suite_member_authority_immutable_update').execute(getDb())
+      await getDb().transaction().execute(async trx=>{
+        await sql`PRAGMA defer_foreign_keys=ON`.execute(trx)
+        await trx.updateTable('suite_revision_members').set({ member_ordinal: 3 })
+          .where('suite_id', '=', suite.suiteId).where('suite_revision', '=', suite.revision)
+          .where('member_ordinal', '=', 2).execute()
+        await trx.updateTable('suite_revision_member_authorities').set({member_ordinal:3})
+          .where('suite_id','=',suite.suiteId).where('suite_revision','=',suite.revision).where('member_ordinal','=',2).execute()
+      })
     } },
     { label: 'stored-content-hash', mutate: async suite => {
       await sql.raw('DROP TRIGGER suite_revisions_immutable_update').execute(getDb())
@@ -572,6 +712,7 @@ test('M2 Start atomically rejects post-preflight Suite semantic, provenance, cou
       assert.deepEqual(
         await context.port.startSuiteExecution(PROJECT, { executionIntentKey: `race-${attack.label}-start`, selection }),
         { kind: 'refused', refusalCode: 'suite_integrity_invalid' },
+        attack.label,
       )
       await assertNoExecutionAccepted()
     } finally {
@@ -646,4 +787,696 @@ test('M2 Start accepts an unchanged post-preflight Suite and replays the same K1
     await closeDb()
     fs.rmSync(context.root, { recursive: true, force: true })
   }
+})
+
+test('M4 Chunk 0 proves Suite-originated authority from accepted Execution through Run and Result', async () => {
+  const context = await productSetup()
+  try {
+    const generation = new CanonicalTestDefinitionGenerationService()
+    const intent = await generation.generateDiscoveredIntent(PROJECT, context.root, 'checkout')
+    assert.equal(isSupportedNormalizedTestIntentV1(intent), true)
+    if (!isSupportedNormalizedTestIntentV1(intent)) throw new Error('Chunk 0 requires a canonical observed-flow intent.')
+    await generation.saveReviewedDiscoveredIntent(PROJECT, context.root, intent, 'm4-chunk0-v3-save')
+
+    const inventory = await new TestSetRepository().readInventory(PROJECT, { limit: 1 })
+    if ('kind' in inventory || !inventory.current || inventory.current.testSet.schemaVersion !== 3) {
+      throw new Error('Chunk 0 v3 Definition authority was not persisted.')
+    }
+    const definition = inventory.current.testSet.definitions[0]
+    assert.ok(definition)
+    const candidates = await context.port.listCandidates(PROJECT)
+    assert.deepEqual(candidates.map(candidate => candidate.definitionAuthority.definitionId), [definition!.id])
+
+    const created = await context.port.createSuite({
+      projectId: PROJECT,
+      name: 'M4 Chunk 0 Sanity',
+      purpose: 'sanity',
+      changeIntentKey: 'm4-chunk0-suite-create',
+      members: [{ ordinal: 1, definitionAuthority: candidates[0]!.definitionAuthority }],
+    })
+    assert.equal(created.kind, 'accepted')
+    if (created.kind !== 'accepted') throw new Error('Chunk 0 Suite was not accepted.')
+    const selection = {
+      kind: 'suite_revision' as const,
+      suiteId: created.suite.suiteId,
+      suiteRevision: created.suite.revision,
+    }
+
+    const forgedClient = await context.port.startRawExecution({
+      projectId: PROJECT,
+      executionIntentKey: 'm4-chunk0-forged-client',
+      workspaceRoot: context.root,
+      credentialReference: CREDENTIAL_REFERENCE,
+      runtime: { baseUrl: 'https://m2.example.test', loginUrl: 'https://m2.example.test' },
+      selection,
+      suiteContentHash: 'f'.repeat(64),
+    } as GovernedExecutionStartRequest)
+    assert.deepEqual(forgedClient, {
+      kind: 'rejected',
+      code: 'invalid_request',
+      safeMessage: 'The governed execution request is malformed.',
+    })
+
+    const started = await context.port.startSuiteExecution(PROJECT, {
+      executionIntentKey: 'm4-chunk0-suite-start', selection,
+    })
+    assert.equal(started.kind, 'accepted')
+    if (started.kind !== 'accepted') throw new Error('Chunk 0 Suite execution was not accepted.')
+
+    const acceptedBeforeHeadAdvance = await deriveChunk0Authority(PROJECT, started.executionId)
+    assert.equal(acceptedBeforeHeadAdvance.length, 1)
+    const accepted = acceptedBeforeHeadAdvance[0]!
+    const evidenceRepository = new DiagnosticEvidenceRepository()
+    const suiteEvidenceRows = await evidenceRepository.read(PROJECT, started.executionId)
+    assert.equal(suiteEvidenceRows.length, 1)
+    const suiteEvidence = JSON.parse(suiteEvidenceRows[0]!.evidence_json)
+    assert.equal(suiteEvidence.authority.runId, accepted.runId)
+    assert.equal(suiteEvidence.authority.resultId, accepted.resultId)
+    assert.deepEqual(suiteEvidence.authority.suiteAuthority, accepted.suiteAuthority)
+    assert.deepEqual(suiteEvidence.authority.acceptedDefinitionAuthority, accepted.acceptedDefinitionAuthority)
+    assert.equal(suiteEvidenceRows[0]!.evidence_hash, hashJson(JSON.parse(suiteEvidenceRows[0]!.evidence_json)))
+    await assert.rejects(getDb().updateTable('diagnostic_evidence').set({ evidence_hash: '0'.repeat(64) })
+      .where('id', '=', suiteEvidenceRows[0]!.id).execute())
+    await assert.rejects(getDb().deleteFrom('diagnostic_evidence').where('id', '=', suiteEvidenceRows[0]!.id).execute())
+    assert.deepEqual(accepted.suiteAuthority, {
+      suiteId: created.suite.suiteId,
+      suiteRevision: created.suite.revision,
+      suiteContentHash: created.suite.contentHash,
+    })
+    assert.equal(accepted.projectId, PROJECT)
+    assert.equal(accepted.executionId, started.executionId)
+    assert.equal(accepted.itemOrdinal, 1)
+    assert.ok(accepted.runId.startsWith('run-'))
+    assert.ok(accepted.resultId?.startsWith('result-'))
+    assert.equal(accepted.definitionId, definition!.id)
+    assert.equal(accepted.acceptedDefinitionAuthority.definitionId, definition!.id)
+    assert.equal(accepted.acceptedDefinitionAuthority.testSetRevision, inventory.current.testSet.revision)
+
+    const suiteV1RecoveryService = new ExecutionService({
+      executor: { execute: async () => { throw new Error('controlled Suite v1 interrupted adapter') } },
+      runnerReadiness: () => ({ available: true, safeCode: 'ready', safeMessage: 'controlled Suite v1 recovery adapter is available' }),
+      credentials: new EnvironmentCredentialExecutionScope({ M2_PRODUCT_USER: 'shopper', M2_PRODUCT_PASSWORD: 'secret' }),
+      processInstanceId: 'm4-suite-v1-recovery-process',
+    })
+    const suiteV1Recovery = await suiteV1RecoveryService.start({
+      projectId: PROJECT, executionIntentKey: 'm4-suite-v1-recovery-start', selection,
+      workspaceRoot: context.root, credentialReference: CREDENTIAL_REFERENCE,
+      runtime: { baseUrl: 'https://m2.example.test', loginUrl: 'https://m2.example.test' },
+    })
+    assert.equal(suiteV1Recovery.kind, 'accepted')
+    if (suiteV1Recovery.kind !== 'accepted') throw new Error('Suite v1 recovery execution was refused.')
+    await suiteV1Recovery.completion
+    await new ExecutionRecoveryCoordinator().reconcile({
+      projectId: PROJECT, executionId: suiteV1Recovery.executionId,
+      currentProcessInstanceId: 'm4-suite-v1-recovery-process', locallyActive: false,
+      now: new Date(Date.now() + 5_000).toISOString(),
+    })
+    const suiteV1RecoveryRows = await new DiagnosticEvidenceRepository().read(PROJECT, suiteV1Recovery.executionId)
+    assert.equal(suiteV1RecoveryRows.length, 1)
+    const suiteV1RecoveredEvidence = JSON.parse(suiteV1RecoveryRows[0]!.evidence_json)
+    assert.equal(suiteV1RecoveredEvidence.authority.resultId, null)
+    assert.deepEqual(suiteV1RecoveredEvidence.authority.suiteAuthority, accepted.suiteAuthority)
+
+    const revised = await context.port.reviseSuite({
+      projectId: PROJECT,
+      suiteId: created.suite.suiteId,
+      expectedRevision: created.suite.revision,
+      name: 'M4 Chunk 0 New Head',
+      purpose: 'sanity',
+      changeIntentKey: 'm4-chunk0-suite-revise',
+      members: [{ ordinal: 1, definitionAuthority: candidates[0]!.definitionAuthority }],
+    })
+    assert.equal(revised.kind, 'accepted')
+    if (revised.kind !== 'accepted') throw new Error('Chunk 0 current Suite head was not advanced.')
+    assert.notEqual(revised.suite.contentHash, created.suite.contentHash)
+
+    const historicalProjection = await new ExecutionResultProjectionService().read(PROJECT, started.executionId)
+    assert.equal(historicalProjection.kind, 'ok')
+    if (historicalProjection.kind !== 'ok') throw new Error('Chunk 0 historical Results projection is unavailable.')
+    assert.deepEqual(historicalProjection.projection.execution.selectionAuthority, {
+      kind: 'suite_revision',
+      suiteId: created.suite.suiteId,
+      suiteRevision: created.suite.revision,
+      suiteContentHash: created.suite.contentHash,
+      name: created.suite.name,
+      purpose: 'sanity',
+    })
+    assert.deepEqual(await deriveChunk0Authority(PROJECT, started.executionId), acceptedBeforeHeadAdvance)
+
+    const mutate = (change: (candidate: Record<string, unknown>) => void): unknown => {
+      const candidate = structuredClone(accepted) as unknown as Record<string, unknown>
+      change(candidate)
+      return candidate
+    }
+    const suite = (candidate: Record<string, unknown>) => candidate.suiteAuthority as Record<string, unknown>
+    const definitionAuthority = (candidate: Record<string, unknown>) => candidate.acceptedDefinitionAuthority as Record<string, unknown>
+    const attacks: Array<[string, unknown]> = [
+      ['floated suiteId', mutate(candidate => { suite(candidate).suiteId = 'suite-floated' })],
+      ['floated suiteRevision', mutate(candidate => { suite(candidate).suiteRevision = 999 })],
+      ['floated suiteContentHash', mutate(candidate => { suite(candidate).suiteContentHash = '0'.repeat(64) })],
+      ['partial Suite tuple', mutate(candidate => { delete suite(candidate).suiteContentHash })],
+      ['current-head Suite substitution', mutate(candidate => { candidate.suiteAuthority = {
+        suiteId: revised.suite.suiteId,
+        suiteRevision: revised.suite.revision,
+        suiteContentHash: revised.suite.contentHash,
+      } })],
+      ['cross-project authority', mutate(candidate => { candidate.projectId = 'm4-cross-project' })],
+      ['reordered Suite member ordinal', mutate(candidate => { candidate.itemOrdinal = 2 })],
+      ['replaced Suite member Definition', mutate(candidate => { candidate.definitionId = 'definition-replaced' })],
+      ['floated Run', mutate(candidate => { candidate.runId = 'run-floated' })],
+      ['floated Result', mutate(candidate => { candidate.resultId = 'result-floated' })],
+      ['mismatched plan', mutate(candidate => { candidate.executablePlanHash = '1'.repeat(64) })],
+      ['current-head Definition substitution', mutate(candidate => {
+        definitionAuthority(candidate).testSetRevision = Number(definitionAuthority(candidate).testSetRevision) + 1
+      })],
+    ]
+    for (const [label, candidate] of attacks) {
+      assert.throws(() => validateChunk0Authority(candidate, accepted), Chunk0AuthorityIntegrityError, label)
+    }
+
+    const crossProjectStart = await context.port.startRawExecution({
+      projectId: 'm4-cross-project',
+      executionIntentKey: 'm4-chunk0-cross-project',
+      workspaceRoot: context.root,
+      credentialReference: CREDENTIAL_REFERENCE,
+      runtime: { baseUrl: 'https://m2.example.test', loginUrl: 'https://m2.example.test' },
+      selection,
+    })
+    assert.equal(crossProjectStart.kind, 'rejected')
+    if (crossProjectStart.kind === 'rejected') assert.equal(crossProjectStart.code, 'suite_not_found')
+
+    const direct = await context.port.startRawExecution({
+      projectId: PROJECT,
+      executionIntentKey: 'm4-chunk0-direct-definition',
+      definitionIds: [definition!.id],
+      revision: inventory.current.testSet.revision,
+      workspaceRoot: context.root,
+      credentialReference: CREDENTIAL_REFERENCE,
+      runtime: { baseUrl: 'https://m2.example.test', loginUrl: 'https://m2.example.test' },
+    })
+    assert.equal(direct.kind, 'accepted')
+    if (direct.kind !== 'accepted') throw new Error('Chunk 0 direct-Definition control was not accepted.')
+    await direct.completion
+    const directAuthority = (await deriveChunk0Authority(PROJECT, direct.executionId))[0]!
+    assert.equal(directAuthority.suiteAuthority, null)
+    const resolverBinding={projectId:directAuthority.projectId,executionId:directAuthority.executionId,runId:directAuthority.runId,
+      itemOrdinal:directAuthority.itemOrdinal,resultId:directAuthority.resultId,definitionId:directAuthority.definitionId,
+      executablePlanHash:directAuthority.executablePlanHash}
+    const originalRoot=await getDb().selectFrom('executions').selectAll().where('execution_id','=',direct.executionId).executeTakeFirstOrThrow()
+    const immutableExecutionTrigger=(await sql<{sql:string}>`SELECT sql FROM sqlite_master WHERE type='trigger' AND name='executions_immutable_update'`.execute(getDb())).rows[0]!.sql
+    await sql`DROP TRIGGER executions_immutable_update`.execute(getDb())
+    const contradictions:Array<[string,Record<string,unknown>]>=[
+      ['model authority',{model_row_id:Number(originalRoot.model_row_id)+1}],
+      ['model version',{model_version:`${originalRoot.model_version}-contradiction`}],
+      ['support seal',{support_seal_hash:'1'.repeat(64)}],
+      ['route identity',{route_evidence_identity_hash:'2'.repeat(64)}],
+      ['authentication identity',{authentication_expectation_identity_hash:'3'.repeat(64)}],
+    ]
+    for(const [label,change] of contradictions){
+      await getDb().updateTable('executions').set(change).where('execution_id','=',direct.executionId).execute()
+      await assert.rejects(new HistoricalDefinitionAuthorityResolver().resolve(resolverBinding),undefined,label)
+      await getDb().updateTable('executions').set(originalRoot).where('execution_id','=',direct.executionId).execute()
+    }
+    await sql.raw(immutableExecutionTrigger).execute(getDb())
+    const directEvidenceRows = await evidenceRepository.read(PROJECT, direct.executionId)
+    assert.equal(directEvidenceRows.length, 1)
+    assert.equal(JSON.parse(directEvidenceRows[0]!.evidence_json).authority.suiteAuthority, null)
+    const contaminatedDirect = structuredClone(directAuthority) as Chunk0Authority
+    contaminatedDirect.suiteAuthority = accepted.suiteAuthority
+    assert.throws(
+      () => validateChunk0Authority(contaminatedDirect, directAuthority),
+      Chunk0AuthorityIntegrityError,
+      'direct-Definition execution cannot be classified as Suite-originated',
+    )
+
+    const facts = parseDiagnosticEvidenceFactsV1({
+      executor: suiteEvidence.executor,
+      authentication: suiteEvidence.authentication,
+      navigation: suiteEvidence.navigation,
+      targetObservation: suiteEvidence.targetObservation,
+      action: suiteEvidence.action,
+      oracle: suiteEvidence.oracle,
+    })
+    const exactRetry = await evidenceRepository.append({
+      binding: {
+        projectId: accepted.projectId, executionId: accepted.executionId, runId: accepted.runId,
+        itemOrdinal: accepted.itemOrdinal, resultId: accepted.resultId, definitionId: accepted.definitionId,
+        executablePlanHash: accepted.executablePlanHash,
+      },
+      facts,
+    })
+    assert.equal(exactRetry.replayed, true)
+    assert.equal(exactRetry.evidenceHash, suiteEvidenceRows[0]!.evidence_hash)
+    const terminalRetry = await new ExecutionRunCoordinator().terminalize({
+      projectId: accepted.projectId,
+      executionId: accepted.executionId,
+      runId: accepted.runId,
+      processInstanceId: 'm4-terminal-retry',
+      completedAt: '2026-08-31T12:00:00.000Z',
+    })
+    assert.equal(terminalRetry.expectedResultCount, 1)
+    assert.equal(terminalRetry.recordedResultCount, 1)
+    const exactBinding = {
+      projectId: accepted.projectId, executionId: accepted.executionId, runId: accepted.runId,
+      itemOrdinal: accepted.itemOrdinal, resultId: accepted.resultId, definitionId: accepted.definitionId,
+      executablePlanHash: accepted.executablePlanHash,
+    }
+    for (const floatedBinding of [
+      { ...exactBinding, projectId: 'project-floated' },
+      { ...exactBinding, executionId: 'execution-floated' },
+      { ...exactBinding, runId: 'run-floated' },
+      { ...exactBinding, itemOrdinal: exactBinding.itemOrdinal + 1 },
+      { ...exactBinding, resultId: 'result-floated' },
+      { ...exactBinding, resultId: null },
+      { ...exactBinding, definitionId: 'definition-floated' },
+      { ...exactBinding, executablePlanHash: '0'.repeat(64) },
+    ]) {
+      await assert.rejects(evidenceRepository.append({ binding: floatedBinding, facts }))
+    }
+    await assert.rejects(evidenceRepository.append({
+      binding: {
+        projectId: accepted.projectId, executionId: accepted.executionId, runId: accepted.runId,
+        itemOrdinal: accepted.itemOrdinal, resultId: accepted.resultId, definitionId: accepted.definitionId,
+        executablePlanHash: accepted.executablePlanHash,
+      },
+      facts: { ...facts, oracle: facts.oracle.outcome === 'matched'
+        ? { ...facts.oracle, outcome: 'mismatched', actual: '/conflicting-replay' }
+        : { outcome: 'not_performed' } },
+    }), DiagnosticEvidenceConflictError)
+    assert.throws(() => parseDiagnosticEvidenceFactsV1({ ...facts, stack: 'raw prose is forbidden' }))
+    assert.throws(() => parseDiagnosticEvidenceFactsV1({ ...facts,
+      executor: { outcome: 'failed', failureClass: 'not_bounded' },
+    }))
+    assert.deepEqual(parseDiagnosticEvidenceFactsV1({ ...facts,
+      executor: { outcome: 'failed', failureClass: 'executor_internal_failure' },
+    }), { ...facts, executor: { outcome: 'failed', failureClass: 'executor_internal_failure' } })
+    const contradictionFacts = frozenContradictionFacts()
+    assert.deepEqual(parseDiagnosticEvidenceFactsV1(contradictionFacts), contradictionFacts)
+    assert.throws(() => parseDiagnosticEvidenceFactsV1({ ...contradictionFacts,
+      action: { outcome: 'completed', semantic: 'click_observed_data_test' },
+    }))
+    assert.throws(() => parseDiagnosticEvidenceFactsV1({ ...contradictionFacts,
+      targetObservation: { ...contradictionFacts.targetObservation, cardinality: 'many' },
+    }))
+    assert.throws(() => parseDiagnosticEvidenceFactsV1({ ...contradictionFacts,
+      oracle: { outcome: 'not_performed', explanation: 'prohibited prose' },
+    }))
+    assert.throws(() => parseDiagnosticEvidenceV1({ ...suiteEvidence, schemaVersion: 'forge.m4.diagnostic-evidence/v999' }))
+    assert.throws(() => parseDiagnosticEvidenceV1({ ...suiteEvidence, authority: {
+      ...suiteEvidence.authority, executablePlanHash: 'malformed-hash',
+    } }))
+
+    const failedService = new ExecutionService({
+      executor: { execute: async () => ({ status: 'oracle_failed' as const, reasonCode: 'oracle_failed' as const,
+        navigationUrl: 'https://m2.example.test/cart.html', finalUrl: 'https://m2.example.test/wrong.html',
+        targetCardinality: 'one' as const }) },
+      runnerReadiness: () => ({ available: true, safeCode: 'ready', safeMessage: 'controlled failure adapter is available' }),
+      credentials: new EnvironmentCredentialExecutionScope({ M2_PRODUCT_USER: 'shopper', M2_PRODUCT_PASSWORD: 'secret' }),
+      processInstanceId: 'm4-failed-evidence-process',
+    })
+    const failed = await failedService.start({
+      projectId: PROJECT, executionIntentKey: 'm4-chunk1-direct-failed', definitionIds: [definition!.id],
+      revision: inventory.current.testSet.revision, workspaceRoot: context.root,
+      credentialReference: CREDENTIAL_REFERENCE,
+      runtime: { baseUrl: 'https://m2.example.test', loginUrl: 'https://m2.example.test' },
+    })
+    assert.equal(failed.kind, 'accepted')
+    if (failed.kind !== 'accepted') throw new Error('Controlled failed direct execution was not accepted.')
+    await failed.completion
+    const failedRows = await evidenceRepository.read(PROJECT, failed.executionId)
+    assert.equal(failedRows.length, 1)
+    const failedEvidence = JSON.parse(failedRows[0]!.evidence_json)
+    assert.equal(failedEvidence.authority.suiteAuthority, null)
+    assert.equal(failedEvidence.oracle.outcome, 'mismatched')
+
+    let missingPlan: MaterializedExecutablePlan | null = null
+    const missingService = new ExecutionService({
+      executor: { execute: async plan => {
+        missingPlan = materializeExecutablePlan(plan)
+        throw new Error('controlled unstructured adapter failure')
+      } },
+      runnerReadiness: () => ({ available: true, safeCode: 'ready', safeMessage: 'controlled test adapter is available' }),
+      credentials: new EnvironmentCredentialExecutionScope({ M2_PRODUCT_USER: 'shopper', M2_PRODUCT_PASSWORD: 'secret' }),
+      processInstanceId: 'm4-missing-result-process',
+    })
+    const missing = await missingService.start({
+      projectId: PROJECT,
+      executionIntentKey: 'm4-chunk1-missing-result',
+      definitionIds: [definition!.id],
+      revision: inventory.current.testSet.revision,
+      workspaceRoot: context.root,
+      credentialReference: CREDENTIAL_REFERENCE,
+      runtime: { baseUrl: 'https://m2.example.test', loginUrl: 'https://m2.example.test' },
+    })
+    assert.equal(missing.kind, 'accepted')
+    if (missing.kind !== 'accepted') throw new Error('Controlled missing-Result execution was not accepted.')
+    await missing.completion
+    const missingRun = await getDb().selectFrom('runs').select('run_id')
+      .where('execution_id', '=', missing.executionId).executeTakeFirstOrThrow()
+    if (!missingPlan) throw new Error('Controlled missing-Result plan was not captured.')
+    await new ExecutionRunCoordinator().terminalize({
+      projectId: PROJECT,
+      executionId: missing.executionId,
+      runId: missingRun.run_id,
+      processInstanceId: 'm4-missing-result-process',
+      completedAt: new Date(Date.now() + 1_000).toISOString(),
+      missingResults: [{ itemOrdinal: 1, plan: missingPlan, facts: contradictionFacts }],
+    })
+    const missingRows = await evidenceRepository.read(PROJECT, missing.executionId)
+    assert.equal(missingRows.length, 1)
+    const missingEvidence = JSON.parse(missingRows[0]!.evidence_json)
+    assert.equal(missingEvidence.authority.resultId, null)
+    assert.deepEqual({
+      executor: missingEvidence.executor,
+      authentication: missingEvidence.authentication,
+      navigation: missingEvidence.navigation,
+      targetObservation: missingEvidence.targetObservation,
+      action: missingEvidence.action,
+      oracle: missingEvidence.oracle,
+    }, contradictionFacts)
+    assert.equal(Object.hasOwn(missingEvidence, 'classification'), false)
+    assert.equal(Object.hasOwn(missingEvidence, 'diagnosticOutcome'), false)
+    assert.equal((await getDb().selectFrom('execution_events').select('id')
+      .where('execution_id', '=', missing.executionId).where('event_type', '=', 'terminal').execute()).length, 1)
+
+    await closeDb()
+    await openProjectDatabase(createWorkspace(context.root))
+    assert.deepEqual(await deriveChunk0Authority(PROJECT, started.executionId), acceptedBeforeHeadAdvance)
+    assert.equal((await deriveChunk0Authority(PROJECT, direct.executionId))[0]!.suiteAuthority, null)
+    const reopenedSuiteRows = await new DiagnosticEvidenceRepository().read(PROJECT, started.executionId)
+    assert.equal(reopenedSuiteRows[0]!.evidence_hash, suiteEvidenceRows[0]!.evidence_hash)
+    assert.equal(reopenedSuiteRows[0]!.evidence_json, suiteEvidenceRows[0]!.evidence_json)
+    await new ExecutionRunCoordinator().terminalize({
+      projectId: PROJECT, executionId: missing.executionId, runId: missingRun.run_id,
+      processInstanceId: 'm4-missing-result-process', completedAt: new Date(Date.now() + 2_000).toISOString(),
+      missingResults: [{ itemOrdinal: 1, plan: missingPlan, facts: contradictionFacts }],
+    })
+    const replayedMissingRows = await new DiagnosticEvidenceRepository().read(PROJECT, missing.executionId)
+    assert.equal(replayedMissingRows.length, 1)
+    assert.equal(replayedMissingRows[0]!.evidence_hash, missingRows[0]!.evidence_hash)
+    assert.equal(replayedMissingRows[0]!.evidence_json, missingRows[0]!.evidence_json)
+
+    class FailingEvidenceRepository extends DiagnosticEvidenceRepository {
+      override async append(): Promise<never> { throw new Error('controlled evidence persistence failure') }
+    }
+    const recoveryService = new ExecutionService({
+      executor: { execute: async () => { throw new Error('controlled interrupted adapter') } },
+      runnerReadiness: () => ({ available: true, safeCode: 'ready', safeMessage: 'controlled recovery adapter is available' }),
+      credentials: new EnvironmentCredentialExecutionScope({ M2_PRODUCT_USER: 'shopper', M2_PRODUCT_PASSWORD: 'secret' }),
+      processInstanceId: 'm4-recovery-evidence-process',
+    })
+    const recovering = await recoveryService.start({
+      projectId: PROJECT, executionIntentKey: 'm4-chunk1-recovery-direct', definitionIds: [definition!.id],
+      revision: inventory.current.testSet.revision, workspaceRoot: context.root,
+      credentialReference: CREDENTIAL_REFERENCE,
+      runtime: { baseUrl: 'https://m2.example.test', loginUrl: 'https://m2.example.test' },
+    })
+    assert.equal(recovering.kind, 'accepted')
+    if (recovering.kind !== 'accepted') throw new Error('Recovery direct execution was not accepted.')
+    await recovering.completion
+    const recoveringRun = await getDb().selectFrom('runs').selectAll()
+      .where('execution_id', '=', recovering.executionId).executeTakeFirstOrThrow()
+    const recoveringItem = await getDb().selectFrom('execution_items').selectAll()
+      .where('execution_id', '=', recovering.executionId).executeTakeFirstOrThrow()
+    const recovered = await new ExecutionRecoveryCoordinator().reconcile({
+      projectId: PROJECT, executionId: recovering.executionId,
+      currentProcessInstanceId: 'm4-recovery-evidence-process', locallyActive: false,
+      now: new Date(Date.now() + 10_000).toISOString(),
+    })
+    assert.equal(recovered.action, 'recovered')
+    assert.equal(recovered.status?.terminal, true)
+    const recoveredRows = await new DiagnosticEvidenceRepository().read(PROJECT, recovering.executionId)
+    assert.equal(recoveredRows.length, 1)
+    const recoveredEvidence = JSON.parse(recoveredRows[0]!.evidence_json)
+    assert.deepEqual({
+      projectId: recoveredEvidence.authority.projectId,
+      executionId: recoveredEvidence.authority.executionId,
+      runId: recoveredEvidence.authority.runId,
+      itemOrdinal: recoveredEvidence.authority.itemOrdinal,
+      resultId: recoveredEvidence.authority.resultId,
+      definitionId: recoveredEvidence.authority.definitionId,
+      executablePlanHash: recoveredEvidence.authority.executablePlanHash,
+    }, {
+      projectId: PROJECT, executionId: recovering.executionId, runId: recoveringRun.run_id,
+      itemOrdinal: 1, resultId: null, definitionId: recoveringItem.definition_id,
+      executablePlanHash: recoveringItem.executable_plan_hash,
+    })
+    assert.deepEqual({
+      executor: recoveredEvidence.executor, authentication: recoveredEvidence.authentication,
+      navigation: recoveredEvidence.navigation, targetObservation: recoveredEvidence.targetObservation,
+      action: recoveredEvidence.action, oracle: recoveredEvidence.oracle,
+    }, {
+      executor: { outcome: 'not_started' }, authentication: { state: 'not_performed' },
+      navigation: { outcome: 'not_performed' }, targetObservation: { outcome: 'not_performed' },
+      action: { outcome: 'not_performed' }, oracle: { outcome: 'not_performed' },
+    })
+    assert.equal((await getDb().selectFrom('test_results').select('result_id')
+      .where('run_id', '=', recoveringRun.run_id).execute()).length, 0)
+    assert.equal((await getDb().selectFrom('execution_events').select('id')
+      .where('execution_id', '=', recovering.executionId).where('event_type', '=', 'terminal').execute()).length, 1)
+    const recoveredReplay = await new ExecutionRecoveryCoordinator().reconcile({
+      projectId: PROJECT, executionId: recovering.executionId,
+      currentProcessInstanceId: 'm4-recovery-replay-process', locallyActive: false,
+      now: new Date(Date.now() + 20_000).toISOString(),
+    })
+    assert.equal(recoveredReplay.action, 'already_terminal')
+    const replayedRecoveryRows = await new DiagnosticEvidenceRepository().read(PROJECT, recovering.executionId)
+    assert.deepEqual(replayedRecoveryRows.map(row => [row.evidence_hash, row.evidence_json]),
+      recoveredRows.map(row => [row.evidence_hash, row.evidence_json]))
+    await closeDb()
+    await openProjectDatabase(createWorkspace(context.root))
+    const reopenedRecoveryRows = await new DiagnosticEvidenceRepository().read(PROJECT, recovering.executionId)
+    assert.deepEqual(reopenedRecoveryRows.map(row => [row.evidence_hash, row.evidence_json]),
+      recoveredRows.map(row => [row.evidence_hash, row.evidence_json]))
+
+    class ConflictingRecoveryEvidenceRepository extends DiagnosticEvidenceRepository {
+      override append(write: Parameters<DiagnosticEvidenceRepository['append']>[0], transaction?: Parameters<DiagnosticEvidenceRepository['append']>[1]) {
+        return super.append({ ...write, facts: executorFailureDiagnosticEvidence() }, transaction)
+      }
+    }
+    await assert.rejects(new ExecutionRecoveryCoordinator(
+      getDb, undefined, undefined, undefined, undefined, new ConflictingRecoveryEvidenceRepository(),
+    ).reconcile({
+      projectId: PROJECT, executionId: recovering.executionId,
+      currentProcessInstanceId: 'm4-recovery-conflict-process', locallyActive: false,
+      now: new Date(Date.now() + 30_000).toISOString(),
+    }), (cause: unknown) => cause instanceof ExecutionRecoveryRefusedError && cause.code === 'conflicting_provenance')
+
+    const rollbackService = new ExecutionService({
+      executor: { execute: async () => { throw new Error('controlled recovery rollback adapter') } },
+      runnerReadiness: () => ({ available: true, safeCode: 'ready', safeMessage: 'controlled recovery rollback adapter is available' }),
+      credentials: new EnvironmentCredentialExecutionScope({ M2_PRODUCT_USER: 'shopper', M2_PRODUCT_PASSWORD: 'secret' }),
+      processInstanceId: 'm4-recovery-rollback-process',
+    })
+    const rollback = await rollbackService.start({
+      projectId: PROJECT, executionIntentKey: 'm4-chunk1-recovery-rollback', definitionIds: [definition!.id],
+      revision: inventory.current.testSet.revision, workspaceRoot: context.root,
+      credentialReference: CREDENTIAL_REFERENCE,
+      runtime: { baseUrl: 'https://m2.example.test', loginUrl: 'https://m2.example.test' },
+    })
+    assert.equal(rollback.kind, 'accepted')
+    if (rollback.kind !== 'accepted') throw new Error('Recovery rollback execution was not accepted.')
+    await rollback.completion
+    const rollbackRun = await getDb().selectFrom('runs').selectAll()
+      .where('execution_id', '=', rollback.executionId).executeTakeFirstOrThrow()
+    await assert.rejects(new ExecutionRecoveryCoordinator(
+      getDb, undefined, undefined, undefined, undefined, new FailingEvidenceRepository(),
+    ).reconcile({
+      projectId: PROJECT, executionId: rollback.executionId,
+      currentProcessInstanceId: 'm4-recovery-rollback-process', locallyActive: false,
+      now: new Date(Date.now() + 40_000).toISOString(),
+    }), (cause: unknown) => cause instanceof ExecutionRecoveryRefusedError && cause.code === 'recovery_persistence_failed')
+    assert.equal((await getDb().selectFrom('execution_events').select('id')
+      .where('execution_id', '=', rollback.executionId).where('event_type', '=', 'terminal').execute()).length, 0)
+    assert.equal((await getDb().selectFrom('diagnostic_evidence').select('id')
+      .where('execution_id', '=', rollback.executionId).execute()).length, 0)
+    assert.equal((await getDb().selectFrom('runs').select('lifecycle')
+      .where('run_id', '=', rollbackRun.run_id).executeTakeFirstOrThrow()).lifecycle, 'running')
+    await new ExecutionRecoveryCoordinator().reconcile({
+      projectId: PROJECT, executionId: rollback.executionId,
+      currentProcessInstanceId: 'm4-recovery-rollback-process', locallyActive: false,
+      now: new Date(Date.now() + 50_000).toISOString(),
+    })
+
+    const atomicCoordinator = new ExecutionRunCoordinator(
+      getDb, undefined, undefined, undefined,
+      () => 'run-m4-atomic-failure', () => 'result-m4-atomic-failure', undefined,
+      new FailingEvidenceRepository(),
+    )
+    const atomicService = new ExecutionService({
+      executor: { execute: async () => ({ status: 'executor_failure' as const, reasonCode: 'executor_failure' as const }) },
+      coordinator: atomicCoordinator,
+      runnerReadiness: () => ({ available: true, safeCode: 'ready', safeMessage: 'controlled test adapter is available' }),
+      credentials: new EnvironmentCredentialExecutionScope({ M2_PRODUCT_USER: 'shopper', M2_PRODUCT_PASSWORD: 'secret' }),
+      processInstanceId: 'm4-atomic-failure-process',
+    })
+    const atomic = await atomicService.start({
+      projectId: PROJECT,
+      executionIntentKey: 'm4-chunk1-atomic-failure',
+      definitionIds: [definition!.id],
+      revision: inventory.current.testSet.revision,
+      workspaceRoot: context.root,
+      credentialReference: CREDENTIAL_REFERENCE,
+      runtime: { baseUrl: 'https://m2.example.test', loginUrl: 'https://m2.example.test' },
+    })
+    assert.equal(atomic.kind, 'accepted')
+    if (atomic.kind !== 'accepted') throw new Error('Atomic failure control was not accepted.')
+    await atomic.completion
+    assert.equal((await getDb().selectFrom('test_results').select('result_id')
+      .where('run_id', '=', 'run-m4-atomic-failure').execute()).length, 0)
+    assert.equal((await getDb().selectFrom('diagnostic_evidence').select('id')
+      .where('run_id', '=', 'run-m4-atomic-failure').execute()).length, 0)
+    assert.equal((await getDb().selectFrom('execution_events').select('id')
+      .where('execution_id', '=', atomic.executionId).where('event_type', '=', 'terminal').execute()).length, 0)
+  } finally {
+    await closeDb()
+    fs.rmSync(context.root, { recursive: true, force: true })
+  }
+})
+
+test('M4 Chunk 0B proves ordered two-member Suite v2 authority survives head advancement and restart', async () => {
+  const context=await productSetup()
+  try{
+    const generation=new CanonicalTestDefinitionGenerationService()
+    const firstIntent=await generation.generateDiscoveredIntent(PROJECT,context.root,'checkout')
+    if(!isSupportedNormalizedTestIntentV1(firstIntent))throw new Error('Chunk 0B first intent is unavailable.')
+    await generation.saveReviewedDiscoveredIntent(PROJECT,context.root,firstIntent,'m4-chunk0b-first-save')
+    const firstInventory=await new TestSetRepository().readInventory(PROJECT,{limit:1})
+    if('kind' in firstInventory||!firstInventory.current||firstInventory.current.testSet.schemaVersion!==3)throw new Error('Chunk 0B first v3 row is unavailable.')
+    const first={rowId:firstInventory.current.rowId,testSet:firstInventory.current.testSet,contentHash:firstInventory.current.contentHash}
+
+    await commitObservedModel(context.root,20)
+    const secondIntent=await generation.generateDiscoveredIntent(PROJECT,context.root,'checkout')
+    if(!isSupportedNormalizedTestIntentV1(secondIntent))throw new Error('Chunk 0B second intent is unavailable.')
+    await generation.saveReviewedDiscoveredIntent(PROJECT,context.root,secondIntent,'m4-chunk0b-second-save')
+    const secondInventory=await new TestSetRepository().readInventory(PROJECT,{limit:1})
+    if('kind' in secondInventory||!secondInventory.current||secondInventory.current.testSet.schemaVersion!==3)throw new Error('Chunk 0B second v3 row is unavailable.')
+    const second={rowId:secondInventory.current.rowId,testSet:secondInventory.current.testSet,contentHash:secondInventory.current.contentHash}
+    assert.notEqual(first.testSet.definitions[0]!.id,second.testSet.definitions[0]!.id)
+
+    const members=[first,second].map(source=>({testSetRowId:source.rowId,testSetId:source.testSet.testSetId,
+      testSetRevision:source.testSet.revision,testSetContentHash:source.contentHash,definitionSchemaVersion:3 as const,
+      definitionId:source.testSet.definitions[0]!.id}))
+    const suite=await new SuiteService(undefined,()=>new Date().toISOString(),()=> 'suite-m4-chunk0b').create({
+      schemaVersion:2,projectId:PROJECT,name:'M4 Chunk 0B Multi-source Sanity',changeIntentKey:'m4-chunk0b-suite-create',members,
+    })
+    assert.equal(suite.schemaVersion,2)
+    assert.deepEqual(suite.members.map(member=>member.definitionAuthority),members)
+    const started=await context.port.startSuiteExecution(PROJECT,{executionIntentKey:'m4-chunk0b-start',selection:{kind:'suite_revision',suiteId:suite.suiteId,suiteRevision:suite.revision}})
+    assert.equal(started.kind,'accepted')
+    if(started.kind!=='accepted')throw new Error('Chunk 0B execution was refused.')
+    let recoveryCalls=0
+    const partialRecoveryService=new ExecutionService({
+      executor:{execute:async()=>{
+        recoveryCalls+=1
+        if(recoveryCalls===2)throw new Error('controlled Suite v2 interrupted adapter')
+        return {status:'completed' as const,reasonCode:'completed' as const,
+          navigationUrl:'https://m2.example.test/cart.html',finalUrl:'https://m2.example.test/checkout.html',
+          targetCardinality:'one' as const}
+      }},
+      runnerReadiness:()=>({available:true,safeCode:'ready',safeMessage:'controlled Suite v2 recovery adapter is available'}),
+      credentials:new EnvironmentCredentialExecutionScope({M2_PRODUCT_USER:'shopper',M2_PRODUCT_PASSWORD:'secret'}),
+      processInstanceId:'m4-chunk0b-recovery-process',
+    })
+    const recoveringSuite=await partialRecoveryService.start({projectId:PROJECT,
+      executionIntentKey:'m4-chunk0b-recovery-start',
+      selection:{kind:'suite_revision',suiteId:suite.suiteId,suiteRevision:suite.revision},
+      workspaceRoot:context.root,credentialReference:CREDENTIAL_REFERENCE,
+      runtime:{baseUrl:'https://m2.example.test',loginUrl:'https://m2.example.test'}})
+    assert.equal(recoveringSuite.kind,'accepted')
+    if(recoveringSuite.kind!=='accepted')throw new Error('Chunk 0B recovery execution was refused.')
+    await recoveringSuite.completion
+    const recoveringSuiteRun=await getDb().selectFrom('runs').selectAll()
+      .where('execution_id','=',recoveringSuite.executionId).executeTakeFirstOrThrow()
+    const observedBeforeRecovery=await getDb().selectFrom('test_results').selectAll()
+      .where('run_id','=',recoveringSuiteRun.run_id).execute()
+    assert.deepEqual(observedBeforeRecovery.map(result=>Number(result.execution_item_ordinal)),[1])
+    const observedEvidenceBeforeRecovery=await new DiagnosticEvidenceRepository().read(PROJECT,recoveringSuite.executionId)
+    assert.equal(observedEvidenceBeforeRecovery.length,1)
+    assert.equal(JSON.parse(observedEvidenceBeforeRecovery[0]!.evidence_json).authority.resultId,
+      observedBeforeRecovery[0]!.result_id)
+    const root=await getDb().selectFrom('executions').selectAll().where('execution_id','=',started.executionId).executeTakeFirstOrThrow()
+    assert.equal(root.test_set_authority_scope,'per_item')
+    for(const value of [root.test_set_id,root.test_set_revision,root.definition_schema_version,root.model_row_id,root.model_version,
+      root.source_observation_id,root.support_seal_hash,root.route_evidence_identity_hash,root.authentication_expectation_identity_hash])assert.equal(value,null)
+    const persisted=await getDb().selectFrom('execution_item_authorities').selectAll().where('execution_id','=',started.executionId).orderBy('item_ordinal').execute()
+    assert.deepEqual(persisted.map(row=>[Number(row.item_ordinal),Number(row.test_set_row_id),row.definition_id]),members.map((member,index)=>[index+1,member.testSetRowId,member.definitionId]))
+    const singleRootProjection=await new ExecutionResultProjectionService().read(PROJECT,started.executionId)
+    assert.equal(singleRootProjection.kind,'integrity_invalid')
+    if(singleRootProjection.kind==='integrity_invalid'){
+      assert.equal(singleRootProjection.integrityWarnings.some(warning=>warning.safeMessage.includes('per-item authority')),true)
+      assert.equal(JSON.stringify(singleRootProjection).includes('"schemaVersion":0'),false)
+      assert.equal(JSON.stringify(singleRootProjection).includes('"revision":0'),false)
+      assert.equal(JSON.stringify(singleRootProjection).includes('"modelRowId":0'),false)
+    }
+    const accepted=await deriveChunk0Authority(PROJECT,started.executionId)
+    assert.deepEqual(accepted.map(item=>item.definitionId),members.map(member=>member.definitionId))
+    const evidenceBeforeHeadAdvance=await new DiagnosticEvidenceRepository().read(PROJECT,started.executionId)
+    assert.equal(evidenceBeforeHeadAdvance.length,2)
+    assert.deepEqual(evidenceBeforeHeadAdvance.map(row=>{
+      const evidence=JSON.parse(row.evidence_json)
+      return [evidence.authority.itemOrdinal,evidence.authority.definitionId,
+        evidence.authority.acceptedDefinitionAuthority.testSetId,
+        evidence.authority.acceptedDefinitionAuthority.testSetRevision,
+        evidence.authority.suiteAuthority]
+    }),accepted.map(item=>[item.itemOrdinal,item.definitionId,item.acceptedDefinitionAuthority.testSetId,
+      item.acceptedDefinitionAuthority.testSetRevision,item.suiteAuthority]))
+
+    await commitObservedModel(context.root,21)
+    await new CanonicalTestDefinitionGenerationService().generate(PROJECT,context.root,'m4-chunk0b-new-head')
+    assert.deepEqual(await deriveChunk0Authority(PROJECT,started.executionId),accepted)
+    assert.deepEqual((await new DiagnosticEvidenceRepository().read(PROJECT,started.executionId))
+      .map(row=>[row.evidence_hash,row.evidence_json]),evidenceBeforeHeadAdvance.map(row=>[row.evidence_hash,row.evidence_json]))
+    await closeDb();await openProjectDatabase(createWorkspace(context.root))
+    const firstRecoveredSuiteDecision=await new ExecutionRecoveryCoordinator().reconcile({projectId:PROJECT,
+      executionId:recoveringSuite.executionId,currentProcessInstanceId:'m4-chunk0b-recovery-process',
+      locallyActive:false,now:new Date(Date.now()+60_000).toISOString()})
+    assert.equal(firstRecoveredSuiteDecision.action,'recovered')
+    class NoCurrentHeadExecutionRepository extends ExecutionRepository{
+      currentHeadLookups=0
+      protected override async readCurrentTestSet():Promise<any>{this.currentHeadLookups+=1;throw new Error('Suite v2 invoked current-head lookup')}
+    }
+    const noLookup=new NoCurrentHeadExecutionRepository(()=>getDb())
+    const acceptedItems=await getDb().selectFrom('execution_items').selectAll().where('execution_id','=',started.executionId).orderBy('item_ordinal').execute()
+    const directAcceptance:BeginExecutionInput={executionId:'execution-m4-chunk0b-no-head',projectId:PROJECT,
+      processInstanceId:'process-m4-chunk0b-no-head',startedAt:'2026-08-30T12:00:00.000Z',executionPlanHash:root.manifest_hash,
+      executionIntentKey:'m4-chunk0b-no-head',executionIntentFingerprint:'7'.repeat(64),
+      expectedTestSetContentHash:first.contentHash,definitionSchemaVersion:3,expectedModelRowId:1,expectedModelVersion:'unused-v2-root',
+      sourceObservationId:null,supportSealHash:'8'.repeat(64),routeEvidenceIdentityHash:'9'.repeat(64),
+      authenticationExpectationIdentityHash:'a'.repeat(64),suiteAuthority:{suiteId:suite.suiteId,suiteRevision:suite.revision,suiteContentHash:suite.contentHash},
+      manifestItems:acceptedItems.map(item=>({itemOrdinal:Number(item.item_ordinal),definitionId:item.definition_id,
+        executablePlanHash:item.executable_plan_hash,oracleKind:item.oracle_kind as 'subject_observable',oracleSubjectId:item.oracle_subject_id!}))}
+    assert.deepEqual(await noLookup.beginExecution(directAcceptance),{kind:'accepted'})
+    assert.equal(noLookup.currentHeadLookups,0)
+    await closeDb();await openProjectDatabase(createWorkspace(context.root))
+    assert.deepEqual(await deriveChunk0Authority(PROJECT,started.executionId),accepted)
+    assert.deepEqual((await new DiagnosticEvidenceRepository().read(PROJECT,started.executionId))
+      .map(row=>[row.evidence_hash,row.evidence_json]),evidenceBeforeHeadAdvance.map(row=>[row.evidence_hash,row.evidence_json]))
+    const reopened=await new SuiteService().read(PROJECT,suite.suiteId,suite.revision)
+    assert.deepEqual(reopened,suite)
+    const recoveredSuiteDecision=await new ExecutionRecoveryCoordinator().reconcile({projectId:PROJECT,
+      executionId:recoveringSuite.executionId,currentProcessInstanceId:'m4-chunk0b-recovery-process',
+      locallyActive:false,now:new Date(Date.now()+70_000).toISOString()})
+    assert.equal(recoveredSuiteDecision.action,'already_terminal')
+    const recoveredSuiteRows=await new DiagnosticEvidenceRepository().read(PROJECT,recoveringSuite.executionId)
+    assert.equal(recoveredSuiteRows.length,2)
+    assert.deepEqual(recoveredSuiteRows.slice(0,1).map(row=>[row.evidence_hash,row.evidence_json]),
+      observedEvidenceBeforeRecovery.map(row=>[row.evidence_hash,row.evidence_json]))
+    const recoveredSuiteAuthority=await deriveChunk0Authority(PROJECT,recoveringSuite.executionId)
+    assert.deepEqual(recoveredSuiteRows.map(row=>{
+      const evidence=JSON.parse(row.evidence_json)
+      return [evidence.authority.itemOrdinal,evidence.authority.resultId,evidence.authority.definitionId,
+        evidence.authority.executablePlanHash,evidence.authority.acceptedDefinitionAuthority,
+        evidence.authority.suiteAuthority]
+    }),recoveredSuiteAuthority.map(authority=>[authority.itemOrdinal,authority.resultId,authority.definitionId,
+      authority.executablePlanHash,authority.acceptedDefinitionAuthority,authority.suiteAuthority]))
+    assert.equal(JSON.parse(recoveredSuiteRows[0]!.evidence_json).authority.resultId,observedBeforeRecovery[0]!.result_id)
+    assert.equal(JSON.parse(recoveredSuiteRows[1]!.evidence_json).authority.resultId,null)
+    assert.deepEqual(recoveredSuiteAuthority.map(authority=>authority.acceptedDefinitionAuthority.testSetRevision),
+      members.map(member=>member.testSetRevision))
+    assert.deepEqual(recoveredSuiteAuthority.map(authority=>authority.suiteAuthority),
+      members.map(()=>({suiteId:suite.suiteId,suiteRevision:suite.revision,suiteContentHash:suite.contentHash})))
+    const recoverySource=fs.readFileSync(path.resolve(process.cwd(),'src','core','execution','ExecutionRecoveryCoordinator.ts'),'utf8')
+    assert.doesNotMatch(recoverySource,/ExecutionResultProjectionService|TestSetRepository|readInventory|currentHead/)
+  }finally{await closeDb();fs.rmSync(context.root,{recursive:true,force:true})}
 })

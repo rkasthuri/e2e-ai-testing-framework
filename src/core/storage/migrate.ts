@@ -31,6 +31,8 @@ import {
 import { runWithMigrationContext } from './MigrationContext';
 import { MIGRATION_032_TRIGGER_DEFINITIONS_V1 } from './migrations/032_canonical_suite_revision_authority';
 import { MIGRATION_033_TRIGGER_DEFINITIONS_V1 } from './migrations/033_manual_test_source_promotion_authority';
+import { MIGRATION_034_TRIGGER_DEFINITIONS_V1 } from './migrations/034_diagnostic_evidence_authority';
+import { MIGRATION_035_TRIGGER_DEFINITIONS_V1 } from './migrations/035_suite_v2_multi_source_execution_authority';
 
 // Kysely's Migrator and migration types live in a subpath export (kysely/migration)
 // that is not declared as a types path in kysely's package.json exports map under
@@ -104,6 +106,8 @@ const CANONICAL_EXECUTION_START_IDEMPOTENCY_MIGRATION = '030_canonical_execution
 const CANONICAL_TEST_DEFINITION_V3_MIGRATION = '031_canonical_test_definition_v3'
 const CANONICAL_SUITE_REVISION_MIGRATION = '032_canonical_suite_revision_authority'
 const MANUAL_TEST_SOURCE_PROMOTION_MIGRATION = '033_manual_test_source_promotion_authority'
+const DIAGNOSTIC_EVIDENCE_AUTHORITY_MIGRATION = '034_diagnostic_evidence_authority'
+const SUITE_V2_MULTI_SOURCE_AUTHORITY_MIGRATION = '035_suite_v2_multi_source_execution_authority'
 const LEGACY_JSON_IMPORT_MIGRATION = '004_json_import'
 const MIGRATION_TABLE = 'kysely_migration'
 const MIGRATION_LOCK_TABLE = 'kysely_migration_lock'
@@ -355,7 +359,15 @@ async function inspectExecutionIdentitySchema(db: Kysely<any>): Promise<TableCon
     ['execution_intent_key', 0, 0], ['execution_intent_fingerprint', 0, 0],
     ['suite_id', 0, 0], ['suite_revision', 0, 0], ['suite_content_hash', 0, 0],
   ])
-  const executionsValid = legacyExecutionsValid || canonicalV2ExecutionsValid || idempotentExecutionsValid || suiteExecutionsValid
+  const suiteV2ExecutionsValid = exactColumns(executionColumns, [
+    ['execution_id',1,1],['project_id',1,0],['accepted_at',1,0],['test_set_authority_scope',1,0],
+    ['test_set_id',0,0],['test_set_revision',0,0],['definition_schema_version',0,0],['model_row_id',0,0],
+    ['model_version',0,0],['source_observation_id',0,0],['support_seal_hash',0,0],['route_evidence_identity_hash',0,0],
+    ['authentication_expectation_identity_hash',0,0],['manifest_hash',1,0],['max_run_attempts',1,0],
+    ['dispatch_mode',1,0],['stop_rule',1,0],['execution_intent_key',0,0],['execution_intent_fingerprint',0,0],
+    ['suite_id',0,0],['suite_revision',0,0],['suite_content_hash',0,0],
+  ])
+  const executionsValid = legacyExecutionsValid || canonicalV2ExecutionsValid || idempotentExecutionsValid || suiteExecutionsValid || suiteV2ExecutionsValid
   const executionItemColumns = await columns('execution_items')
   const legacyItemsValid = exactColumns(executionItemColumns, [
     ['execution_id', 1, 1], ['item_ordinal', 1, 2],
@@ -411,7 +423,10 @@ async function inspectCanonicalV2ExecutionAuthoritySchema(db: Kysely<any>): Prom
     || columns.has('support_seal_hash')
     || columns.has('route_evidence_identity_hash')
     || columns.has('authentication_expectation_identity_hash')
-  const valid = required.every(([name, notnull]) => columns.get(name) === notnull)
+  const suiteV2=columns.get('test_set_authority_scope')===1
+  const suiteV2Triggers=suiteV2?new Set((await sql<{name:string}>`SELECT name FROM sqlite_schema WHERE type='trigger' AND name IN ('execution_scope_validate_insert','execution_item_authority_validate_insert')`.execute(db)).rows.map(row=>row.name)):new Set<string>()
+  const valid = required.every(([name, notnull]) => columns.get(name) === (suiteV2&&name==='definition_schema_version'?0:notnull))
+    &&(!suiteV2||suiteV2Triggers.size===2)
   return { present, valid, detail: valid
     ? 'execution roots carry discriminated v1/v2 authority identity'
     : 'execution roots do not match the canonical v2 authority contract' }
@@ -1093,8 +1108,9 @@ async function inspectCanonicalTestDefinitionV3Schema(db: Kysely<any>): Promise<
   const executions = byName.get('executions') ?? ''
   const testSetV3 = /schema_version in\s*\(1,\s*2,\s*3\)/.test(testSets)
     && /schema_version in\s*\(2,\s*3\)/.test(testSets)
-  const executionV3 = /definition_schema_version in\s*\(1,\s*2,\s*3\)/.test(executions)
-    && /definition_schema_version in\s*\(2,\s*3\)/.test(executions)
+  const executionV3 = /definition_schema_version[^,]*in\s*\(1,\s*2,\s*3\)/.test(executions)
+    && (/definition_schema_version in\s*\(2,\s*3\)/.test(executions)
+      || /test_set_authority_scope/.test(executions))
   const present = testSetV3 || executionV3
   return {
     present,
@@ -1166,6 +1182,31 @@ async function inspectCanonicalSuiteRevisionSchema(db: Kysely<any>): Promise<Tab
     : 'canonical Suite revision authority does not match the exact Migration 032 contract' }
 }
 
+async function inspectSuiteV2MultiSourceAuthoritySchema(db: Kysely<any>): Promise<TableContract> {
+  const tables = new Set((await sql<{ name: string }>`SELECT name FROM sqlite_schema WHERE type='table'`.execute(db)).rows.map(row => row.name))
+  const present = tables.has('suite_revision_member_authorities') || tables.has('execution_item_authorities')
+  if (!present) return { present:false, valid:false, detail:'Suite v2 authority tables are absent' }
+  const suiteColumns = new Set((await sql<{ name:string }>`PRAGMA table_info(suite_revisions)`.execute(db)).rows.map(row=>row.name))
+  const executionColumns = new Set((await sql<{ name:string }>`PRAGMA table_info(executions)`.execute(db)).rows.map(row=>row.name))
+  const triggerRows = (await sql<{ name:string; definition:string|null }>`SELECT name,sql AS definition FROM sqlite_schema WHERE type='trigger'`.execute(db)).rows
+  const triggers = new Map(triggerRows.map(row=>[row.name,row.definition]))
+  const preservedSuiteV1TriggersValid = (['suites_no_delete', 'suites_guard_update'] as const).every(name => {
+    const actual=triggers.get(name)
+    return typeof actual==='string'
+      && normalizeMigrationSqlDefinition(actual)===normalizeMigrationSqlDefinition(MIGRATION_032_TRIGGER_DEFINITIONS_V1[name])
+  })
+  const triggersValid = Object.entries(MIGRATION_035_TRIGGER_DEFINITIONS_V1).every(([name,expected]) => {
+    const actual=triggers.get(name)
+    return typeof actual==='string' && normalizeMigrationSqlDefinition(actual)===normalizeMigrationSqlDefinition(expected)
+  })
+  const valid = tables.has('suite_revision_member_authorities') && tables.has('execution_item_authorities')
+    && suiteColumns.has('suite_schema_version') && executionColumns.has('test_set_authority_scope')
+    && preservedSuiteV1TriggersValid && triggersValid
+  return { present, valid, detail: valid
+    ? 'Suite v2 multi-source and immutable per-item authority match Migration 035'
+    : 'Suite v2 multi-source or per-item authority does not match the exact Migration 035 contract' }
+}
+
 async function inspectManualTestSourcePromotionSchema(db: Kysely<any>): Promise<TableContract> {
   const rows = (await sql<{ type: string; name: string; definition: string | null }>`
     SELECT type, name, sql AS definition FROM sqlite_schema
@@ -1190,6 +1231,34 @@ async function inspectManualTestSourcePromotionSchema(db: Kysely<any>): Promise<
       ? 'immutable Manual Test source and exact canonical v3 promotion membership guards match Migration 033'
       : 'Manual Test source or promotion authority does not match the exact Migration 033 trigger contract',
   }
+}
+
+async function inspectDiagnosticEvidenceSchema(db: Kysely<any>): Promise<TableContract> {
+  const rows = (await sql<{ type: string; name: string; definition: string | null }>`
+    SELECT type, name, sql AS definition FROM sqlite_schema
+    WHERE name IN ('diagnostic_evidence','idx_diagnostic_evidence_execution')
+      OR (type='trigger' AND tbl_name='diagnostic_evidence')
+  `.execute(db)).rows
+  const identities = new Set(rows.map(row => `${row.type}:${row.name}`))
+  const triggers = new Map(rows.filter(row => row.type === 'trigger').map(row => [row.name, row.definition]))
+  const triggersValid = Object.entries(MIGRATION_034_TRIGGER_DEFINITIONS_V1).every(([name, expected]) => {
+    const actual = triggers.get(name)
+    return typeof actual === 'string'
+      && normalizeMigrationSqlDefinition(actual) === normalizeMigrationSqlDefinition(expected)
+  })
+  const present = identities.has('table:diagnostic_evidence') || triggers.size > 0
+  const columns = present
+    ? (await sql<{ name: string }>`PRAGMA table_info(diagnostic_evidence)`.execute(db)).rows.map(row => row.name)
+    : []
+  const expectedColumns = ['id','evidence_schema_version','evidence_hash','project_id','execution_id','run_id',
+    'item_ordinal','result_id','definition_id','executable_plan_hash','accepted_definition_authority_json',
+    'suite_authority_json','evidence_json']
+  const valid = identities.has('table:diagnostic_evidence') && identities.has('index:idx_diagnostic_evidence_execution')
+    && columns.length === expectedColumns.length && columns.every((name, index) => name === expectedColumns[index])
+    && triggers.size === Object.keys(MIGRATION_034_TRIGGER_DEFINITIONS_V1).length && triggersValid
+  return { present, valid, detail: valid
+    ? 'append-only diagnostic evidence authority matches Migration 034'
+    : 'diagnostic evidence authority does not match the exact Migration 034 table/index/trigger contract' }
 }
 
 async function appModelColumns(db: Kysely<any>): Promise<Set<string>> {
@@ -1271,6 +1340,8 @@ async function assertManagedSchemaHistoryConsistency(
   const canonicalTestDefinitionV3 = await inspectCanonicalTestDefinitionV3Schema(db)
   const canonicalSuiteRevision = await inspectCanonicalSuiteRevisionSchema(db)
   const manualTestSourcePromotion = await inspectManualTestSourcePromotionSchema(db)
+  const diagnosticEvidenceAuthority = await inspectDiagnosticEvidenceSchema(db)
+  const suiteV2MultiSourceAuthority = await inspectSuiteV2MultiSourceAuthoritySchema(db)
   const discrepancies: string[] = []
   if (migration016Applied && !activeIndex.valid) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is applied, but ${activeIndex.detail}`)
   else if (!migration016Applied && activeIndex.present) discrepancies.push(`history says ${SINGLE_ACTIVE_MIGRATION} is pending, but ${activeIndex.detail}`)
@@ -1365,11 +1436,17 @@ async function assertManagedSchemaHistoryConsistency(
     discrepancies.push(`history says ${CANONICAL_TEST_DEFINITION_V3_MIGRATION} is pending, but ${canonicalTestDefinitionV3.detail}`)
   }
   if (appliedNames.has(CANONICAL_SUITE_REVISION_MIGRATION)) {
-    if (!canonicalSuiteRevision.valid) discrepancies.push(`history says ${CANONICAL_SUITE_REVISION_MIGRATION} is applied, but ${canonicalSuiteRevision.detail}`)
+    if (!canonicalSuiteRevision.valid && !suiteV2MultiSourceAuthority.valid) discrepancies.push(`history says ${CANONICAL_SUITE_REVISION_MIGRATION} is applied, but ${canonicalSuiteRevision.detail}`)
   } else if (canonicalSuiteRevision.present) discrepancies.push(`history says ${CANONICAL_SUITE_REVISION_MIGRATION} is pending, but ${canonicalSuiteRevision.detail}`)
   if (appliedNames.has(MANUAL_TEST_SOURCE_PROMOTION_MIGRATION)) {
     if (!manualTestSourcePromotion.valid) discrepancies.push(`history says ${MANUAL_TEST_SOURCE_PROMOTION_MIGRATION} is applied, but ${manualTestSourcePromotion.detail}`)
   } else if (manualTestSourcePromotion.present) discrepancies.push(`history says ${MANUAL_TEST_SOURCE_PROMOTION_MIGRATION} is pending, but ${manualTestSourcePromotion.detail}`)
+  if (appliedNames.has(DIAGNOSTIC_EVIDENCE_AUTHORITY_MIGRATION)) {
+    if (!diagnosticEvidenceAuthority.valid) discrepancies.push(`history says ${DIAGNOSTIC_EVIDENCE_AUTHORITY_MIGRATION} is applied, but ${diagnosticEvidenceAuthority.detail}`)
+  } else if (diagnosticEvidenceAuthority.present) discrepancies.push(`history says ${DIAGNOSTIC_EVIDENCE_AUTHORITY_MIGRATION} is pending, but ${diagnosticEvidenceAuthority.detail}`)
+  if (appliedNames.has(SUITE_V2_MULTI_SOURCE_AUTHORITY_MIGRATION)) {
+    if (!suiteV2MultiSourceAuthority.valid) discrepancies.push(`history says ${SUITE_V2_MULTI_SOURCE_AUTHORITY_MIGRATION} is applied, but ${suiteV2MultiSourceAuthority.detail}`)
+  } else if (suiteV2MultiSourceAuthority.present) discrepancies.push(`history says ${SUITE_V2_MULTI_SOURCE_AUTHORITY_MIGRATION} is pending, but ${suiteV2MultiSourceAuthority.detail}`)
   if (discrepancies.length > 0) throw new MigrationStateMismatchError(discrepancies)
 }
 
@@ -1444,6 +1521,12 @@ async function assertMigrationPostconditions(db: Kysely<any>, migrationName: str
   }
   if (migrationName === MANUAL_TEST_SOURCE_PROMOTION_MIGRATION) {
     const manual = await inspectManualTestSourcePromotionSchema(db); if(!manual.valid) throw new Error(manual.detail)
+  }
+  if (migrationName === DIAGNOSTIC_EVIDENCE_AUTHORITY_MIGRATION) {
+    const evidence = await inspectDiagnosticEvidenceSchema(db); if(!evidence.valid) throw new Error(evidence.detail)
+  }
+  if (migrationName === SUITE_V2_MULTI_SOURCE_AUTHORITY_MIGRATION) {
+    const authority=await inspectSuiteV2MultiSourceAuthoritySchema(db); if(!authority.valid) throw new Error(authority.detail)
   }
 }
 

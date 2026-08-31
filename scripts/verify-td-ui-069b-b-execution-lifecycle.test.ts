@@ -51,7 +51,7 @@ function manifest(executablePlanHash: string) {
     executionIntentKey: `intent-direct-${executablePlanHash.slice(0, 12)}`,
     executionIntentFingerprint: executablePlanHash,
     sourceObservationId: OBSERVATION,
-    manifestItems: [{ itemOrdinal: 1, definitionId: 'definition-direct', executablePlanHash }],
+    manifestItems: [{ itemOrdinal: 1, definitionId: definition.id, executablePlanHash }],
   }
 }
 

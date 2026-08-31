@@ -10,7 +10,7 @@
  * of this software is strictly prohibited.
  */
 
-import type { Kysely } from 'kysely'
+import type { Kysely, Transaction } from 'kysely'
 import { getDb } from '../storage/db'
 import type { Database } from '../storage/types'
 import {
@@ -22,9 +22,15 @@ import {
 import { RunRepository } from '../storage/repositories/RunRepository'
 import { TestResultRepository } from '../storage/repositories/TestResultRepository'
 import {
+  DiagnosticEvidenceConflictError,
+  DiagnosticEvidenceRepository,
+} from '../storage/repositories/DiagnosticEvidenceRepository'
+import { unattemptedDiagnosticEvidence } from './ExecutionRunCoordinator'
+import {
   PersistedEvidenceAggregator,
   type DurableExecutionRead,
   type PersistedEvidenceAggregation,
+  type PersistedExecutionEvidence,
 } from './PersistedEvidenceAggregator'
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/
@@ -96,7 +102,8 @@ function refuseForAggregation(aggregation: PersistedEvidenceAggregation): void {
 /**
  * Sole recovery owner. It owns no table: all reads and writes are delegated to
  * the established Execution, Run, and Test Result repositories inside one
- * transaction. Missing Result evidence is represented only in aggregates.
+ * transaction. Recovered terminal v3 items also receive immutable diagnostic
+ * evidence through the established evidence repository.
  */
 export class ExecutionRecoveryCoordinator {
   constructor(
@@ -105,7 +112,55 @@ export class ExecutionRecoveryCoordinator {
     private readonly runs = new RunRepository(),
     private readonly results = new TestResultRepository(),
     private readonly aggregator = new PersistedEvidenceAggregator(dbProvider, executions, runs, results),
+    private readonly diagnosticEvidence = new DiagnosticEvidenceRepository(dbProvider),
   ) {}
+
+  private async appendMissingResultEvidence(
+    snapshot: PersistedExecutionEvidence,
+    runId: string,
+    trx: Transaction<Database>,
+  ): Promise<void> {
+    let diagnosticOrdinals: Set<number>
+    if (snapshot.execution.test_set_authority_scope === 'single') {
+      diagnosticOrdinals = Number(snapshot.execution.definition_schema_version) === 3
+        ? new Set(snapshot.items.map(item => Number(item.item_ordinal)))
+        : new Set()
+    } else if (snapshot.execution.test_set_authority_scope === 'per_item'
+      && snapshot.execution.definition_schema_version === null) {
+      const authorities = await trx.selectFrom('execution_item_authorities')
+        .select(['item_ordinal', 'definition_id', 'definition_schema_version'])
+        .where('execution_id', '=', snapshot.execution.execution_id)
+        .orderBy('item_ordinal').execute()
+      if (authorities.length !== snapshot.items.length
+        || authorities.some((authority, index) => Number(authority.item_ordinal) !== index + 1
+          || authority.definition_id !== snapshot.items[index]?.definition_id)) {
+        throw new ExecutionRecoveryRefusedError('conflicting_provenance')
+      }
+      diagnosticOrdinals = new Set(authorities
+        .filter(authority => Number(authority.definition_schema_version) === 3)
+        .map(authority => Number(authority.item_ordinal)))
+    } else {
+      throw new ExecutionRecoveryRefusedError('conflicting_provenance')
+    }
+
+    const observedOrdinals = new Set(snapshot.results.map(result => Number(result.execution_item_ordinal)))
+    for (const item of snapshot.items) {
+      const itemOrdinal = Number(item.item_ordinal)
+      if (!diagnosticOrdinals.has(itemOrdinal) || observedOrdinals.has(itemOrdinal)) continue
+      await this.diagnosticEvidence.append({
+        binding: {
+          projectId: snapshot.execution.project_id,
+          executionId: snapshot.execution.execution_id,
+          runId,
+          itemOrdinal,
+          resultId: null,
+          definitionId: item.definition_id,
+          executablePlanHash: item.executable_plan_hash,
+        },
+        facts: unattemptedDiagnosticEvidence(),
+      }, trx)
+    }
+  }
 
   async reconcile(input: ExecutionRecoveryInput): Promise<ExecutionRecoveryDecision> {
     const staleAfterMs = input.staleAfterMs ?? EXECUTION_STALE_AFTER_MS
@@ -136,11 +191,12 @@ export class ExecutionRecoveryCoordinator {
         )
 
         if (aggregate.execution.terminal) {
+          if (lock && healthyOwner) throw new ExecutionRecoveryRefusedError('invalid_lifecycle')
+          if (run && aggregate.execution.lifecycle === 'interrupted') {
+            await this.appendMissingResultEvidence(snapshot, run.run_id, trx)
+          }
           if (!lock) return 'already_terminal'
-          if (healthyOwner) throw new ExecutionRecoveryRefusedError('invalid_lifecycle')
-          await this.executions.releaseRecoveredLock(
-            input.projectId, input.executionId, lock.process_instance_id, trx,
-          )
+          await this.executions.releaseRecoveredLock(input.projectId, input.executionId, lock.process_instance_id, trx)
           return 'recovered'
         }
 
@@ -180,6 +236,7 @@ export class ExecutionRecoveryCoordinator {
             safeCode: reasonCode,
             safeMessage: safeMessage(outcome, false, true),
           }, trx)
+          if (run) await this.appendMissingResultEvidence(snapshot, run.run_id, trx)
           return 'recovered'
         }
 
@@ -232,10 +289,14 @@ export class ExecutionRecoveryCoordinator {
           safeCode: reasonCode,
           safeMessage: safeMessage(outcome, interrupted),
         }, trx)
+        if (run) await this.appendMissingResultEvidence(snapshot, run.run_id, trx)
         return 'recovered'
       })
     } catch (cause) {
       if (cause instanceof ExecutionRecoveryRefusedError) throw cause
+      if (cause instanceof DiagnosticEvidenceConflictError) {
+        throw new ExecutionRecoveryRefusedError('conflicting_provenance')
+      }
       if (cause instanceof ExecutionPersistenceError) {
         throw new ExecutionRecoveryRefusedError('conflicting_provenance')
       }

@@ -63,9 +63,23 @@ async function accepted(suffix: string, itemCount = 1, withLock = true): Promise
   const hashes = Array.from({ length: itemCount }, (_, index) => crypto.createHash('sha256').update(`${suffix}:${index}`).digest('hex'))
   const definitionIds = hashes.map((_, index) => `definition-${suffix}-${index + 1}`)
   const planHash = selectionHash(hashes)
+  const model = await getDb().insertInto('app_models').values({
+    app_name: projectId, version: '1.0.0', base_url: '', app_type: 'web', intake_mode: 'crawl',
+    crawl_config_hash: planHash, page_count: 1, flow_count: 0, role_count: 0, model_json: '{}',
+    crawled_at: ACCEPTED, crawled_by: 'fixture', status: 'active', evidence_state: 'crawled',
+    operation_id: null, candidate_hash: null, recovery_source_row_id: null, recovery_source_fingerprint: null,
+  }).returning('id').executeTakeFirstOrThrow()
+  const testSet = await getDb().insertInto('test_set_revisions').values({
+    test_set_id: `test-set-${suffix}`, revision: 1, project_id: projectId, generation_id: `generation-${suffix}`,
+    schema_version: 1, source_observation_id: `observation-${suffix}`, model_row_id: Number(model.id),
+    model_version: '1.0.0', observation_run_id: null, support_seal_hash: null,
+    characterization_policy_id: null, characterization_policy_version: null, generated_at: ACCEPTED,
+    outcome: 'completed', definition_count: definitionIds.length,
+    payload_json: JSON.stringify({ definitions: definitionIds.map(id => ({ id })) }), content_hash: planHash,
+  }).returning('id').executeTakeFirstOrThrow()
   await getDb().insertInto('executions').values({
     execution_id: executionId, project_id: projectId, accepted_at: ACCEPTED,
-    test_set_id: `test-set-${suffix}`, test_set_revision: 1, model_row_id: 1,
+    test_set_id: `test-set-${suffix}`, test_set_revision: 1, definition_schema_version: 1, model_row_id: Number(model.id),
     model_version: '1.0.0', source_observation_id: `observation-${suffix}`,
     manifest_hash: planHash, max_run_attempts: 1, dispatch_mode: 'serial',
     stop_rule: 'stop_on_first_non_completed',
@@ -74,6 +88,11 @@ async function accepted(suffix: string, itemCount = 1, withLock = true): Promise
   await getDb().insertInto('execution_items').values(hashes.map((hash, index) => ({
     execution_id: executionId, item_ordinal: index + 1,
     definition_id: definitionIds[index], executable_plan_hash: hash,
+  }))).execute()
+  await getDb().insertInto('execution_item_authorities').values(definitionIds.map((definitionId, index) => ({
+    execution_id: executionId, item_ordinal: index + 1, test_set_row_id: Number(testSet.id),
+    test_set_id: `test-set-${suffix}`, test_set_revision: 1, test_set_content_hash: planHash,
+    definition_schema_version: 1, definition_id: definitionId,
   }))).execute()
   await getDb().insertInto('execution_events').values({
     execution_id: executionId, project_id: projectId, event_type: 'started', outcome: null,

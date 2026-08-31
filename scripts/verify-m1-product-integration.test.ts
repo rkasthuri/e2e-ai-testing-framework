@@ -177,7 +177,7 @@ test('real Product authority completes app-area selection through immutable Resu
     const createSession: ExecutionSessionFactory = async () => ({
       authenticateFormLogin: async () => { currentUrl = 'https://m1.example.test/'; return true },
       navigate: async url => { currentUrl = url },
-      clickDataTest: async value => { assert.equal(value, 'checkout'); currentUrl = 'https://m1.example.test/checkout-step-one.html' },
+      clickDataTest: async value => { assert.equal(value, 'checkout'); currentUrl = 'https://m1.example.test/checkout-step-one.html'; return 'one' as const },
       currentUrl: () => currentUrl,
       close: async () => undefined,
     })

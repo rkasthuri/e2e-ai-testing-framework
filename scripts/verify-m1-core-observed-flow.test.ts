@@ -857,6 +857,7 @@ function flowSession(options: { clickFails?: boolean; finalPath?: string } = {})
       state.clicks.push(value)
       if (options.clickFails) throw new Error('withheld')
       state.currentUrl = `https://m1.example.test${options.finalPath ?? '/checkout-step-one.html'}`
+      return 'one' as const
     },
     currentUrl() { return state.currentUrl },
     async close() { state.closed = true },
@@ -881,7 +882,9 @@ test('M1 executor distinguishes completed, action failure, and Product oracle fa
     baseUrl: 'https://m1.example.test',
     credentialReference: { usernameEnv: 'M1_USER', passwordEnv: 'M1_PASSWORD' },
   })
-  assert.deepEqual(actionFailed, { status: 'action_failed', reasonCode: 'action_failed' })
+  assert.deepEqual(actionFailed, {
+    status: 'action_failed', reasonCode: 'action_failed', navigationUrl: 'https://m1.example.test/cart.html',
+  })
   assert.deepEqual(productResultTruth(actionFailed), { outcome: 'could_not_verify', reasonCode: 'action_failed' })
 
   const oracleSession = flowSession({ finalPath: '/cart.html' })

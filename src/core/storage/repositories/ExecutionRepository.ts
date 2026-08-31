@@ -54,8 +54,8 @@ export interface BeginExecutionInput {
   executionPlanHash: string
   executionIntentKey: string
   executionIntentFingerprint: string
-  expectedTestSetId: string
-  expectedRevision: number
+  expectedTestSetId?: string
+  expectedRevision?: number
   expectedTestSetContentHash?: string
   definitionSchemaVersion?: 1 | 2 | 3
   expectedModelRowId: number
@@ -167,8 +167,9 @@ function safeInput(input: BeginExecutionInput): boolean {
   return SAFE_ID.test(input.executionId) && SAFE_ID.test(input.projectId)
     && SAFE_INTENT_KEY.test(input.executionIntentKey)
     && SHA256.test(input.executionIntentFingerprint)
-    && SAFE_ID.test(input.processInstanceId) && SAFE_ID.test(input.expectedTestSetId)
-    && Number.isSafeInteger(input.expectedRevision) && input.expectedRevision > 0
+    && SAFE_ID.test(input.processInstanceId)
+    && (input.suiteAuthority!==undefined || SAFE_ID.test(input.expectedTestSetId??''))
+    && (input.suiteAuthority!==undefined || Number.isSafeInteger(input.expectedRevision) && input.expectedRevision! > 0)
     && [1, 2, 3].includes(schemaVersion)
     && Number.isSafeInteger(input.expectedModelRowId) && input.expectedModelRowId > 0
     && typeof input.expectedModelVersion === 'string' && input.expectedModelVersion.length > 0
@@ -205,6 +206,13 @@ export class ExecutionRepository {
 
   constructor(private readonly dbProvider: () => Kysely<Database> = getProductDb) {
     this.suites = new SuiteRepository(dbProvider)
+  }
+
+  protected readCurrentTestSet(trx: Transaction<Database>, projectId: string) {
+    return trx.selectFrom('test_set_revisions')
+      .select(['id','test_set_id', 'revision', 'schema_version', 'content_hash', 'support_seal_hash'])
+      .where('project_id', '=', projectId)
+      .orderBy('revision', 'desc').limit(1).executeTakeFirst()
   }
 
   async findExecutionIntent(projectId: string, executionIntentKey: string): Promise<ExecutionIntentReplay | null> {
@@ -269,10 +277,10 @@ export class ExecutionRepository {
           }
           const pinned = verifiedSuite.members[0].definitionAuthority
           if (verifiedSuite.contentHash !== input.suiteAuthority.suiteContentHash
-            || pinned.testSetId !== input.expectedTestSetId
+            || verifiedSuite.schemaVersion===1&&(pinned.testSetId !== input.expectedTestSetId
             || pinned.testSetRevision !== input.expectedRevision
             || pinned.definitionSchemaVersion !== (input.definitionSchemaVersion ?? 1)
-            || pinned.testSetContentHash !== input.expectedTestSetContentHash
+            || pinned.testSetContentHash !== input.expectedTestSetContentHash)
             || verifiedSuite.members.length !== input.manifestItems.length
             || verifiedSuite.members.some((member, index) => member.ordinal !== index + 1
               || member.definitionAuthority.definitionId !== input.manifestItems[index].definitionId)) {
@@ -280,11 +288,14 @@ export class ExecutionRepository {
           }
         }
 
-        const current = await trx.selectFrom('test_set_revisions')
-          .select(['test_set_id', 'revision', 'schema_version', 'content_hash', 'support_seal_hash'])
-          .where('project_id', '=', input.projectId)
-          .orderBy('revision', 'desc').limit(1).executeTakeFirst()
-        if (verifiedSuite) {
+        // Suite v2 is already bound to immutable per-member Test Set rows.  Do
+        // not let current-head state participate in acceptance, even as an
+        // unused read: advancing the project head after Suite acceptance must
+        // be completely irrelevant to this path.
+        const current = verifiedSuite?.schemaVersion === 2
+          ? undefined
+          : await this.readCurrentTestSet(trx, input.projectId)
+        if (verifiedSuite?.schemaVersion===1) {
           const pinned = verifiedSuite.members[0].definitionAuthority
           if (!current || current.test_set_id !== pinned.testSetId
             || Number(current.revision) !== pinned.testSetRevision
@@ -292,19 +303,21 @@ export class ExecutionRepository {
             || current.content_hash !== pinned.testSetContentHash) {
             throw new StaleExecutionAuthorityError('stale_suite_authority')
           }
-        } else if (!current || current.test_set_id !== input.expectedTestSetId
+        } else if (!verifiedSuite && (!current || current.test_set_id !== input.expectedTestSetId
           || Number(current.revision) !== input.expectedRevision
           || Number(current.schema_version) !== (input.definitionSchemaVersion ?? 1)
           || input.definitionSchemaVersion !== undefined && input.definitionSchemaVersion !== 1
             && (current.content_hash !== input.expectedTestSetContentHash
-            || current.support_seal_hash !== input.supportSealHash)) {
+            || current.support_seal_hash !== input.supportSealHash))) {
           throw new StaleExecutionAuthorityError('stale_definition')
         }
-        const models = await trx.selectFrom('app_models')
-          .select(['id', 'version']).where('app_name', '=', input.projectId)
-          .where('status', '=', 'active').execute()
-        if (models.length !== 1 || Number(models[0].id) !== input.expectedModelRowId
-          || models[0].version !== input.expectedModelVersion) {
+        const models = verifiedSuite?.schemaVersion === 2
+          ? undefined
+          : await trx.selectFrom('app_models')
+            .select(['id', 'version']).where('app_name', '=', input.projectId)
+            .where('status', '=', 'active').execute()
+        if (verifiedSuite?.schemaVersion!==2&&(!models || models.length !== 1 || Number(models[0].id) !== input.expectedModelRowId
+          || models[0].version !== input.expectedModelVersion)) {
           throw new StaleExecutionAuthorityError('conflicting_evidence')
         }
 
@@ -312,15 +325,16 @@ export class ExecutionRepository {
           execution_id: input.executionId,
           project_id: input.projectId,
           accepted_at: input.startedAt,
-          test_set_id: input.expectedTestSetId,
-          test_set_revision: input.expectedRevision,
-          definition_schema_version: input.definitionSchemaVersion ?? 1,
-          model_row_id: input.expectedModelRowId,
-          model_version: input.expectedModelVersion,
-          source_observation_id: input.sourceObservationId ?? null,
-          support_seal_hash: input.supportSealHash ?? null,
-          route_evidence_identity_hash: input.routeEvidenceIdentityHash ?? null,
-          authentication_expectation_identity_hash: input.authenticationExpectationIdentityHash ?? null,
+          test_set_authority_scope: verifiedSuite?.schemaVersion===2?'per_item':'single',
+          test_set_id: verifiedSuite?.schemaVersion===2?null:input.expectedTestSetId!,
+          test_set_revision: verifiedSuite?.schemaVersion===2?null:input.expectedRevision!,
+          definition_schema_version: verifiedSuite?.schemaVersion===2?null:input.definitionSchemaVersion ?? 1,
+          model_row_id: verifiedSuite?.schemaVersion===2?null:input.expectedModelRowId,
+          model_version: verifiedSuite?.schemaVersion===2?null:input.expectedModelVersion,
+          source_observation_id: verifiedSuite?.schemaVersion===2?null:input.sourceObservationId ?? null,
+          support_seal_hash: verifiedSuite?.schemaVersion===2?null:input.supportSealHash ?? null,
+          route_evidence_identity_hash: verifiedSuite?.schemaVersion===2?null:input.routeEvidenceIdentityHash ?? null,
+          authentication_expectation_identity_hash: verifiedSuite?.schemaVersion===2?null:input.authenticationExpectationIdentityHash ?? null,
           manifest_hash: input.executionPlanHash,
           max_run_attempts: 1,
           dispatch_mode: 'serial',
@@ -338,6 +352,18 @@ export class ExecutionRepository {
           executable_plan_hash: item.executablePlanHash,
           oracle_kind: item.oracleKind ?? null,
           oracle_subject_id: item.oracleSubjectId ?? null,
+        }))).execute()
+        const itemAuthorities=verifiedSuite
+          ?verifiedSuite.members.map(member=>member.definitionAuthority)
+          :input.manifestItems.map(item=>({definitionId:item.definitionId,definitionSchemaVersion:input.definitionSchemaVersion??1,
+            testSetId:input.expectedTestSetId!,testSetRevision:input.expectedRevision!,testSetContentHash:current!.content_hash,
+            testSetRowId:Number(current!.id)}))
+        await trx.insertInto('execution_item_authorities').values(itemAuthorities.map((authority,index)=>({
+          execution_id:input.executionId,item_ordinal:index+1,
+          test_set_row_id:'testSetRowId' in authority?authority.testSetRowId:Number(current!.id),
+          test_set_id:authority.testSetId,test_set_revision:authority.testSetRevision,
+          test_set_content_hash:authority.testSetContentHash,definition_schema_version:authority.definitionSchemaVersion,
+          definition_id:authority.definitionId,
         }))).execute()
 
         await trx.insertInto('execution_locks').values({

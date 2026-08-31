@@ -238,8 +238,31 @@ async function persist(value: PersistedExecutionEvidence): Promise<void> {
   const { id: _runRowId, ...run } = value.runs[0]
   const events = value.events.map(({ id: _eventRowId, ...event }) => event)
   const results = value.results.map(({ id: _resultRowId, ...result }) => result)
-  await db.insertInto('executions').values(value.execution).execute()
+  const model = await db.insertInto('app_models').values({
+    app_name: value.execution.project_id, version: '1.0.0', base_url: '', app_type: 'web', intake_mode: 'crawl',
+    crawl_config_hash: value.execution.manifest_hash, page_count: 1, flow_count: 0, role_count: 0, model_json: '{}',
+    crawled_at: value.execution.accepted_at, crawled_by: 'fixture', status: 'archived', evidence_state: 'crawled',
+    operation_id: null, candidate_hash: null, recovery_source_row_id: null, recovery_source_fingerprint: null,
+  }).returning('id').executeTakeFirstOrThrow()
+  const testSet = await db.insertInto('test_set_revisions').values({
+    test_set_id: value.execution.test_set_id!, revision: Number(value.execution.test_set_revision),
+    project_id: value.execution.project_id, generation_id: `generation-${value.execution.execution_id}`,
+    schema_version: 1, source_observation_id: value.execution.source_observation_id!, model_row_id: Number(model.id),
+    model_version: '1.0.0', observation_run_id: null, support_seal_hash: null,
+    characterization_policy_id: null, characterization_policy_version: null, generated_at: value.execution.accepted_at,
+    outcome: 'completed', definition_count: value.items.length,
+    payload_json: JSON.stringify({ definitions: value.items.map(item => ({ id: item.definition_id })) }),
+    content_hash: value.execution.manifest_hash,
+  }).returning('id').executeTakeFirstOrThrow()
+  await db.insertInto('executions').values({
+    ...value.execution, test_set_authority_scope: 'single', definition_schema_version: 1, model_row_id: Number(model.id),
+  }).execute()
   await db.insertInto('execution_items').values(value.items).execute()
+  await db.insertInto('execution_item_authorities').values(value.items.map(item => ({
+    execution_id: item.execution_id, item_ordinal: item.item_ordinal, test_set_row_id: Number(testSet.id),
+    test_set_id: value.execution.test_set_id!, test_set_revision: Number(value.execution.test_set_revision),
+    test_set_content_hash: value.execution.manifest_hash, definition_schema_version: 1, definition_id: item.definition_id,
+  }))).execute()
   await db.insertInto('execution_events').values(events).execute()
   if (value.lock) await db.insertInto('execution_locks').values(value.lock).execute()
   await db.insertInto('runs').values(run).execute()

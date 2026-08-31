@@ -11,14 +11,16 @@
  */
 
 import * as crypto from 'crypto'
-import type { Kysely } from 'kysely'
+import type { Kysely, Transaction } from 'kysely'
 import { getDb } from '../storage/db'
 import type { Database, Run, TestResult } from '../storage/types'
 import { ExecutionRepository, type ProductEvidenceOutcome } from '../storage/repositories/ExecutionRepository'
 import { RunRepository } from '../storage/repositories/RunRepository'
 import { TestResultRepository } from '../storage/repositories/TestResultRepository'
+import { DiagnosticEvidenceRepository } from '../storage/repositories/DiagnosticEvidenceRepository'
 import type { MaterializedExecutablePlan } from './ExecutablePlanContract'
 import type { PlaywrightPlanExecutionResult } from './PlaywrightPlanExecutor'
+import type { DiagnosticEvidenceFactsV1 } from './DiagnosticEvidenceContract'
 import {
   PersistedEvidenceAggregator,
   hasInvalidPersistedEvidence,
@@ -48,6 +50,12 @@ export interface ProductResultObservation {
   observed: PlaywrightPlanExecutionResult
   startedAt: string
   completedAt: string
+}
+
+export interface MissingProductResultObservation {
+  itemOrdinal: number
+  plan: MaterializedExecutablePlan
+  facts: DiagnosticEvidenceFactsV1
 }
 
 export interface ProductTerminalAggregate {
@@ -110,6 +118,123 @@ function environmentJson(snapshot: ProductRunAdmission['environmentSnapshot']): 
   return JSON.stringify({ schemaVersion: 1, browser: snapshot.browser, headless: snapshot.headless })
 }
 
+function routePath(value: string): string | null {
+  try { return new URL(value).pathname } catch { return null }
+}
+
+function notPerformedAfterExecutor(executor: DiagnosticEvidenceFactsV1['executor']): DiagnosticEvidenceFactsV1 {
+  return {
+    executor,
+    authentication: { state: 'not_performed' },
+    navigation: { outcome: 'not_performed' },
+    targetObservation: { outcome: 'not_performed' },
+    action: { outcome: 'not_performed' },
+    oracle: { outcome: 'not_performed' },
+  }
+}
+
+export function unattemptedDiagnosticEvidence(): DiagnosticEvidenceFactsV1 {
+  return notPerformedAfterExecutor({ outcome: 'not_started' })
+}
+
+export function executorFailureDiagnosticEvidence(
+  failureClass: Extract<DiagnosticEvidenceFactsV1['executor'], { outcome: 'failed' }>['failureClass'] = 'executor_internal_failure',
+): DiagnosticEvidenceFactsV1 {
+  return notPerformedAfterExecutor({ outcome: 'failed', failureClass })
+}
+
+export function diagnosticEvidenceFromProductResult(
+  plan: MaterializedExecutablePlan,
+  observed: PlaywrightPlanExecutionResult,
+): DiagnosticEvidenceFactsV1 {
+  if (observed.status === 'executor_failure' || observed.status === 'unsupported_plan') {
+    return executorFailureDiagnosticEvidence(observed.status === 'executor_failure'
+      ? observed.failureClass ?? 'executor_internal_failure'
+      : 'executor_internal_failure')
+  }
+  const authentication: DiagnosticEvidenceFactsV1['authentication'] = plan.value.schemaVersion === 2
+    ? plan.value.authenticationExpectation.state === 'required'
+      ? observed.status === 'authentication_failed'
+        ? { state: 'not_established', attemptOccurred: true }
+        : { state: 'established', attemptOccurred: true }
+      : { state: 'not_required' }
+    : plan.value.authenticationRequired
+      ? observed.status === 'authentication_failed'
+        ? { state: 'not_established', attemptOccurred: true }
+        : { state: 'established', attemptOccurred: true }
+      : { state: 'not_required' }
+  if (observed.status === 'authentication_failed') {
+    return { executor: { outcome: 'completed' }, authentication, navigation: { outcome: 'not_performed' },
+      targetObservation: { outcome: 'not_performed' }, action: { outcome: 'not_performed' }, oracle: { outcome: 'not_performed' } }
+  }
+  const navigationStep = plan.value.steps[0]
+  if (!navigationStep || navigationStep.kind !== 'navigate_to_observed_route') {
+    throw new ProductResultPersistenceError('Diagnostic plan navigation authority is malformed.')
+  }
+  const intendedRoute = navigationStep.routePath
+  if (observed.status === 'navigation_failed') {
+    const observedRoute = observed.observedUrl ? routePath(observed.observedUrl) : null
+    return { executor: { outcome: 'completed' }, authentication,
+      navigation: { outcome: 'not_completed', intendedRoute, observedRoute,
+        failureClass: observed.failureClass ?? 'browser_navigation_error' },
+      targetObservation: { outcome: 'not_performed' }, action: { outcome: 'not_performed' }, oracle: { outcome: 'not_performed' } }
+  }
+  if (observed.status === 'action_failed') {
+    const observedRoute = observed.navigationUrl ? routePath(observed.navigationUrl) : null
+    if (!observedRoute) throw new ProductResultPersistenceError('Observed navigation route is unavailable for diagnostic evidence.')
+    const click = plan.value.steps.length === 2 ? plan.value.steps[1] : null
+    if (!click || click.kind !== 'click_observed_data_test') {
+      throw new ProductResultPersistenceError('M4 diagnostic evidence requires the frozen v3 observed-flow shape.')
+    }
+    const targetAuthority = { subjectId: click.subjectId, elementId: click.elementId,
+      selectorKind: 'data_test' as const, selectorValue: click.dataTestValue }
+    const targetObservation: DiagnosticEvidenceFactsV1['targetObservation'] = observed.targetCardinality === 'zero'
+      ? { outcome: 'not_observed', targetAuthority, cardinality: 'zero' }
+      : observed.targetCardinality === 'one' || observed.targetCardinality === 'many'
+        ? { outcome: 'observed', targetAuthority, cardinality: observed.targetCardinality }
+        : { outcome: 'not_performed' }
+    const action: DiagnosticEvidenceFactsV1['action'] = targetObservation.outcome === 'observed'
+      ? { outcome: 'not_completed', interactionAttempted: true, semantic: 'click_observed_data_test',
+          failureClass: observed.failureClass ?? 'interaction_failed' }
+      : { outcome: 'not_performed' }
+    return { executor: { outcome: 'completed' }, authentication,
+      navigation: { outcome: 'completed', intendedRoute, observedRoute },
+      targetObservation, action, oracle: { outcome: 'not_performed' } }
+  }
+  if (observed.status === 'cancelled') throw new ProductResultPersistenceError('Cancellation is not diagnostic Result evidence.')
+  const actualRoute = routePath(observed.finalUrl)
+  const observedNavigationRoute = observed.navigationUrl ? routePath(observed.navigationUrl) : null
+  const expectedRoute = plan.value.oracle.routePath ?? intendedRoute
+  if (!actualRoute || !observedNavigationRoute) {
+    throw new ProductResultPersistenceError('Observed navigation or final route is malformed.')
+  }
+  const click = plan.value.steps.length === 2 ? plan.value.steps[1] : null
+  if (!click || click.kind !== 'click_observed_data_test') {
+    throw new ProductResultPersistenceError('M4 diagnostic evidence requires the frozen v3 observed-flow shape.')
+  }
+  const targetAuthority = {
+    subjectId: click.subjectId,
+    elementId: click.elementId,
+    selectorKind: 'data_test' as const,
+    selectorValue: click.dataTestValue,
+  }
+  if (observed.targetCardinality !== 'one' && observed.targetCardinality !== 'many') {
+    throw new ProductResultPersistenceError('Observed target cardinality is unavailable for diagnostic evidence.')
+  }
+  return {
+    executor: { outcome: 'completed' }, authentication,
+    navigation: { outcome: 'completed', intendedRoute, observedRoute: observedNavigationRoute },
+    targetObservation: { outcome: 'observed', targetAuthority, cardinality: observed.targetCardinality },
+    action: { outcome: 'completed', interactionAttempted: true, semantic: 'click_observed_data_test' },
+    oracle: {
+      outcome: observed.status === 'completed' ? 'matched' : 'mismatched',
+      oracleAuthority: { kind: 'subject_observable', subjectId: plan.value.oracle.subjectId },
+      expected: expectedRoute,
+      actual: actualRoute,
+    },
+  }
+}
+
 /**
  * Coordinates the existing Execution, Run, and Test Result authorities. It is
  * the sole Product evidence writer; Playwright remains a SQL-free adapter that
@@ -124,7 +249,38 @@ export class ExecutionRunCoordinator {
     private readonly mintRunId: () => string = () => `run-${crypto.randomUUID()}`,
     private readonly mintResultId: () => string = () => `result-${crypto.randomUUID()}`,
     private readonly aggregator = new PersistedEvidenceAggregator(dbProvider, executions, runs, results),
+    private readonly diagnosticEvidence = new DiagnosticEvidenceRepository(dbProvider),
   ) {}
+
+  private async diagnosticV3Ordinals(executionId: string, trx: Transaction<Database>): Promise<Set<number>> {
+    const execution = await trx.selectFrom('executions')
+      .select(['test_set_authority_scope', 'definition_schema_version'])
+      .where('execution_id', '=', executionId).executeTakeFirst()
+    if (!execution) throw new ProductResultPersistenceError('Accepted Execution authority is unavailable.')
+    if (execution.test_set_authority_scope === 'single') {
+      if (Number(execution.definition_schema_version) !== 3) return new Set()
+      const items = await trx.selectFrom('execution_items').select('item_ordinal')
+        .where('execution_id', '=', executionId).execute()
+      return new Set(items.map(item => Number(item.item_ordinal)))
+    }
+    if (execution.test_set_authority_scope !== 'per_item' || execution.definition_schema_version !== null) {
+      throw new ProductResultPersistenceError('Accepted Execution authority scope is invalid.')
+    }
+    const [items, authorities] = await Promise.all([
+      trx.selectFrom('execution_items').select(['item_ordinal', 'definition_id'])
+        .where('execution_id', '=', executionId).orderBy('item_ordinal').execute(),
+      trx.selectFrom('execution_item_authorities').select(['item_ordinal', 'definition_id', 'definition_schema_version'])
+        .where('execution_id', '=', executionId).orderBy('item_ordinal').execute(),
+    ])
+    if (items.length < 1 || authorities.length !== items.length
+      || items.some((item, index) => Number(item.item_ordinal) !== index + 1)
+      || authorities.some((authority, index) => Number(authority.item_ordinal) !== index + 1
+        || authority.definition_id !== items[index].definition_id)) {
+      throw new ProductResultPersistenceError('Per-item diagnostic authority is incomplete.')
+    }
+    return new Set(authorities.filter(authority => Number(authority.definition_schema_version) === 3)
+      .map(authority => Number(authority.item_ordinal)))
+  }
 
   async admitRun(input: ProductRunAdmission): Promise<Run> {
     if (!SAFE_ID.test(input.executionId) || !SAFE_ID.test(input.projectId)
@@ -210,10 +366,28 @@ export class ExecutionRunCoordinator {
     try {
       return await this.dbProvider().transaction().execute(async trx => {
         const run = await this.runs.findById(input.runId, trx)
-        if (!run || run.origin !== 'product' || run.execution_id !== input.executionId || run.lifecycle !== 'running') {
+        if (!run || run.origin !== 'product' || run.execution_id !== input.executionId) {
           throw new ProductResultPersistenceError('Product Run is not available for Result recording.')
         }
-        return this.results.insert({
+        const diagnosticV3Ordinals = await this.diagnosticV3Ordinals(input.executionId, trx)
+        const existing = (await this.results.findByRun(input.runId, trx))
+          .find(candidate => Number(candidate.execution_item_ordinal) === input.itemOrdinal)
+        if (existing) {
+          if (existing.definition_id !== definitionId || existing.executable_plan_hash !== fingerprint
+            || existing.status !== truth.outcome || existing.error_msg !== truth.reasonCode || !existing.result_id) {
+            throw new DuplicateProductResultError()
+          }
+          if (diagnosticV3Ordinals.has(input.itemOrdinal)) await this.diagnosticEvidence.append({
+            binding: { projectId: run.app_name, executionId: input.executionId, runId: input.runId,
+              itemOrdinal: input.itemOrdinal, resultId: existing.result_id, definitionId, executablePlanHash: fingerprint },
+            facts: diagnosticEvidenceFromProductResult(input.plan, input.observed),
+          }, trx)
+          return existing
+        }
+        if (run.lifecycle !== 'running') {
+          throw new ProductResultPersistenceError('A new Product Result cannot be recorded after Run terminalization.')
+        }
+        const inserted = await this.results.insert({
           run_id: input.runId,
           test_id: definitionId,
           title: definitionId,
@@ -240,6 +414,12 @@ export class ExecutionRunCoordinator {
           oracle_kind: observedOracle?.oracleKind ?? null,
           observed_subject_id: observedOracle?.observedSubjectId ?? null,
         }, trx)
+        if (diagnosticV3Ordinals.has(input.itemOrdinal)) await this.diagnosticEvidence.append({
+          binding: { projectId: run.app_name, executionId: input.executionId, runId: input.runId,
+            itemOrdinal: input.itemOrdinal, resultId: inserted.result_id, definitionId, executablePlanHash: fingerprint },
+          facts: diagnosticEvidenceFromProductResult(input.plan, input.observed),
+        }, trx)
+        return inserted
       })
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause)
@@ -255,6 +435,7 @@ export class ExecutionRunCoordinator {
     processInstanceId: string
     runId: string
     completedAt: string
+    missingResults?: MissingProductResultObservation[]
   }): Promise<ProductTerminalAggregate> {
     if (!SAFE_ID.test(input.executionId) || !SAFE_ID.test(input.projectId)
       || !SAFE_ID.test(input.processInstanceId) || !SAFE_ID.test(input.runId)
@@ -263,7 +444,7 @@ export class ExecutionRunCoordinator {
       return await this.dbProvider().transaction().execute(async trx => {
         const run = await this.runs.findById(input.runId, trx)
         if (!run || run.origin !== 'product' || run.execution_id !== input.executionId
-          || run.app_name !== input.projectId || run.lifecycle !== 'running') {
+          || run.app_name !== input.projectId || !['running', 'completed'].includes(run.lifecycle)) {
           throw new ProductTerminalizationError('Product Run is not eligible for terminalization.')
         }
         const read = await this.aggregator.read(input.projectId, input.executionId, trx)
@@ -271,6 +452,42 @@ export class ExecutionRunCoordinator {
           throw new ProductTerminalizationError('Persisted Product evidence is unavailable or integrity-invalid.')
         }
         const aggregate = read.aggregation
+        if (run.lifecycle === 'completed') {
+          if (!aggregate.execution.terminal || aggregate.run.runId !== input.runId
+            || aggregate.run.lifecycle !== 'completed' || aggregate.run.terminalOutcome === null) {
+            throw new ProductTerminalizationError('Persisted terminal Product authority is inconsistent.')
+          }
+          const diagnosticV3Ordinals = await this.diagnosticV3Ordinals(input.executionId, trx)
+          const missingItems = read.evidence.items.filter(item => diagnosticV3Ordinals.has(Number(item.item_ordinal))
+            && !read.evidence.results.some(result => Number(result.execution_item_ordinal) === Number(item.item_ordinal)))
+          const supplied = input.missingResults ?? []
+          if (missingItems.length !== supplied.length || supplied.some((item, index) => item.itemOrdinal !== Number(missingItems[index].item_ordinal))) {
+            throw new ProductTerminalizationError('Terminal retry missing-Result evidence does not match the immutable manifest.')
+          }
+          for (const missing of supplied) {
+            const item = missingItems.find(candidate => Number(candidate.item_ordinal) === missing.itemOrdinal)!
+            await this.diagnosticEvidence.append({
+              binding: { projectId: input.projectId, executionId: input.executionId, runId: input.runId,
+                itemOrdinal: missing.itemOrdinal, resultId: null, definitionId: item.definition_id,
+                executablePlanHash: item.executable_plan_hash },
+              facts: missing.facts,
+            }, trx)
+          }
+          const evidenceRows = diagnosticV3Ordinals.size > 0
+            ? await this.diagnosticEvidence.read(input.projectId, input.executionId, trx) : []
+          if (evidenceRows.length !== diagnosticV3Ordinals.size) {
+            throw new ProductTerminalizationError('Terminal diagnostic evidence is incomplete.')
+          }
+          return {
+            runOutcome: aggregate.run.terminalOutcome,
+            executionOutcome: aggregate.execution.outcome,
+            expectedResultCount: aggregate.manifest.expectedResultCount,
+            recordedResultCount: aggregate.manifest.observedResultCount,
+            passed: aggregate.counts.passed,
+            failed: aggregate.counts.failed,
+            couldNotVerify: aggregate.counts.couldNotVerify,
+          }
+        }
         const expectedResultCount = aggregate.manifest.expectedResultCount
         if (aggregate.run.runId !== input.runId || aggregate.run.lifecycle !== 'running'
           || aggregate.run.terminalOutcome === null || Number(run.total_tests) !== expectedResultCount
@@ -302,6 +519,28 @@ export class ExecutionRunCoordinator {
               ? 'The governed execution completed with persisted failing Result evidence.'
               : 'The governed execution completed without enough persisted evidence to verify every expected item.',
         }, trx)
+        const diagnosticV3Ordinals = await this.diagnosticV3Ordinals(input.executionId, trx)
+        const missingOrdinals = read.evidence.items
+          .filter(item => diagnosticV3Ordinals.has(Number(item.item_ordinal))
+            && !read.evidence.results.some(result => Number(result.execution_item_ordinal) === Number(item.item_ordinal)))
+          .map(item => Number(item.item_ordinal))
+        const supplied = input.missingResults ?? []
+        if (missingOrdinals.length !== supplied.length
+          || supplied.some((item, index) => item.itemOrdinal !== missingOrdinals[index])) {
+          throw new ProductTerminalizationError('Every terminal missing Result requires one exact diagnostic evidence observation.')
+        }
+        for (const missing of supplied) {
+          const item = read.evidence.items.find(candidate => Number(candidate.item_ordinal) === missing.itemOrdinal)
+          if (!item || missing.plan.value.definitionId !== item.definition_id || missing.plan.fingerprint !== item.executable_plan_hash) {
+            throw new ProductTerminalizationError('Missing Result diagnostic authority does not match the immutable manifest.')
+          }
+          await this.diagnosticEvidence.append({
+            binding: { projectId: input.projectId, executionId: input.executionId, runId: input.runId,
+              itemOrdinal: missing.itemOrdinal, resultId: null, definitionId: item.definition_id,
+              executablePlanHash: item.executable_plan_hash },
+            facts: missing.facts,
+          }, trx)
+        }
         return {
           runOutcome: aggregate.run.terminalOutcome,
           executionOutcome,

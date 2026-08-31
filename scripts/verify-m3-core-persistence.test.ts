@@ -187,10 +187,10 @@ test('Migration 033 promotion guard requires the exact source and schema-3 Test 
   })
 })
 
-test('Migration ceiling records 033 as the latest applied authority', async () => {
+test('Migration ceiling records 035 as the latest applied authority', async () => {
   await withDatabase(async () => {
     const rows = await sql<{ name: string }>`SELECT name FROM kysely_migration ORDER BY name DESC LIMIT 1`.execute(getDb())
-    assert.equal(rows.rows[0].name, '033_manual_test_source_promotion_authority')
+    assert.equal(rows.rows[0].name, '035_suite_v2_multi_source_execution_authority')
   })
 })
 
@@ -201,5 +201,15 @@ test('Migration 033 restart inspection rejects a missing or inert same-name memb
     await sql.raw(`CREATE TRIGGER manual_test_promotions_definition_membership_insert
       BEFORE INSERT ON manual_test_promotions BEGIN SELECT 1; END`).execute(getDb())
     await assert.rejects(runMigrations(), /033_manual_test_source_promotion_authority.*trigger contract/i)
+  })
+})
+
+test('Migration 034 restart inspection rejects a missing or inert same-name append-only guard', async () => {
+  await withDatabase(async () => {
+    await sql`DROP TRIGGER diagnostic_evidence_immutable_update`.execute(getDb())
+    await assert.rejects(runMigrations(), /034_diagnostic_evidence_authority.*table\/index\/trigger contract/i)
+    await sql.raw(`CREATE TRIGGER diagnostic_evidence_immutable_update
+      BEFORE UPDATE ON diagnostic_evidence BEGIN SELECT 1; END`).execute(getDb())
+    await assert.rejects(runMigrations(), /034_diagnostic_evidence_authority.*table\/index\/trigger contract/i)
   })
 })

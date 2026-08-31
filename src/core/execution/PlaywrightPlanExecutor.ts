@@ -50,19 +50,19 @@ export interface PlaywrightExecutionRuntime {
 }
 
 export type PlaywrightPlanExecutionResult =
-  | { status: 'completed'; reasonCode: 'completed'; finalUrl: string }
+  | { status: 'completed'; reasonCode: 'completed'; finalUrl: string; navigationUrl?: string; targetCardinality?: 'one' | 'many' }
   | { status: 'authentication_failed'; reasonCode: 'credential_missing' | 'authentication_failed' }
-  | { status: 'navigation_failed'; reasonCode: 'navigation_failed' }
-  | { status: 'action_failed'; reasonCode: 'action_failed' }
-  | { status: 'oracle_failed'; reasonCode: 'oracle_failed'; finalUrl: string }
+  | { status: 'navigation_failed'; reasonCode: 'navigation_failed'; observedUrl?: string; failureClass?: 'browser_navigation_error' | 'timeout' }
+  | { status: 'action_failed'; reasonCode: 'action_failed'; navigationUrl?: string; targetCardinality?: 'zero' | 'one' | 'many'; failureClass?: 'target_not_actionable' | 'interaction_failed' | 'timeout' }
+  | { status: 'oracle_failed'; reasonCode: 'oracle_failed'; finalUrl: string; navigationUrl?: string; targetCardinality?: 'one' | 'many' }
   | { status: 'unsupported_plan'; reasonCode: 'unsupported_action' | 'unsupported_oracle' | 'unsupported_auth_mechanism' | 'invalid_plan' }
-  | { status: 'executor_failure'; reasonCode: 'executor_failure' }
+  | { status: 'executor_failure'; reasonCode: 'executor_failure'; failureClass?: 'browser_session_unavailable' | 'executor_internal_failure' | 'process_failure' | 'timeout' }
   | { status: 'cancelled'; reasonCode: 'cancellation_requested' }
 
 interface ExecutionSession {
   authenticateFormLogin(loginUrl: string, credentials: CredentialMaterial, timeoutMs: number): Promise<boolean>
   navigate(url: string, timeoutMs: number): Promise<void>
-  clickDataTest?(value: string, timeoutMs: number): Promise<void>
+  clickDataTest?(value: string, timeoutMs: number): Promise<'one' | 'many' | void>
   currentUrl(): string
   close(): Promise<void>
 }
@@ -118,10 +118,16 @@ class PlaywrightExecutionSession implements ExecutionSession {
     await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
   }
 
-  async clickDataTest(value: string, timeoutMs: number): Promise<void> {
+  async clickDataTest(value: string, timeoutMs: number): Promise<'one' | 'many'> {
     const target = this.page.locator(`[data-test="${value}"]`)
-    await target.waitFor({ state: 'visible', timeout: timeoutMs })
-    await target.click({ timeout: timeoutMs })
+    const count = await target.count()
+    if (count === 0) throw new ActionPhaseError('zero', 'target_not_actionable')
+    const cardinality = count === 1 ? 'one' : 'many'
+    try { await target.waitFor({ state: 'visible', timeout: timeoutMs }) }
+    catch { throw new ActionPhaseError(cardinality, 'target_not_actionable') }
+    try { await target.click({ timeout: timeoutMs }) }
+    catch { throw new ActionPhaseError(cardinality, 'interaction_failed') }
+    return cardinality
   }
 
   currentUrl(): string { return this.page.url() }
@@ -131,6 +137,13 @@ class PlaywrightExecutionSession implements ExecutionSession {
     await this.context.close().catch(() => undefined)
     await this.browser.close().catch(() => undefined)
   }
+}
+
+class ActionPhaseError extends Error {
+  constructor(
+    readonly targetCardinality: 'zero' | 'one' | 'many',
+    readonly failureClass: 'target_not_actionable' | 'interaction_failed' | 'timeout',
+  ) { super('Bounded Playwright action phase failure.'); this.name = 'ActionPhaseError' }
 }
 
 function urlMatchesRoute(actual: string, expected: string): boolean {
@@ -238,8 +251,12 @@ export class PlaywrightPlanExecutor {
       try {
         await activeSession.navigate(targetUrl, timeoutMs)
       } catch {
-        return { status: 'navigation_failed', reasonCode: 'navigation_failed' }
+        const observedUrl = activeSession.currentUrl()
+        return { status: 'navigation_failed', reasonCode: 'navigation_failed', failureClass: 'browser_navigation_error',
+          ...(observedUrl ? { observedUrl } : {}) }
       }
+      const navigationUrl = activeSession.currentUrl()
+      let targetCardinality: 'one' | 'many' | undefined
       if (cancellation?.isCancellationRequested()) {
         return { status: 'cancelled', reasonCode: 'cancellation_requested' }
       }
@@ -252,9 +269,12 @@ export class PlaywrightPlanExecutor {
           return { status: 'executor_failure', reasonCode: 'executor_failure' }
         }
         try {
-          await activeSession.clickDataTest(click.dataTestValue, timeoutMs)
-        } catch {
-          return { status: 'action_failed', reasonCode: 'action_failed' }
+          targetCardinality = await activeSession.clickDataTest(click.dataTestValue, timeoutMs) || undefined
+        } catch (error) {
+          return error instanceof ActionPhaseError
+            ? { status: 'action_failed', reasonCode: 'action_failed', navigationUrl,
+                targetCardinality: error.targetCardinality, failureClass: error.failureClass }
+            : { status: 'action_failed', reasonCode: 'action_failed', navigationUrl }
         }
       }
       if (cancellation?.isCancellationRequested()) {
@@ -264,9 +284,11 @@ export class PlaywrightPlanExecutor {
       const expectedRoute = plan.oracle.routePath ?? navigation.routePath
       const expectedUrl = new URL(expectedRoute, runtime.baseUrl).href
       if (!urlMatchesRoute(finalUrl, expectedUrl)) {
-        return { status: 'oracle_failed', reasonCode: 'oracle_failed', finalUrl }
+        return { status: 'oracle_failed', reasonCode: 'oracle_failed', finalUrl, navigationUrl,
+          ...(targetCardinality ? { targetCardinality } : {}) }
       }
-      return { status: 'completed', reasonCode: 'completed', finalUrl }
+      return { status: 'completed', reasonCode: 'completed', finalUrl, navigationUrl,
+        ...(targetCardinality ? { targetCardinality } : {}) }
     } catch {
       return { status: 'executor_failure', reasonCode: 'executor_failure' }
     } finally {

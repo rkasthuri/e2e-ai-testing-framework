@@ -29,6 +29,7 @@ const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-td-ui-069b-c-g-results
 const DB_PATH = path.join(ROOT, 'forge.db')
 const BASE_MS = Date.parse('2026-08-10T20:00:00.000Z')
 const PROCESS = 'projection-process'
+let fixtureTestSetRevision = 1000
 
 interface FixtureOptions {
   suffix: string
@@ -74,14 +75,31 @@ async function fixture(options: FixtureOptions): Promise<{ projectId: string; ex
   const withRun = options.withRun ?? true
   const hashes = Array.from({ length: itemCount }, (_, index) => hash(`plan-${options.suffix}-${index + 1}`))
   const rootHash = manifestHash(hashes)
+  const testSetRevision = ++fixtureTestSetRevision
   const db = getDb()
+  const definitionIds = hashes.map((_, index) => `definition-${options.suffix}-${index + 1}`)
+  const model = await db.insertInto('app_models').values({
+    app_name: projectId, version: '1.0.0', base_url: '', app_type: 'web', intake_mode: 'crawl',
+    crawl_config_hash: rootHash, page_count: 1, flow_count: 0, role_count: 0, model_json: '{}',
+    crawled_at: acceptedAt, crawled_by: 'fixture', status: 'archived', evidence_state: 'crawled',
+    operation_id: null, candidate_hash: null, recovery_source_row_id: null, recovery_source_fingerprint: null,
+  }).returning('id').executeTakeFirstOrThrow()
+  const testSet = await db.insertInto('test_set_revisions').values({
+    test_set_id: `test-set-${options.suffix}`, revision: testSetRevision, project_id: projectId, generation_id: `generation-${options.suffix}`,
+    schema_version: 1, source_observation_id: `observation-${options.suffix}`, model_row_id: Number(model.id),
+    model_version: '1.0.0', observation_run_id: null, support_seal_hash: null,
+    characterization_policy_id: null, characterization_policy_version: null, generated_at: acceptedAt,
+    outcome: 'completed', definition_count: definitionIds.length,
+    payload_json: JSON.stringify({ definitions: definitionIds.map(id => ({ id })) }), content_hash: rootHash,
+  }).returning('id').executeTakeFirstOrThrow()
   await db.insertInto('executions').values({
     execution_id: executionId,
     project_id: projectId,
     accepted_at: acceptedAt,
     test_set_id: `test-set-${options.suffix}`,
-    test_set_revision: 1,
-    model_row_id: 1,
+    test_set_revision: testSetRevision,
+    definition_schema_version: 1,
+    model_row_id: Number(model.id),
     model_version: '1.0.0',
     source_observation_id: `observation-${options.suffix}`,
     manifest_hash: rootHash,
@@ -94,8 +112,13 @@ async function fixture(options: FixtureOptions): Promise<{ projectId: string; ex
   await db.insertInto('execution_items').values(hashes.map((planHash, index) => ({
     execution_id: executionId,
     item_ordinal: index + 1,
-    definition_id: `definition-${options.suffix}-${index + 1}`,
+    definition_id: definitionIds[index],
     executable_plan_hash: planHash,
+  }))).execute()
+  await db.insertInto('execution_item_authorities').values(definitionIds.map((definitionId, index) => ({
+    execution_id: executionId, item_ordinal: index + 1, test_set_row_id: Number(testSet.id),
+    test_set_id: `test-set-${options.suffix}`, test_set_revision: testSetRevision, test_set_content_hash: rootHash,
+    definition_schema_version: 1, definition_id: definitionId,
   }))).execute()
   await db.insertInto('execution_events').values({
     execution_id: executionId,

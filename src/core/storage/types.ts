@@ -356,11 +356,12 @@ export interface ExecutionsTable {
   execution_id: string;
   project_id: string;
   accepted_at: string;
-  test_set_id: string;
-  test_set_revision: number;
-  definition_schema_version: number;
-  model_row_id: number;
-  model_version: string;
+  test_set_authority_scope: Generated<string>;
+  test_set_id: string | null;
+  test_set_revision: number | null;
+  definition_schema_version: number | null;
+  model_row_id: number | null;
+  model_version: string | null;
   source_observation_id: string | null;
   support_seal_hash: string | null;
   route_evidence_identity_hash: string | null;
@@ -380,12 +381,18 @@ export interface ExecutionsTable {
 export interface SuitesTable { suite_id: string; project_id: string; current_revision: number; name_key: string; created_at: string }
 export interface SuiteRevisionsTable {
   suite_id: string; revision: number; project_id: string; name: string; name_key: string; purpose: string;
-  definition_schema_version: number; test_set_row_id: number; test_set_id: string; test_set_revision: number;
-  test_set_content_hash: string; created_at: string; provenance_source: string; change_kind: string;
+  suite_schema_version: Generated<number>;
+  definition_schema_version: number | null; test_set_row_id: number | null; test_set_id: string | null; test_set_revision: number | null;
+  test_set_content_hash: string | null; created_at: string; provenance_source: string; change_kind: string;
   prior_revision: number | null; change_intent_key: string; change_intent_fingerprint: string;
   member_count: number; content_hash: string;
 }
 export interface SuiteRevisionMembersTable { suite_id: string; suite_revision: number; member_ordinal: number; definition_id: string }
+export interface SuiteRevisionMemberAuthoritiesTable {
+  suite_id: string; suite_revision: number; member_ordinal: number; test_set_row_id: number;
+  test_set_id: string; test_set_revision: number; test_set_content_hash: string;
+  definition_schema_version: number; definition_id: string;
+}
 
 export interface ManualTestSourcesTable {
   source_id: string;
@@ -421,6 +428,28 @@ export interface ExecutionItemsTable {
   // Migration 029: immutable plan oracle authority. Historical items remain NULL.
   oracle_kind: Generated<string | null>;
   oracle_subject_id: Generated<string | null>;
+}
+
+export interface ExecutionItemAuthoritiesTable {
+  execution_id: string; item_ordinal: number; test_set_row_id: number;
+  test_set_id: string; test_set_revision: number; test_set_content_hash: string;
+  definition_schema_version: number; definition_id: string;
+}
+
+export interface DiagnosticEvidenceTable {
+  id: Generated<number>;
+  evidence_schema_version: string;
+  evidence_hash: string;
+  project_id: string;
+  execution_id: string;
+  run_id: string;
+  item_ordinal: number;
+  result_id: string | null;
+  definition_id: string;
+  executable_plan_hash: string;
+  accepted_definition_authority_json: string;
+  suite_authority_json: string | null;
+  evidence_json: string;
 }
 
 // ── Canonical Observation authority ─────────────────────────────────────────
@@ -593,9 +622,12 @@ export interface Database {
   execution_locks: ExecutionLocksTable;
   executions: ExecutionsTable;
   execution_items: ExecutionItemsTable;
+  execution_item_authorities: ExecutionItemAuthoritiesTable;
+  diagnostic_evidence: DiagnosticEvidenceTable;
   suites: SuitesTable;
   suite_revisions: SuiteRevisionsTable;
   suite_revision_members: SuiteRevisionMembersTable;
+  suite_revision_member_authorities: SuiteRevisionMemberAuthoritiesTable;
   manual_test_sources: ManualTestSourcesTable;
   manual_test_promotions: ManualTestPromotionsTable;
   observation_runs: ObservationRunsTable;
@@ -665,6 +697,8 @@ export type Execution = Selectable<ExecutionsTable>;
 export type NewExecution = Insertable<ExecutionsTable>;
 export type ExecutionItem = Selectable<ExecutionItemsTable>;
 export type NewExecutionItem = Insertable<ExecutionItemsTable>;
+export type DiagnosticEvidenceRow = Selectable<DiagnosticEvidenceTable>;
+export type NewDiagnosticEvidenceRow = Insertable<DiagnosticEvidenceTable>;
 export type ObservationRunRow = Selectable<ObservationRunsTable>;
 export type NewObservationRunRow = Insertable<ObservationRunsTable>;
 export type ObservationRow = Selectable<ObservationsTable>;

@@ -259,9 +259,10 @@ export class ExecutionResultProjectionService {
       const definitionAuthority=suite.members[0]?.definitionAuthority
       if (suite.projectId!==execution.project_id || suite.suiteId!==execution.suite_id || suite.revision!==revision
         || suite.contentHash!==execution.suite_content_hash || suite.purpose!=='sanity' || !definitionAuthority
-        || definitionAuthority.testSetId!==execution.test_set_id
+        || suite.schemaVersion===1&&(definitionAuthority.testSetId!==execution.test_set_id
         || definitionAuthority.testSetRevision!==Number(execution.test_set_revision)
-        || definitionAuthority.definitionSchemaVersion!==Number(execution.definition_schema_version)) {
+        || definitionAuthority.definitionSchemaVersion!==Number(execution.definition_schema_version))
+        || suite.schemaVersion===2&&execution.test_set_authority_scope!=='per_item') {
         throw new SuiteContractError('suite_integrity_invalid','Accepted Suite revision does not match Execution authority.')
       }
       return {kind:'suite_revision',suiteId:suite.suiteId,suiteRevision:suite.revision,suiteContentHash:suite.contentHash,name:suite.name,purpose:suite.purpose}
@@ -275,6 +276,13 @@ export class ExecutionResultProjectionService {
     const { evidence, aggregation } = read
     const invalid = aggregation.integrityWarnings.filter(item => item.severity === 'error')
     if (invalid.length > 0) throw new ProjectionIntegrityError(invalid)
+    if (evidence.execution.test_set_authority_scope === 'per_item') {
+      throw new ProjectionIntegrityError([{
+        severity: 'error',
+        code: 'conflicting_provenance',
+        safeMessage: 'Single-root Definition authority is unavailable for an Execution with per-item authority.',
+      }])
+    }
 
     const run = evidence.runs[0] ?? null
     const resultsByOrdinal = new Map(
@@ -319,10 +327,10 @@ export class ExecutionResultProjectionService {
         manifestCount: aggregation.manifest.expectedResultCount,
         definitionAuthority: {
           schemaVersion: Number(evidence.execution.definition_schema_version) as 1 | 2 | 3,
-          testSetId: evidence.execution.test_set_id,
+          testSetId: evidence.execution.test_set_id!,
           revision: Number(evidence.execution.test_set_revision),
           modelRowId: Number(evidence.execution.model_row_id),
-          modelVersion: evidence.execution.model_version,
+          modelVersion: evidence.execution.model_version!,
           supportSealHash: evidence.execution.support_seal_hash,
           routeEvidenceIdentityHash: evidence.execution.route_evidence_identity_hash,
           authenticationExpectationIdentityHash: evidence.execution.authentication_expectation_identity_hash,

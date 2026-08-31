@@ -133,7 +133,8 @@ before(async () => {
     schema_version: 1, source_observation_id: 'observation-idempotency', model_row_id: modelRowId,
     model_version: MODEL_VERSION, observation_run_id: null, support_seal_hash: null,
     characterization_policy_id: null, characterization_policy_version: null,
-    generated_at: ACCEPTED, outcome: 'completed', definition_count: 1, payload_json: '{}', content_hash: PLAN_HASH,
+    generated_at: ACCEPTED, outcome: 'completed', definition_count: 1,
+    payload_json: JSON.stringify({ definitions: [{ id: 'definition-idempotency' }] }), content_hash: PLAN_HASH,
   }).execute()
 })
 
@@ -192,7 +193,8 @@ test('TD-PRODUCT-004-A-3 N concurrent identical requests persist one Execution a
     schema_version: 1, source_observation_id: 'observation-idempotency', model_row_id: concurrentModelRowId,
     model_version: MODEL_VERSION, observation_run_id: null, support_seal_hash: null,
     characterization_policy_id: null, characterization_policy_version: null, generated_at: ACCEPTED,
-    outcome: 'completed', definition_count: 1, payload_json: '{}', content_hash: PLAN_HASH,
+    outcome: 'completed', definition_count: 1,
+    payload_json: JSON.stringify({ definitions: [{ id: 'definition-idempotency' }] }), content_hash: PLAN_HASH,
   }).execute()
   const inputs = Array.from({ length: 8 }, (_, index) => beginInput({
     executionId: `execution-concurrent-${index + 1}`, executionIntentKey: key,

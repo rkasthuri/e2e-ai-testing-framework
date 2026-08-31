@@ -503,6 +503,7 @@ test('real M3 Product driver passes complete golden Certification with canonical
       clickDataTest: async value => {
         assert.equal(value, 'checkout')
         currentUrl = 'https://m3.example.test/checkout-step-one.html'
+        return 'one' as const
       },
       currentUrl: () => currentUrl,
       close: async () => undefined,

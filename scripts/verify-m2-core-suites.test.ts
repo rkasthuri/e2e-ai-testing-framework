@@ -16,6 +16,7 @@ import { sql } from 'kysely'
 import { closeDb, getDb, initDb } from '../src/core/storage/db'
 import { runMigrations } from '../src/core/storage/migrate'
 import { MIGRATION_032_TRIGGER_DEFINITIONS_V1 } from '../src/core/storage/migrations/032_canonical_suite_revision_authority'
+import { MIGRATION_035_TRIGGER_DEFINITIONS_V1 } from '../src/core/storage/migrations/035_suite_v2_multi_source_execution_authority'
 import {
   generateCanonicalFlowTestSetV3, materializeCanonicalTestSet,
   type CanonicalTestSetV2, type CanonicalTestSetV3,
@@ -304,7 +305,8 @@ test('M2 Core-C rejects missing, inert, or weakened same-name Migration 032 trig
         && error.name==='MigrationStateMismatchError'
         && /032_canonical_suite_revision_authority/.test(error.message))
       if (attack.replacement) await sql.raw(`DROP TRIGGER ${attack.name}`).execute(getDb())
-      await sql.raw(MIGRATION_032_TRIGGER_DEFINITIONS_V1[attack.name]).execute(getDb())
+      const successorDefinition = (MIGRATION_035_TRIGGER_DEFINITIONS_V1 as Record<string, string>)[attack.name]
+      await sql.raw(successorDefinition ?? MIGRATION_032_TRIGGER_DEFINITIONS_V1[attack.name]).execute(getDb())
       await runMigrations()
     } finally {
       await closeDb()
@@ -422,6 +424,8 @@ test('M2 Suite revision persistence, normalization, idempotency, immutability, a
 
     await assert.rejects(sql`UPDATE suite_revisions SET name='mutated' WHERE suite_id=${created.suiteId}`.execute(getDb()))
     await sql.raw('DROP TRIGGER suite_revision_members_immutable_delete').execute(getDb())
+    await sql.raw('DROP TRIGGER suite_member_authority_immutable_delete').execute(getDb())
+    await sql`DELETE FROM suite_revision_member_authorities WHERE suite_id=${created.suiteId} AND member_ordinal=1`.execute(getDb())
     await sql`DELETE FROM suite_revision_members WHERE suite_id=${created.suiteId} AND member_ordinal=1`.execute(getDb())
     await assert.rejects(new SuiteRepository().read(PROJECT, created.suiteId, 1), isSuiteError('suite_integrity_invalid'))
 
@@ -653,6 +657,8 @@ test('M2 Core-D Results rejects independently corrupted accepted Suite authority
         .where('suite_id','=',suite.suiteId).where('project_id','=',PROJECT).executeTakeFirstOrThrow()).current_revision,2)
       await sql.raw('DROP TRIGGER suite_revision_members_immutable_delete').execute(getDb())
       await sql.raw('DROP TRIGGER suite_revisions_immutable_delete').execute(getDb())
+      await sql.raw('DROP TRIGGER suite_member_authority_immutable_delete').execute(getDb())
+      await getDb().deleteFrom('suite_revision_member_authorities').where('suite_id','=',suite.suiteId).where('suite_revision','=',1).execute()
       await getDb().deleteFrom('suite_revision_members').where('suite_id','=',suite.suiteId).where('suite_revision','=',1).execute()
       await getDb().deleteFrom('suite_revisions').where('suite_id','=',suite.suiteId).where('revision','=',1).execute()
     }},
