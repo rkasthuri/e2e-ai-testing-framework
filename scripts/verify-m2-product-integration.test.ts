@@ -33,7 +33,7 @@ import { SuiteService } from '../src/core/suites/SuiteService'
 import { SuiteContractError, type CanonicalSuiteRevision, type DefinitionRevisionRef } from '../src/core/suites/SuiteContract'
 import { ExecutionService, type GovernedExecutionStartRequest } from '../src/core/execution/ExecutionService'
 import { ExecutionRepository, type BeginExecutionInput } from '../src/core/storage/repositories/ExecutionRepository'
-import { PlaywrightPlanExecutor, type ExecutionSessionFactory } from '../src/core/execution/PlaywrightPlanExecutor'
+import { PlaywrightPlanExecutor, type ExecutionSessionFactory, type PlaywrightPlanExecutionResult } from '../src/core/execution/PlaywrightPlanExecutor'
 import { EnvironmentCredentialExecutionScope } from '../src/core/security/CredentialExecutionScope'
 import { ExecutionResultProjectionService, type ExecutionResultProjection } from '../src/core/execution/ExecutionResultProjectionService'
 import { PersistedEvidenceAggregator } from '../src/core/execution/PersistedEvidenceAggregator'
@@ -59,6 +59,8 @@ import {
   type DiagnosticEvidenceFactsV1,
 } from '../src/core/execution/DiagnosticEvidenceContract'
 import { HistoricalDefinitionAuthorityResolver } from '../src/core/execution/HistoricalDefinitionAuthorityResolver'
+import { DiagnosticClassificationService } from '../src/core/execution/DiagnosticClassificationService'
+import { DIAGNOSTIC_CLASSIFIER_VERSION } from '../src/core/execution/DiagnosticClassificationContract'
 import { loadM2CertificationCase } from './m2-certification/fixture-loader'
 import { ProductM2CertificationDriver, type ProductM2ObservationPort } from './m2-certification/product-driver'
 import { assertM2CertificationPassed, certifyM2Case } from './m2-certification/suite'
@@ -83,6 +85,18 @@ const START = '2026-08-25T20:00:00.000Z'
 const END = '2026-08-25T20:00:01.000Z'
 const HASH = 'a'.repeat(64)
 const CREDENTIAL_REFERENCE = { usernameEnv: 'M2_PRODUCT_USER', passwordEnv: 'M2_PRODUCT_PASSWORD' }
+
+async function classifyPersistedDiagnostic(row: Awaited<ReturnType<DiagnosticEvidenceRepository['read']>>[number]) {
+  return new DiagnosticClassificationService().classify({
+    projectId: row.project_id,
+    executionId: row.execution_id,
+    runId: row.run_id,
+    itemOrdinal: Number(row.item_ordinal),
+    evidenceSchemaVersion: row.evidence_schema_version,
+    evidenceHash: row.evidence_hash,
+    classifierVersion: DIAGNOSTIC_CLASSIFIER_VERSION,
+  })
+}
 
 function frozenContradictionFacts(): DiagnosticEvidenceFactsV1 {
   const contractRoot = path.resolve(process.cwd(), 'fixtures', 'm4-contract')
@@ -855,6 +869,11 @@ test('M4 Chunk 0 proves Suite-originated authority from accepted Execution throu
     assert.deepEqual(suiteEvidence.authority.suiteAuthority, accepted.suiteAuthority)
     assert.deepEqual(suiteEvidence.authority.acceptedDefinitionAuthority, accepted.acceptedDefinitionAuthority)
     assert.equal(suiteEvidenceRows[0]!.evidence_hash, hashJson(JSON.parse(suiteEvidenceRows[0]!.evidence_json)))
+    const suiteV1ClassificationBeforeAdvance = await classifyPersistedDiagnostic(suiteEvidenceRows[0]!)
+    assert.equal(suiteV1ClassificationBeforeAdvance.outcome.kind, 'refusal')
+    if (suiteV1ClassificationBeforeAdvance.outcome.kind === 'refusal') {
+      assert.equal(suiteV1ClassificationBeforeAdvance.outcome.refusalCode, 'insufficient_evidence')
+    }
     await assert.rejects(getDb().updateTable('diagnostic_evidence').set({ evidence_hash: '0'.repeat(64) })
       .where('id', '=', suiteEvidenceRows[0]!.id).execute())
     await assert.rejects(getDb().deleteFrom('diagnostic_evidence').where('id', '=', suiteEvidenceRows[0]!.id).execute())
@@ -1108,6 +1127,63 @@ test('M4 Chunk 0 proves Suite-originated authority from accepted Execution throu
     const failedEvidence = JSON.parse(failedRows[0]!.evidence_json)
     assert.equal(failedEvidence.authority.suiteAuthority, null)
     assert.equal(failedEvidence.oracle.outcome, 'mismatched')
+    const failedClassification = await classifyPersistedDiagnostic(failedRows[0]!)
+    assert.equal(failedClassification.outcome.kind, 'classified_failure')
+    if (failedClassification.outcome.kind === 'classified_failure') {
+      assert.equal(failedClassification.outcome.failureMode, 'oracle_mismatch')
+    }
+
+    const positiveMatrix: Array<{
+      name: string
+      expected: 'executor_failure' | 'authentication_not_established' | 'navigation_not_completed' | 'target_not_observed' | 'action_not_completed'
+      observed: PlaywrightPlanExecutionResult
+    }> = [
+      { name: 'executor', expected: 'executor_failure', observed: {
+        status: 'executor_failure', reasonCode: 'executor_failure', failureClass: 'browser_session_unavailable',
+      } },
+      { name: 'authentication', expected: 'authentication_not_established', observed: {
+        status: 'authentication_failed', reasonCode: 'authentication_failed',
+      } },
+      { name: 'navigation', expected: 'navigation_not_completed', observed: {
+        status: 'navigation_failed', reasonCode: 'navigation_failed', observedUrl: 'https://m2.example.test/login', failureClass: 'timeout',
+      } },
+      { name: 'target', expected: 'target_not_observed', observed: {
+        status: 'action_failed', reasonCode: 'action_failed', navigationUrl: 'https://m2.example.test/cart.html',
+        targetCardinality: 'zero', failureClass: 'target_not_actionable',
+      } },
+      { name: 'action', expected: 'action_not_completed', observed: {
+        status: 'action_failed', reasonCode: 'action_failed', navigationUrl: 'https://m2.example.test/cart.html',
+        targetCardinality: 'one', failureClass: 'interaction_failed',
+      } },
+    ]
+    for (const candidate of positiveMatrix) {
+      const service = new ExecutionService({
+        executor: { execute: async () => candidate.observed },
+        runnerReadiness: () => ({ available: true, safeCode: 'ready', safeMessage: `controlled ${candidate.name} adapter is available` }),
+        credentials: new EnvironmentCredentialExecutionScope({ M2_PRODUCT_USER: 'shopper', M2_PRODUCT_PASSWORD: 'secret' }),
+        processInstanceId: `m4-${candidate.name}-classification-process`,
+      })
+      const execution = await service.start({
+        projectId: PROJECT,
+        executionIntentKey: `m4-chunk2-${candidate.name}`,
+        definitionIds: [definition!.id],
+        revision: inventory.current.testSet.revision,
+        workspaceRoot: context.root,
+        credentialReference: CREDENTIAL_REFERENCE,
+        runtime: { baseUrl: 'https://m2.example.test', loginUrl: 'https://m2.example.test' },
+      })
+      assert.equal(execution.kind, 'accepted', candidate.name)
+      if (execution.kind !== 'accepted') throw new Error(`Controlled ${candidate.name} execution was not accepted.`)
+      await execution.completion
+      const rows = await new DiagnosticEvidenceRepository().read(PROJECT, execution.executionId)
+      assert.equal(rows.length, 1, candidate.name)
+      const first = await classifyPersistedDiagnostic(rows[0]!)
+      const repeated = await classifyPersistedDiagnostic(rows[0]!)
+      assert.deepEqual(first, repeated, candidate.name)
+      assert.equal(first.outcome.kind, 'classified_failure', candidate.name)
+      if (first.outcome.kind === 'classified_failure') assert.equal(first.outcome.failureMode, candidate.expected, candidate.name)
+      assert.equal(Object.hasOwn(JSON.parse(rows[0]!.evidence_json), 'classification'), false, candidate.name)
+    }
 
     let missingPlan: MaterializedExecutablePlan | null = null
     const missingService = new ExecutionService({
@@ -1156,6 +1232,14 @@ test('M4 Chunk 0 proves Suite-originated authority from accepted Execution throu
     }, contradictionFacts)
     assert.equal(Object.hasOwn(missingEvidence, 'classification'), false)
     assert.equal(Object.hasOwn(missingEvidence, 'diagnosticOutcome'), false)
+    const contradictionClassification = await classifyPersistedDiagnostic(missingRows[0]!)
+    assert.equal(contradictionClassification.outcome.kind, 'refusal')
+    if (contradictionClassification.outcome.kind === 'refusal') {
+      assert.equal(contradictionClassification.outcome.refusalCode, 'integrity_invalid')
+      if (contradictionClassification.outcome.refusalCode === 'integrity_invalid') {
+        assert.deepEqual(contradictionClassification.outcome.integrityFindings, ['diagnostic_evidence_contradiction'])
+      }
+    }
     assert.equal((await getDb().selectFrom('execution_events').select('id')
       .where('execution_id', '=', missing.executionId).where('event_type', '=', 'terminal').execute()).length, 1)
 
@@ -1166,6 +1250,7 @@ test('M4 Chunk 0 proves Suite-originated authority from accepted Execution throu
     const reopenedSuiteRows = await new DiagnosticEvidenceRepository().read(PROJECT, started.executionId)
     assert.equal(reopenedSuiteRows[0]!.evidence_hash, suiteEvidenceRows[0]!.evidence_hash)
     assert.equal(reopenedSuiteRows[0]!.evidence_json, suiteEvidenceRows[0]!.evidence_json)
+    assert.deepEqual(await classifyPersistedDiagnostic(reopenedSuiteRows[0]!), suiteV1ClassificationBeforeAdvance)
     await new ExecutionRunCoordinator().terminalize({
       projectId: PROJECT, executionId: missing.executionId, runId: missingRun.run_id,
       processInstanceId: 'm4-missing-result-process', completedAt: new Date(Date.now() + 2_000).toISOString(),
@@ -1248,6 +1333,11 @@ test('M4 Chunk 0 proves Suite-originated authority from accepted Execution throu
     const reopenedRecoveryRows = await new DiagnosticEvidenceRepository().read(PROJECT, recovering.executionId)
     assert.deepEqual(reopenedRecoveryRows.map(row => [row.evidence_hash, row.evidence_json]),
       recoveredRows.map(row => [row.evidence_hash, row.evidence_json]))
+    const recoveredClassification = await classifyPersistedDiagnostic(reopenedRecoveryRows[0]!)
+    assert.equal(recoveredClassification.outcome.kind, 'refusal')
+    if (recoveredClassification.outcome.kind === 'refusal') {
+      assert.equal(recoveredClassification.outcome.refusalCode, 'insufficient_evidence')
+    }
 
     class ConflictingRecoveryEvidenceRepository extends DiagnosticEvidenceRepository {
       override append(write: Parameters<DiagnosticEvidenceRepository['append']>[0], transaction?: Parameters<DiagnosticEvidenceRepository['append']>[1]) {
@@ -1413,6 +1503,7 @@ test('M4 Chunk 0B proves ordered two-member Suite v2 authority survives head adv
     assert.deepEqual(accepted.map(item=>item.definitionId),members.map(member=>member.definitionId))
     const evidenceBeforeHeadAdvance=await new DiagnosticEvidenceRepository().read(PROJECT,started.executionId)
     assert.equal(evidenceBeforeHeadAdvance.length,2)
+    const suiteV2ClassificationsBeforeHeadAdvance=await Promise.all(evidenceBeforeHeadAdvance.map(classifyPersistedDiagnostic))
     assert.deepEqual(evidenceBeforeHeadAdvance.map(row=>{
       const evidence=JSON.parse(row.evidence_json)
       return [evidence.authority.itemOrdinal,evidence.authority.definitionId,
@@ -1452,6 +1543,9 @@ test('M4 Chunk 0B proves ordered two-member Suite v2 authority survives head adv
     assert.deepEqual(await deriveChunk0Authority(PROJECT,started.executionId),accepted)
     assert.deepEqual((await new DiagnosticEvidenceRepository().read(PROJECT,started.executionId))
       .map(row=>[row.evidence_hash,row.evidence_json]),evidenceBeforeHeadAdvance.map(row=>[row.evidence_hash,row.evidence_json]))
+    const reopenedSuiteV2Rows=await new DiagnosticEvidenceRepository().read(PROJECT,started.executionId)
+    assert.deepEqual(await Promise.all(reopenedSuiteV2Rows.map(classifyPersistedDiagnostic)),
+      suiteV2ClassificationsBeforeHeadAdvance)
     const reopened=await new SuiteService().read(PROJECT,suite.suiteId,suite.revision)
     assert.deepEqual(reopened,suite)
     const recoveredSuiteDecision=await new ExecutionRecoveryCoordinator().reconcile({projectId:PROJECT,

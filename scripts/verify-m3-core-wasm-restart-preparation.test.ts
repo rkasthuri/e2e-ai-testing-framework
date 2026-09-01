@@ -36,6 +36,8 @@ import {
   DiagnosticEvidenceRepository,
 } from '../src/core/storage/repositories/DiagnosticEvidenceRepository'
 import { parseDiagnosticEvidenceFactsV1 } from '../src/core/execution/DiagnosticEvidenceContract'
+import { DiagnosticClassificationService } from '../src/core/execution/DiagnosticClassificationService'
+import { DIAGNOSTIC_CLASSIFIER_VERSION } from '../src/core/execution/DiagnosticClassificationContract'
 import type { ManualTestSourceInputV1 } from '../src/core/test-design/ManualTestSourceContract'
 import {
   ManualTestIngestionService,
@@ -78,6 +80,18 @@ const SOURCE_INPUT: ManualTestSourceInputV1 = {
     { ordinal: 2, text: 'Click the Checkout button.' },
   ],
   expectedOutcome: 'Checkout information page is displayed.',
+}
+
+async function classifyPersistedDiagnostic(row: Awaited<ReturnType<DiagnosticEvidenceRepository['read']>>[number]) {
+  return new DiagnosticClassificationService().classify({
+    projectId: row.project_id,
+    executionId: row.execution_id,
+    runId: row.run_id,
+    itemOrdinal: Number(row.item_ordinal),
+    evidenceSchemaVersion: row.evidence_schema_version,
+    evidenceHash: row.evidence_hash,
+    classifierVersion: DIAGNOSTIC_CLASSIFIER_VERSION,
+  })
 }
 
 function model(): AppModel {
@@ -382,6 +396,7 @@ test('CORE-D forced WASM reopen supports Analyze, Save, diagnostic evidence repl
     const evidenceRepository = new DiagnosticEvidenceRepository()
     const beforeReopen = await evidenceRepository.read(PROJECT, executionId)
     assert.equal(beforeReopen.length, 1)
+    const classificationBeforeReopen = await classifyPersistedDiagnostic(beforeReopen[0]!)
     const stored = beforeReopen[0]!
     const record = JSON.parse(stored.evidence_json)
     const facts = parseDiagnosticEvidenceFactsV1({
@@ -418,6 +433,7 @@ test('CORE-D forced WASM reopen supports Analyze, Save, diagnostic evidence repl
     const afterReopen = await new DiagnosticEvidenceRepository().read(PROJECT, executionId)
     assert.deepEqual(afterReopen.map(row => [row.evidence_hash, row.evidence_json]),
       beforeReopen.map(row => [row.evidence_hash, row.evidence_json]))
+    assert.deepEqual(await classifyPersistedDiagnostic(afterReopen[0]!), classificationBeforeReopen)
     assert.equal((await new DiagnosticEvidenceRepository().append({ binding, facts })).replayed, true)
     assert.ok(forcedWasmLoads >= 3)
   })

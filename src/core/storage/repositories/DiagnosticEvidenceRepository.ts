@@ -37,6 +37,14 @@ export interface DiagnosticEvidenceWriteResult {
   replayed: boolean
 }
 
+export interface DiagnosticEvidenceIdentity {
+  projectId: string
+  executionId: string
+  runId: string
+  itemOrdinal: number
+  evidenceSchemaVersion: string
+}
+
 export class DiagnosticEvidencePersistenceError extends Error {
   constructor(message = 'Diagnostic evidence did not commit.', options?: { cause?: unknown }) {
     super(message, options)
@@ -107,5 +115,16 @@ export class DiagnosticEvidenceRepository {
     return db.selectFrom('diagnostic_evidence').selectAll()
       .where('project_id', '=', projectId).where('execution_id', '=', executionId)
       .orderBy('run_id').orderBy('item_ordinal').execute()
+  }
+
+  async readExact(identity: DiagnosticEvidenceIdentity, transaction?: Transaction<Database>): Promise<DiagnosticEvidenceRow | null> {
+    const db = transaction ?? this.dbProvider()
+    return await db.selectFrom('diagnostic_evidence').selectAll()
+      .where('project_id', '=', identity.projectId)
+      .where('execution_id', '=', identity.executionId)
+      .where('run_id', '=', identity.runId)
+      .where('item_ordinal', '=', identity.itemOrdinal)
+      .where('evidence_schema_version', '=', identity.evidenceSchemaVersion)
+      .executeTakeFirst() ?? null
   }
 }
