@@ -58,7 +58,6 @@ const DIRECT_CHILD_PATH = path.join(TEST_ROOT, 'governed-sidecar-child.ts')
 const BASELINE_MODULE_URL = pathToFileURL(path.join(GOVERNED_REPOSITORY_ROOT, 'scripts', 'forge-validation-baseline.ts')).href
 const SIDECAR_MODULE_URL = pathToFileURL(path.join(__dirname, 'governance-validation-sidecar.ts')).href
 const SIDECAR_TEST_SUPPORT_MODULE_URL = pathToFileURL(path.join(__dirname, 'governance-validation-sidecar.test-support.ts')).href
-const BETTER_SQLITE3_MODULE_URL = pathToFileURL(require.resolve('better-sqlite3')).href
 const TSX_CLI = path.join(SOURCE_REPOSITORY_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs')
 const ENVIRONMENT_KEYS = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TMP', 'TEMP'] as const
 const REQUIRED_GOVERNED_REPOSITORY_FILES = [
@@ -96,6 +95,11 @@ interface CompletedRun {
   readonly signal: NodeJS.Signals | null
   readonly stdout: string
   readonly stderr: string
+}
+
+interface RunningDirectChild {
+  readonly child: ChildProcess
+  readonly completed: Promise<CompletedRun>
 }
 
 interface RunningRun {
@@ -238,14 +242,14 @@ function callerEnvironmentFile(label: string): string {
 function waitForFile(filePath: string, timeoutMs = 60_000): Promise<void> {
   if (fs.existsSync(filePath)) return Promise.resolve()
   return new Promise<void>((resolve, reject) => {
-    const watcher = fs.watch(path.dirname(filePath), (_event, fileName) => {
-      if (String(fileName) !== path.basename(filePath) || !fs.existsSync(filePath)) return
+    const poller = setInterval(() => {
+      if (!fs.existsSync(filePath)) return
       clearTimeout(timer)
-      watcher.close()
+      clearInterval(poller)
       resolve()
-    })
+    }, 10)
     const timer = setTimeout(() => {
-      watcher.close()
+      clearInterval(poller)
       reject(new Error(`Timed out waiting for ${filePath}`))
     }, timeoutMs)
   })
@@ -367,7 +371,14 @@ function removeRecoveredCrashJournal(databasePath: string): void {
   assert.equal(fs.existsSync(journalPath), false)
 }
 
-function directChild(environment: NodeJS.ProcessEnv): Promise<CompletedRun> {
+function holdGovernanceReadLock(databasePath: string): BetterSqlite3.Database {
+  const database = rawDatabase(databasePath)
+  database.exec('BEGIN')
+  database.prepare('SELECT state FROM main.governed_invocations LIMIT 1').get()
+  return database
+}
+
+function startDirectChild(environment: NodeJS.ProcessEnv): RunningDirectChild {
   const childEnvironment: NodeJS.ProcessEnv = {
     ...process.env,
     ...environment,
@@ -384,13 +395,137 @@ function directChild(environment: NodeJS.ProcessEnv): Promise<CompletedRun> {
   let stderr = ''
   child.stdout?.on('data', chunk => { stdout += String(chunk) })
   child.stderr?.on('data', chunk => { stderr += String(chunk) })
-  return new Promise((resolve, reject) => {
+  const completed = new Promise<CompletedRun>((resolve, reject) => {
     child.once('error', reject)
     child.once('close', (code, signal) => {
       activeChildren.delete(child)
       resolve({ code, signal, stdout, stderr })
     })
   })
+  return { child, completed }
+}
+
+function directChild(environment: NodeJS.ProcessEnv): Promise<CompletedRun> {
+  return startDirectChild(environment).completed
+}
+
+function boundedChildOutput(value: string, limit = 2_000): string {
+  return value.length <= limit ? value : `${value.slice(0, limit)}\n...[truncated ${value.length - limit} characters]`
+}
+
+function childResultDiagnostics(result: CompletedRun): string {
+  return JSON.stringify({
+    code: result.code,
+    signal: result.signal,
+    stdout: boundedChildOutput(result.stdout),
+    stderr: boundedChildOutput(result.stderr),
+  })
+}
+
+async function waitForChildFile(
+  running: RunningDirectChild,
+  filePath: string,
+  description: string,
+  timeoutMs: number,
+): Promise<void> {
+  if (fs.existsSync(filePath)) return
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    const finish = (error?: Error) => {
+      if (settled) return
+      settled = true
+      clearInterval(poller)
+      clearTimeout(timer)
+      if (error) reject(error)
+      else resolve()
+    }
+    const poller = setInterval(() => {
+      if (fs.existsSync(filePath)) finish()
+    }, 10)
+    const timer = setTimeout(() => {
+      finish(new Error(`Timed out waiting ${timeoutMs}ms for its ${description}: ${filePath}`))
+    }, timeoutMs)
+    void running.completed.then(
+      result => {
+        if (fs.existsSync(filePath)) finish()
+        else finish(new Error(
+          `Transaction child exited before its ${description} was observed: ${childResultDiagnostics(result)}`,
+        ))
+      },
+      error => finish(new Error(
+        `Transaction child failed before its ${description} was observed: ${boundedChildOutput(String(error))}`,
+      )),
+    )
+  })
+}
+
+async function waitForChildCompletion(
+  running: RunningDirectChild,
+  timeoutMs = 5_000,
+): Promise<CompletedRun> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      running.completed,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          `Timed out waiting ${timeoutMs}ms for terminated transaction child ${running.child.pid ?? 'unknown'} to exit`,
+        )), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function terminateDirectChild(running: RunningDirectChild): Promise<CompletedRun> {
+  if (activeChildren.has(running.child)) running.child.kill()
+  return waitForChildCompletion(running)
+}
+
+async function interruptGovernanceTransaction(options: {
+  readonly running: RunningDirectChild
+  readonly databasePath: string
+  readonly readyPath: string
+  readonly releasePath: string
+  readonly readyTimeoutMs?: number
+  readonly journalTimeoutMs?: number
+  readonly onTerminatedBeforeLockRelease?: (readLock: BetterSqlite3.Database) => void
+}): Promise<CompletedRun> {
+  const {
+    running,
+    databasePath,
+    readyPath,
+    releasePath,
+    readyTimeoutMs = 60_000,
+    journalTimeoutMs = 30_000,
+    onTerminatedBeforeLockRelease,
+  } = options
+  let readLock: BetterSqlite3.Database | undefined
+  let childResult: CompletedRun | undefined
+  try {
+    await waitForChildFile(running, readyPath, 'ready marker', readyTimeoutMs)
+    readLock = holdGovernanceReadLock(databasePath)
+    fs.writeFileSync(releasePath, 'go', 'utf8')
+    await waitForChildFile(
+      running,
+      `${databasePath}-journal`,
+      'rollback journal',
+      journalTimeoutMs,
+    )
+    childResult = await terminateDirectChild(running)
+    return childResult
+  } finally {
+    if (!childResult) childResult = await terminateDirectChild(running)
+    if (readLock) {
+      try {
+        onTerminatedBeforeLockRelease?.(readLock)
+      } finally {
+        if (readLock.inTransaction) readLock.exec('ROLLBACK')
+        readLock.close()
+      }
+    }
+  }
 }
 
 before(async () => {
@@ -544,37 +679,25 @@ void main().catch(error => {
 
   fs.writeFileSync(DIRECT_CHILD_PATH, `
 import fs from 'node:fs'
-import BetterSqlite3 from ${JSON.stringify(BETTER_SQLITE3_MODULE_URL)}
 import { canonicalGovernedReportEvidence } from ${JSON.stringify(SIDECAR_MODULE_URL)}
 import { DisposableGovernanceValidationSidecarForTests as GovernanceValidationSidecar } from ${JSON.stringify(SIDECAR_TEST_SUPPORT_MODULE_URL)}
+if (process.env.GOV_FAIL_BEFORE_READY === '1') {
+  process.stdout.write('synthetic pre-ready stdout context')
+  process.stderr.write('synthetic pre-ready startup failure')
+  process.exit(71)
+}
 const store = new GovernanceValidationSidecar(process.env.GOV_DB!)
 if (process.env.GOV_READY) fs.writeFileSync(process.env.GOV_READY, 'ready', 'utf8')
-if (process.env.GOV_DELAY_TRIGGER === 'acceptance') {
-  const db = new BetterSqlite3(process.env.GOV_DB!)
-  db.exec(\`CREATE TRIGGER certification_delay_acceptance
-    AFTER INSERT ON governed_invocations BEGIN
-      SELECT sum(value) FROM (
-        WITH RECURSIVE counter(value) AS (
-          VALUES(0) UNION ALL SELECT value + 1 FROM counter WHERE value < 20000000
-        ) SELECT value FROM counter
-      );
-    END;\`)
-  db.close()
-} else if (process.env.GOV_DELAY_TRIGGER === 'transition') {
-  const db = new BetterSqlite3(process.env.GOV_DB!)
-  db.exec(\`CREATE TRIGGER certification_delay_transition
-    AFTER UPDATE ON governed_invocations BEGIN
-      SELECT sum(value) FROM (
-        WITH RECURSIVE counter(value) AS (
-          VALUES(0) UNION ALL SELECT value + 1 FROM counter WHERE value < 20000000
-        ) SELECT value FROM counter
-      );
-    END;\`)
-  db.close()
+if (process.env.GOV_FAIL_AFTER_READY === '1') {
+  process.stderr.write('synthetic post-ready pre-journal failure')
+  process.exit(72)
 }
 const mode = process.env.GOV_MODE
 if (process.env.GOV_RELEASE) {
   while (!fs.existsSync(process.env.GOV_RELEASE)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+}
+if (process.env.GOV_HOLD_BEFORE_TRANSACTION === '1') {
+  while (true) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
 }
 if (mode === 'accept') {
   const value = store.acceptInvocation(process.env.GOV_TARGET!, process.env.GOV_INVOCATION!)
@@ -2129,24 +2252,124 @@ test('real SQLite busy timeout is unavailable infrastructure, not same-target mu
   verify.close()
 })
 
+test('transaction crash harness reports early exits and proves termination before lock release', async t => {
+  await t.test('child exit before ready reports bounded output immediately', async () => {
+    const dbPath = sidecarPath('crash-probe-before-ready')
+    const ready = path.join(BARRIER_ROOT, 'crash-probe-before-ready.ready')
+    const release = path.join(BARRIER_ROOT, 'crash-probe-before-ready.release')
+    const store = new GovernanceValidationSidecar(dbPath)
+    store.close()
+    const startedAt = Date.now()
+    const running = startDirectChild({
+      GOV_DB: dbPath,
+      GOV_MODE: 'complete-existing',
+      GOV_READY: ready,
+      GOV_RELEASE: release,
+      GOV_FAIL_BEFORE_READY: '1',
+    })
+    await assert.rejects(
+      interruptGovernanceTransaction({
+        running, databasePath: dbPath, readyPath: ready, releasePath: release,
+      }),
+      error => {
+        assert.match(String(error), /"code":71/)
+        assert.match(String(error), /synthetic pre-ready stdout context/)
+        assert.match(String(error), /synthetic pre-ready startup failure/)
+        return true
+      },
+    )
+    assert.equal(Date.now() - startedAt < 10_000, true)
+    assert.equal(activeChildren.has(running.child), false)
+    assert.equal(fs.existsSync(ready), false)
+  })
+
+  await t.test('child exit after ready reports before journal timeout', async () => {
+    const dbPath = sidecarPath('crash-probe-after-ready')
+    const ready = path.join(BARRIER_ROOT, 'crash-probe-after-ready.ready')
+    const release = path.join(BARRIER_ROOT, 'crash-probe-after-ready.release')
+    const store = new GovernanceValidationSidecar(dbPath)
+    store.close()
+    const startedAt = Date.now()
+    const running = startDirectChild({
+      GOV_DB: dbPath,
+      GOV_MODE: 'recover-existing',
+      GOV_READY: ready,
+      GOV_RELEASE: release,
+      GOV_FAIL_AFTER_READY: '1',
+    })
+    await assert.rejects(
+      interruptGovernanceTransaction({
+        running, databasePath: dbPath, readyPath: ready, releasePath: release,
+      }),
+      error => {
+        assert.match(String(error), /"code":72/)
+        assert.match(String(error), /synthetic post-ready pre-journal failure/)
+        return true
+      },
+    )
+    assert.equal(Date.now() - startedAt < 10_000, true)
+    assert.equal(activeChildren.has(running.child), false)
+    assert.equal(fs.existsSync(`${dbPath}-journal`), false)
+  })
+
+  await t.test('journal timeout awaits exact child termination before releasing read lock', async () => {
+    const dbPath = sidecarPath('crash-probe-journal-timeout')
+    const ready = path.join(BARRIER_ROOT, 'crash-probe-journal-timeout.ready')
+    const release = path.join(BARRIER_ROOT, 'crash-probe-journal-timeout.release')
+    const store = new GovernanceValidationSidecar(dbPath)
+    store.close()
+    const running = startDirectChild({
+      GOV_DB: dbPath,
+      GOV_MODE: 'complete-existing',
+      GOV_READY: ready,
+      GOV_RELEASE: release,
+      GOV_HOLD_BEFORE_TRANSACTION: '1',
+    })
+    let observedTerminatedWithLockHeld = false
+    await assert.rejects(
+      interruptGovernanceTransaction({
+        running,
+        databasePath: dbPath,
+        readyPath: ready,
+        releasePath: release,
+        journalTimeoutMs: 100,
+        onTerminatedBeforeLockRelease: readLock => {
+          assert.equal(activeChildren.has(running.child), false)
+          assert.equal(readLock.inTransaction, true)
+          observedTerminatedWithLockHeld = true
+        },
+      }),
+      /Timed out waiting 100ms for its rollback journal/,
+    )
+    assert.equal(observedTerminatedWithLockHeld, true)
+    assert.equal(activeChildren.has(running.child), false)
+    assert.equal(fs.existsSync(`${dbPath}-journal`), false)
+    const lockProbe = rawDatabase(dbPath)
+    lockProbe.exec('BEGIN EXCLUSIVE')
+    lockProbe.exec('ROLLBACK')
+    lockProbe.close()
+  })
+})
+
 test('process death inside the real acceptance transaction rolls back all authority', async () => {
   const dbPath = sidecarPath('crash-acceptance-transaction')
+  const ready = path.join(BARRIER_ROOT, 'crash-acceptance-transaction.ready')
+  const release = path.join(BARRIER_ROOT, 'crash-acceptance-transaction.release')
   const store = new GovernanceValidationSidecar(dbPath)
   store.close()
-  const childPromise = directChild({
+  const running = startDirectChild({
     GOV_DB: dbPath,
     GOV_MODE: 'accept',
-    GOV_DELAY_TRIGGER: 'acceptance',
+    GOV_READY: ready,
+    GOV_RELEASE: release,
     GOV_TARGET: 'offline',
     GOV_INVOCATION: randomUUID(),
   })
-  await waitForFile(`${dbPath}-journal`)
-  const child = [...activeChildren].find(value => value.spawnargs.includes(DIRECT_CHILD_PATH))
-  assert.ok(child)
-  child.kill()
-  await childPromise
+  const childResult = await interruptGovernanceTransaction({
+    running, databasePath: dbPath, readyPath: ready, releasePath: release,
+  })
+  assert.notEqual(childResult.code, 0, childResult.stderr)
   const recovered = rawDatabase(dbPath)
-  recovered.exec('DROP TRIGGER IF EXISTS certification_delay_acceptance')
   recovered.close()
   removeRecoveredCrashJournal(dbPath)
   const verify = new GovernanceValidationSidecar(dbPath)
@@ -2158,15 +2381,18 @@ test('process death inside completion or recovery transaction preserves prior AC
   for (const mode of ['complete-existing', 'recover-existing'] as const) {
     await t.test(mode, async () => {
       const dbPath = sidecarPath(`crash-${mode}-transaction`)
+      const ready = path.join(BARRIER_ROOT, `crash-${mode}-transaction.ready`)
+      const release = path.join(BARRIER_ROOT, `crash-${mode}-transaction.release`)
       const store = new GovernanceValidationSidecar(dbPath)
       const accepted = store.acceptInvocation('offline')
       assert.equal(accepted.kind, 'ACCEPTED')
       if (accepted.kind !== 'ACCEPTED') return
       store.close()
-      const childPromise = directChild({
+      const running = startDirectChild({
         GOV_DB: dbPath,
         GOV_MODE: mode,
-        GOV_DELAY_TRIGGER: 'transition',
+        GOV_READY: ready,
+        GOV_RELEASE: release,
         GOV_TARGET: 'offline',
         GOV_INVOCATION: accepted.invocation.invocationId,
         GOV_SEQUENCE: accepted.invocation.sequence.toString(),
@@ -2175,13 +2401,11 @@ test('process death inside completion or recovery transaction preserves prior AC
         GOV_REPORT: JSON.stringify(report('PASS')),
         GOV_RECOVERY_ID: randomUUID(),
       })
-      await waitForFile(`${dbPath}-journal`)
-      const child = [...activeChildren].find(value => value.spawnargs.includes(DIRECT_CHILD_PATH))
-      assert.ok(child)
-      child.kill()
-      await childPromise
+      const childResult = await interruptGovernanceTransaction({
+        running, databasePath: dbPath, readyPath: ready, releasePath: release,
+      })
+      assert.notEqual(childResult.code, 0, childResult.stderr)
       const recovered = rawDatabase(dbPath)
-      recovered.exec('DROP TRIGGER IF EXISTS certification_delay_transition')
       recovered.close()
       removeRecoveredCrashJournal(dbPath)
       const verify = new GovernanceValidationSidecar(dbPath)
