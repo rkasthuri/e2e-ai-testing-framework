@@ -35,6 +35,7 @@ import type {
   CanonicalResultOutcome,
   CanonicalResultsIntegrityWarning,
 } from '../api/resultsContract'
+import { ResultDiagnostics } from '../components/results/ResultDiagnostics'
 import { SuiteResultsProvenance } from '../components/tests/SuiteResultsProvenance'
 import { ProjectSelector } from '../components/shared/ProjectSelector'
 import {
@@ -191,6 +192,7 @@ function ResultItem({ item }: { item: CanonicalExecutionResultItem }) {
       <MissingBadge />
     </div>
     <p className="mt-3 text-sm text-secondary"><strong className="text-flaky">Expected Result missing.</strong> No persisted Result row exists for this manifest item.</p>
+    <div className="mt-3"><ResultDiagnostics diagnostic={item.diagnostic} hasResult={false} /></div>
     <details className="mt-3"><summary className="cursor-pointer text-xs font-medium text-brand outline-none focus-visible:ring-2 focus-visible:ring-brand">Technical provenance</summary><dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2"><div><dt className="text-muted">Definition ID</dt><dd className="break-all font-mono text-secondary">{item.definitionId}</dd></div><div><dt className="text-muted">Executable plan hash</dt><dd className="break-all font-mono text-secondary">{item.executablePlanHash}</dd></div></dl></details>
   </article>
   const evidence = item.evidence
@@ -210,7 +212,7 @@ function ResultItem({ item }: { item: CanonicalExecutionResultItem }) {
       <div><dt className="text-xs text-muted">Reason</dt><dd className="text-primary">{readable(evidence.reasonCode)}</dd></div>
       <div><dt className="text-xs text-muted">Duration</dt><dd className="text-primary">{evidence.durationMs} ms</dd></div>
     </dl>
-    <p className="mt-3 text-xs text-muted">Diagnostic interpretation is not rendered in this transport-only release.</p>
+    <div className="mt-3"><ResultDiagnostics diagnostic={item.diagnostic} hasResult /></div>
     <details className="mt-3">
       <summary className="cursor-pointer text-xs font-medium text-brand outline-none focus-visible:ring-2 focus-visible:ring-brand">Technical provenance</summary>
       <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2">

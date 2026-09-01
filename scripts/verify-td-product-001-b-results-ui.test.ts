@@ -151,7 +151,7 @@ test('detail preserves Execution, Run, and Result identity and exposes only spar
   assert.match(html, /execution-1/)
   assert.match(html, /Run ID run-1/)
   assert.match(html, /result-pass/)
-  assert.match(html, /Diagnostic interpretation is not rendered in this transport-only release/)
+  assert.match(html, /No diagnostic detail is attached to this Result/)
   assert.match(html, /Authentication expectation is provenance, not an authentication execution outcome/)
   assert.doesNotMatch(html, /authentication (succeeded|failed)|logged in|credential used/i)
   assert.doesNotMatch(html, /screenshot|video|stack trace/i)
