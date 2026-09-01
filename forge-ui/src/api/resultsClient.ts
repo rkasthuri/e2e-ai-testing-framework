@@ -97,7 +97,7 @@ export async function fetchCanonicalExecutionResultsDetail(
     const value = await apiClient.get<unknown>(
       `${projectPath(appName)}/executions/${encodeURIComponent(executionId)}/results`,
     )
-    return decodeOrRefuse(value, decodeCanonicalExecutionResultsDetail)
+    return decodeOrRefuse(value, input => decodeCanonicalExecutionResultsDetail(input, appName))
   } catch (error) {
     rethrowIntegrity(error)
   }

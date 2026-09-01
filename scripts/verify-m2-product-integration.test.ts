@@ -1182,6 +1182,17 @@ test('M4 Chunk 0 proves Suite-originated authority from accepted Execution throu
       assert.deepEqual(first, repeated, candidate.name)
       assert.equal(first.outcome.kind, 'classified_failure', candidate.name)
       if (first.outcome.kind === 'classified_failure') assert.equal(first.outcome.failureMode, candidate.expected, candidate.name)
+      const transported = await new ExecutionResultProjectionService().read(PROJECT, execution.executionId)
+      assert.equal(transported.kind, 'ok', candidate.name)
+      if (transported.kind === 'ok') {
+        const diagnostic = transported.projection.items[0]!.diagnostic
+        assert.equal(diagnostic?.state, 'available', candidate.name)
+        if (diagnostic?.state === 'available') {
+          assert.deepEqual(diagnostic.identity, first.identity, candidate.name)
+          assert.deepEqual(diagnostic.outcome, first.outcome, candidate.name)
+          assert.equal(diagnostic.displayString, first.displayString, candidate.name)
+        }
+      }
       assert.equal(Object.hasOwn(JSON.parse(rows[0]!.evidence_json), 'classification'), false, candidate.name)
     }
 
@@ -1239,6 +1250,13 @@ test('M4 Chunk 0 proves Suite-originated authority from accepted Execution throu
       if (contradictionClassification.outcome.refusalCode === 'integrity_invalid') {
         assert.deepEqual(contradictionClassification.outcome.integrityFindings, ['diagnostic_evidence_contradiction'])
       }
+    }
+    const missingTransport = await new ExecutionResultProjectionService().read(PROJECT, missing.executionId)
+    assert.equal(missingTransport.kind, 'ok')
+    if (missingTransport.kind === 'ok') {
+      const diagnostic = missingTransport.projection.items[0]!.diagnostic
+      assert.equal(diagnostic?.state, 'available')
+      if (diagnostic?.state === 'available') assert.deepEqual(diagnostic.outcome, contradictionClassification.outcome)
     }
     assert.equal((await getDb().selectFrom('execution_events').select('id')
       .where('execution_id', '=', missing.executionId).where('event_type', '=', 'terminal').execute()).length, 1)
@@ -1491,13 +1509,14 @@ test('M4 Chunk 0B proves ordered two-member Suite v2 authority survives head adv
       root.source_observation_id,root.support_seal_hash,root.route_evidence_identity_hash,root.authentication_expectation_identity_hash])assert.equal(value,null)
     const persisted=await getDb().selectFrom('execution_item_authorities').selectAll().where('execution_id','=',started.executionId).orderBy('item_ordinal').execute()
     assert.deepEqual(persisted.map(row=>[Number(row.item_ordinal),Number(row.test_set_row_id),row.definition_id]),members.map((member,index)=>[index+1,member.testSetRowId,member.definitionId]))
-    const singleRootProjection=await new ExecutionResultProjectionService().read(PROJECT,started.executionId)
-    assert.equal(singleRootProjection.kind,'integrity_invalid')
-    if(singleRootProjection.kind==='integrity_invalid'){
-      assert.equal(singleRootProjection.integrityWarnings.some(warning=>warning.safeMessage.includes('per-item authority')),true)
-      assert.equal(JSON.stringify(singleRootProjection).includes('"schemaVersion":0'),false)
-      assert.equal(JSON.stringify(singleRootProjection).includes('"revision":0'),false)
-      assert.equal(JSON.stringify(singleRootProjection).includes('"modelRowId":0'),false)
+    const perItemProjection=await new ExecutionResultProjectionService().read(PROJECT,started.executionId)
+    assert.equal(perItemProjection.kind,'ok')
+    if(perItemProjection.kind==='ok'){
+      assert.deepEqual(perItemProjection.projection.execution.definitionAuthority,{scope:'per_item'})
+      assert.deepEqual(perItemProjection.projection.items.map(item=>item.diagnostic?.state),['available','available'])
+      assert.equal(JSON.stringify(perItemProjection).includes('"schemaVersion":0'),false)
+      assert.equal(JSON.stringify(perItemProjection).includes('"revision":0'),false)
+      assert.equal(JSON.stringify(perItemProjection).includes('"modelRowId":0'),false)
     }
     const accepted=await deriveChunk0Authority(PROJECT,started.executionId)
     assert.deepEqual(accepted.map(item=>item.definitionId),members.map(member=>member.definitionId))
@@ -1546,6 +1565,14 @@ test('M4 Chunk 0B proves ordered two-member Suite v2 authority survives head adv
     const reopenedSuiteV2Rows=await new DiagnosticEvidenceRepository().read(PROJECT,started.executionId)
     assert.deepEqual(await Promise.all(reopenedSuiteV2Rows.map(classifyPersistedDiagnostic)),
       suiteV2ClassificationsBeforeHeadAdvance)
+    const reopenedTransport=await new ExecutionResultProjectionService().read(PROJECT,started.executionId)
+    assert.equal(reopenedTransport.kind,'ok')
+    if(reopenedTransport.kind==='ok'){
+      assert.deepEqual(reopenedTransport.projection.execution.definitionAuthority,{scope:'per_item'})
+      assert.deepEqual(reopenedTransport.projection.items.map(item=>item.diagnostic?.state),['available','available'])
+      assert.deepEqual(reopenedTransport.projection.items.map(item=>item.diagnostic?.state==='available'
+        ? item.diagnostic.outcome:null),suiteV2ClassificationsBeforeHeadAdvance.map(value=>value.outcome))
+    }
     const reopened=await new SuiteService().read(PROJECT,suite.suiteId,suite.revision)
     assert.deepEqual(reopened,suite)
     const recoveredSuiteDecision=await new ExecutionRecoveryCoordinator().reconcile({projectId:PROJECT,

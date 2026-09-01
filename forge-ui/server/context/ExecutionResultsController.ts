@@ -65,6 +65,7 @@ export async function readExecutionResults(
   try {
     const result = serializeCanonicalExecutionResultsRead(
       await executionContext.readProductExecutionResults(appName, executionId),
+      appName,
     )
     if (result.kind === 'not_found') return { status: 404, body: fail('Execution not found', 'NOT_FOUND') }
     if (result.kind === 'integrity_invalid') {

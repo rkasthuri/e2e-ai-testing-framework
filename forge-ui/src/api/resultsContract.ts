@@ -84,11 +84,55 @@ export interface CanonicalMissingResult {
   reasonCode: 'expected_result_missing'
 }
 
+export interface CanonicalDiagnosticIdentity {
+  projectId: string
+  executionId: string
+  runId: string
+  itemOrdinal: number
+  evidenceSchemaVersion: 'forge.m4.diagnostic-evidence/v1'
+}
+
+interface CanonicalDiagnosticOutcomeCommon {
+  schemaVersion: 'forge.m4.diagnostic-outcome/v1'
+  evidenceSchemaVersion: 'forge.m4.diagnostic-evidence/v1'
+  classifierVersion: 'forge.m4.diagnostic-classifier/v1'
+  evidenceHash: string
+}
+
+export type CanonicalDiagnosticOutcome = CanonicalDiagnosticOutcomeCommon & (
+  | { kind: 'classified_failure'; failureMode: 'executor_failure'; explanationCode: 'executor_failed_before_completion'; explanationParameters: { failureClass: 'browser_session_unavailable' | 'executor_internal_failure' | 'process_failure' | 'timeout' } }
+  | { kind: 'classified_failure'; failureMode: 'authentication_not_established'; explanationCode: 'authentication_attempt_not_established'; explanationParameters: Record<string, never> }
+  | { kind: 'classified_failure'; failureMode: 'navigation_not_completed'; explanationCode: 'governed_navigation_not_completed'; explanationParameters: { failureClass: 'destination_unavailable' | 'browser_navigation_error' | 'timeout'; expectedRoute: string; actualRoute: string | null } }
+  | { kind: 'classified_failure'; failureMode: 'target_not_observed'; explanationCode: 'governed_target_not_observed'; explanationParameters: { subjectId: string; elementId: string; observedCardinality: 'zero' } }
+  | { kind: 'classified_failure'; failureMode: 'action_not_completed'; explanationCode: 'governed_action_not_completed'; explanationParameters: { subjectId: string; elementId: string; failureClass: 'target_not_actionable' | 'interaction_failed' | 'timeout' } }
+  | { kind: 'classified_failure'; failureMode: 'oracle_mismatch'; explanationCode: 'governed_oracle_mismatch'; explanationParameters: { subjectId: string; expectedRoute: string; actualRoute: string } }
+  | { kind: 'refusal'; refusalCode: 'insufficient_evidence'; explanationCode: 'diagnostic_predicates_not_satisfied'; explanationParameters: Record<string, never> }
+  | { kind: 'refusal'; refusalCode: 'integrity_invalid'; integrityFindings: Array<'diagnostic_evidence_contradiction' | 'diagnostic_authority_binding_invalid' | 'diagnostic_historical_authority_substitution'>; explanationCode: 'diagnostic_integrity_validation_failed'; explanationParameters: Record<string, never> }
+)
+
+export type CanonicalResultDiagnostic =
+  | {
+      state: 'available'
+      identity: CanonicalDiagnosticIdentity
+      evidenceSchemaVersion: 'forge.m4.diagnostic-evidence/v1'
+      evidenceHash: string
+      classifierVersion: 'forge.m4.diagnostic-classifier/v1'
+      outcome: CanonicalDiagnosticOutcome
+      /** Derived presentation only; never diagnostic authority. */
+      displayString: string
+    }
+  | {
+      state: 'unavailable'
+      reason: 'not_found' | 'unreadable' | 'unsupported_classifier_version'
+      identity: CanonicalDiagnosticIdentity
+    }
+
 export interface CanonicalExecutionResultItem {
   manifestOrdinal: number
   definitionId: string
   executablePlanHash: string
   evidence: CanonicalObservedResult | CanonicalMissingResult
+  diagnostic?: CanonicalResultDiagnostic
 }
 
 interface CanonicalDefinitionAuthoritySummaryBase {
@@ -123,6 +167,7 @@ export type CanonicalDefinitionAuthoritySummary =
   | CanonicalDefinitionAuthorityV1Summary
   | CanonicalDefinitionAuthorityV2Summary
   | CanonicalDefinitionAuthorityV3Summary
+  | { scope: 'per_item' }
 
 interface DecodedDefinitionAuthorityBase extends CanonicalDefinitionAuthoritySummaryBase {
   supportSealHash: string | null
@@ -194,6 +239,12 @@ const INTEGRITY_CODES = [
   'run_aggregate_mismatch', 'execution_aggregate_mismatch', 'missing_linked_run',
   'impossible_lifecycle_outcome', 'unsupported_legacy_evidence', 'conflicting_provenance',
 ] as const
+const DIAGNOSTIC_UNAVAILABLE_REASONS = ['not_found', 'unreadable', 'unsupported_classifier_version'] as const
+const DIAGNOSTIC_INTEGRITY_FINDINGS = [
+  'diagnostic_evidence_contradiction', 'diagnostic_authority_binding_invalid',
+  'diagnostic_historical_authority_substitution',
+] as const
+const ROUTE = /^\/(?!\/)(?:[^?#\s]*)$/
 
 function object(value: unknown, allowed: readonly string[], label: string): RecordValue {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new CanonicalResultsContractError(`${label} must be an object.`)
@@ -245,6 +296,12 @@ function timestamp(value: unknown, label: string): string {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(result) || Number.isNaN(Date.parse(result))) {
     throw new CanonicalResultsContractError(`${label} must be an ISO timestamp.`)
   }
+  return result
+}
+
+function route(value: unknown, label: string): string {
+  const result = string(value, label)
+  if (result.length > 500 || !ROUTE.test(result)) throw new CanonicalResultsContractError(`${label} is malformed.`)
   return result
 }
 
@@ -339,6 +396,10 @@ export function decodeCanonicalExecutionResultsList(value: unknown): CanonicalEx
 }
 
 function decodeAuthority(value: unknown): CanonicalDefinitionAuthoritySummary {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)
+    && Object.keys(value).length === 1 && (value as RecordValue).scope === 'per_item') {
+    return { scope: 'per_item' }
+  }
   const item = object(value, [
     'schemaVersion', 'testSetId', 'revision', 'modelRowId', 'modelVersion', 'supportSealHash',
     'routeEvidenceIdentityHash', 'authenticationExpectationIdentityHash',
@@ -384,6 +445,120 @@ function decodeAuthority(value: unknown): CanonicalDefinitionAuthoritySummary {
   }
 }
 
+function decodeDiagnosticIdentity(value: unknown, label: string): CanonicalDiagnosticIdentity {
+  const item = object(value, ['projectId', 'executionId', 'runId', 'itemOrdinal', 'evidenceSchemaVersion'], label)
+  if (item.evidenceSchemaVersion !== 'forge.m4.diagnostic-evidence/v1') {
+    throw new CanonicalResultsContractError(`${label}.evidenceSchemaVersion is unsupported.`)
+  }
+  return {
+    projectId: id(item.projectId, `${label}.projectId`),
+    executionId: id(item.executionId, `${label}.executionId`),
+    runId: id(item.runId, `${label}.runId`),
+    itemOrdinal: integer(item.itemOrdinal, `${label}.itemOrdinal`, 1),
+    evidenceSchemaVersion: 'forge.m4.diagnostic-evidence/v1',
+  }
+}
+
+function decodeDiagnosticOutcome(value: unknown, label: string): CanonicalDiagnosticOutcome {
+  const base = object(value, [
+    'schemaVersion', 'evidenceSchemaVersion', 'classifierVersion', 'evidenceHash', 'kind',
+    'failureMode', 'refusalCode', 'integrityFindings', 'explanationCode', 'explanationParameters',
+  ], label)
+  const common = {
+    schemaVersion: base.schemaVersion,
+    evidenceSchemaVersion: base.evidenceSchemaVersion,
+    classifierVersion: base.classifierVersion,
+    evidenceHash: hash(base.evidenceHash, `${label}.evidenceHash`),
+  }
+  if (common.schemaVersion !== 'forge.m4.diagnostic-outcome/v1'
+    || common.evidenceSchemaVersion !== 'forge.m4.diagnostic-evidence/v1'
+    || common.classifierVersion !== 'forge.m4.diagnostic-classifier/v1') {
+    throw new CanonicalResultsContractError(`${label} version is unsupported.`)
+  }
+  const emptyParameters = () => object(base.explanationParameters, [], `${label}.explanationParameters`)
+  const classifiedKeys = ['schemaVersion', 'evidenceSchemaVersion', 'classifierVersion', 'evidenceHash', 'kind', 'failureMode', 'explanationCode', 'explanationParameters']
+  if (base.kind === 'classified_failure') {
+    object(value, classifiedKeys, label)
+    if (base.failureMode === 'executor_failure' && base.explanationCode === 'executor_failed_before_completion') {
+      const parameters = object(base.explanationParameters, ['failureClass'], `${label}.explanationParameters`)
+      return { ...common, kind: 'classified_failure', failureMode: 'executor_failure', explanationCode: 'executor_failed_before_completion', explanationParameters: {
+        failureClass: enumeration(parameters.failureClass, ['browser_session_unavailable', 'executor_internal_failure', 'process_failure', 'timeout'] as const, `${label}.explanationParameters.failureClass`),
+      } } as CanonicalDiagnosticOutcome
+    }
+    if (base.failureMode === 'authentication_not_established' && base.explanationCode === 'authentication_attempt_not_established') {
+      emptyParameters()
+      return { ...common, kind: 'classified_failure', failureMode: 'authentication_not_established', explanationCode: 'authentication_attempt_not_established', explanationParameters: {} } as CanonicalDiagnosticOutcome
+    }
+    if (base.failureMode === 'navigation_not_completed' && base.explanationCode === 'governed_navigation_not_completed') {
+      const parameters = object(base.explanationParameters, ['failureClass', 'expectedRoute', 'actualRoute'], `${label}.explanationParameters`)
+      return { ...common, kind: 'classified_failure', failureMode: 'navigation_not_completed', explanationCode: 'governed_navigation_not_completed', explanationParameters: {
+        failureClass: enumeration(parameters.failureClass, ['destination_unavailable', 'browser_navigation_error', 'timeout'] as const, `${label}.explanationParameters.failureClass`),
+        expectedRoute: route(parameters.expectedRoute, `${label}.explanationParameters.expectedRoute`),
+        actualRoute: nullable(parameters.actualRoute, item => route(item, `${label}.explanationParameters.actualRoute`)),
+      } } as CanonicalDiagnosticOutcome
+    }
+    if (base.failureMode === 'target_not_observed' && base.explanationCode === 'governed_target_not_observed') {
+      const parameters = object(base.explanationParameters, ['subjectId', 'elementId', 'observedCardinality'], `${label}.explanationParameters`)
+      if (parameters.observedCardinality !== 'zero') throw new CanonicalResultsContractError(`${label}.explanationParameters.observedCardinality is unsupported.`)
+      return { ...common, kind: 'classified_failure', failureMode: 'target_not_observed', explanationCode: 'governed_target_not_observed', explanationParameters: {
+        subjectId: id(parameters.subjectId, `${label}.explanationParameters.subjectId`), elementId: id(parameters.elementId, `${label}.explanationParameters.elementId`), observedCardinality: 'zero',
+      } } as CanonicalDiagnosticOutcome
+    }
+    if (base.failureMode === 'action_not_completed' && base.explanationCode === 'governed_action_not_completed') {
+      const parameters = object(base.explanationParameters, ['subjectId', 'elementId', 'failureClass'], `${label}.explanationParameters`)
+      return { ...common, kind: 'classified_failure', failureMode: 'action_not_completed', explanationCode: 'governed_action_not_completed', explanationParameters: {
+        subjectId: id(parameters.subjectId, `${label}.explanationParameters.subjectId`), elementId: id(parameters.elementId, `${label}.explanationParameters.elementId`),
+        failureClass: enumeration(parameters.failureClass, ['target_not_actionable', 'interaction_failed', 'timeout'] as const, `${label}.explanationParameters.failureClass`),
+      } } as CanonicalDiagnosticOutcome
+    }
+    if (base.failureMode === 'oracle_mismatch' && base.explanationCode === 'governed_oracle_mismatch') {
+      const parameters = object(base.explanationParameters, ['subjectId', 'expectedRoute', 'actualRoute'], `${label}.explanationParameters`)
+      return { ...common, kind: 'classified_failure', failureMode: 'oracle_mismatch', explanationCode: 'governed_oracle_mismatch', explanationParameters: {
+        subjectId: id(parameters.subjectId, `${label}.explanationParameters.subjectId`), expectedRoute: route(parameters.expectedRoute, `${label}.explanationParameters.expectedRoute`), actualRoute: route(parameters.actualRoute, `${label}.explanationParameters.actualRoute`),
+      } } as CanonicalDiagnosticOutcome
+    }
+    throw new CanonicalResultsContractError(`${label} classified outcome is unsupported.`)
+  }
+  if (base.kind === 'refusal' && base.refusalCode === 'insufficient_evidence' && base.explanationCode === 'diagnostic_predicates_not_satisfied') {
+    object(value, ['schemaVersion', 'evidenceSchemaVersion', 'classifierVersion', 'evidenceHash', 'kind', 'refusalCode', 'explanationCode', 'explanationParameters'], label)
+    emptyParameters()
+    return { ...common, kind: 'refusal', refusalCode: 'insufficient_evidence', explanationCode: 'diagnostic_predicates_not_satisfied', explanationParameters: {} } as CanonicalDiagnosticOutcome
+  }
+  if (base.kind === 'refusal' && base.refusalCode === 'integrity_invalid' && base.explanationCode === 'diagnostic_integrity_validation_failed') {
+    object(value, ['schemaVersion', 'evidenceSchemaVersion', 'classifierVersion', 'evidenceHash', 'kind', 'refusalCode', 'integrityFindings', 'explanationCode', 'explanationParameters'], label)
+    emptyParameters()
+    const findings = array(base.integrityFindings, item => enumeration(item, DIAGNOSTIC_INTEGRITY_FINDINGS, `${label}.integrityFindings`), `${label}.integrityFindings`)
+    if (findings.length < 1 || new Set(findings).size !== findings.length) throw new CanonicalResultsContractError(`${label}.integrityFindings is invalid.`)
+    return { ...common, kind: 'refusal', refusalCode: 'integrity_invalid', integrityFindings: findings, explanationCode: 'diagnostic_integrity_validation_failed', explanationParameters: {} } as CanonicalDiagnosticOutcome
+  }
+  throw new CanonicalResultsContractError(`${label} outcome is unsupported.`)
+}
+
+function decodeDiagnostic(value: unknown, label: string): CanonicalResultDiagnostic {
+  const base = object(value, ['state', 'reason', 'identity', 'evidenceSchemaVersion', 'evidenceHash', 'classifierVersion', 'outcome', 'displayString'], label)
+  const identity = decodeDiagnosticIdentity(base.identity, `${label}.identity`)
+  if (base.state === 'unavailable') {
+    object(value, ['state', 'reason', 'identity'], label)
+    return { state: 'unavailable', reason: enumeration(base.reason, DIAGNOSTIC_UNAVAILABLE_REASONS, `${label}.reason`), identity }
+  }
+  if (base.state !== 'available') throw new CanonicalResultsContractError(`${label}.state is unsupported.`)
+  object(value, ['state', 'identity', 'evidenceSchemaVersion', 'evidenceHash', 'classifierVersion', 'outcome', 'displayString'], label)
+  if (base.evidenceSchemaVersion !== 'forge.m4.diagnostic-evidence/v1' || base.classifierVersion !== 'forge.m4.diagnostic-classifier/v1') {
+    throw new CanonicalResultsContractError(`${label} version is unsupported.`)
+  }
+  if (identity.evidenceSchemaVersion !== base.evidenceSchemaVersion) {
+    throw new CanonicalResultsContractError(`${label} evidence schema version is inconsistent.`)
+  }
+  const evidenceHash = hash(base.evidenceHash, `${label}.evidenceHash`)
+  const outcome = decodeDiagnosticOutcome(base.outcome, `${label}.outcome`)
+  if (outcome.evidenceHash !== evidenceHash) throw new CanonicalResultsContractError(`${label} evidence hash is inconsistent.`)
+  return {
+    state: 'available', identity, evidenceSchemaVersion: 'forge.m4.diagnostic-evidence/v1', evidenceHash,
+    classifierVersion: 'forge.m4.diagnostic-classifier/v1', outcome,
+    displayString: string(base.displayString, `${label}.displayString`),
+  }
+}
+
 function decodeEvidence(value: unknown, label: string): CanonicalObservedResult | CanonicalMissingResult {
   const item = object(value, [
     'kind', 'resultId', 'outcome', 'reasonCode', 'safeMessage', 'durationMs', 'oracleKind', 'observedSubjectId',
@@ -417,12 +592,13 @@ function decodeEvidence(value: unknown, label: string): CanonicalObservedResult 
 }
 
 function decodeItem(value: unknown, label: string): CanonicalExecutionResultItem {
-  const item = object(value, ['manifestOrdinal', 'definitionId', 'executablePlanHash', 'evidence'], label)
+  const item = object(value, ['manifestOrdinal', 'definitionId', 'executablePlanHash', 'evidence', 'diagnostic'], label)
   return {
     manifestOrdinal: integer(item.manifestOrdinal, `${label}.manifestOrdinal`, 1),
     definitionId: id(item.definitionId, `${label}.definitionId`),
     executablePlanHash: hash(item.executablePlanHash, `${label}.executablePlanHash`),
     evidence: decodeEvidence(item.evidence, `${label}.evidence`),
+    ...(item.diagnostic === undefined ? {} : { diagnostic: decodeDiagnostic(item.diagnostic, `${label}.diagnostic`) }),
   }
 }
 
@@ -490,7 +666,7 @@ function expectedRunEvidenceReason(
   return 'completed'
 }
 
-export function decodeCanonicalExecutionResultsDetail(value: unknown): CanonicalExecutionResultsDetail {
+export function decodeCanonicalExecutionResultsDetail(value: unknown, expectedProjectId?: string): CanonicalExecutionResultsDetail {
   const root = object(value, ['kind', 'evidenceHeadlineOutcome', 'execution', 'run', 'items', 'integrityWarnings'], 'Results detail')
   if (root.kind !== 'canonical_execution_results') throw new CanonicalResultsContractError('Results detail kind is unsupported.')
   const execution = object(root.execution, [
@@ -577,11 +753,21 @@ export function decodeCanonicalExecutionResultsDetail(value: unknown): Canonical
     || (projection.run.lifecycle === 'interrupted' && projection.run.terminalAt !== null))) {
     throw new CanonicalResultsContractError('Results detail Run evidence disagrees with its Result items.')
   }
+  for (const item of projection.items) {
+    if (!item.diagnostic) continue
+    if (!projection.run || item.diagnostic.identity.projectId.length < 1
+      || expectedProjectId !== undefined && item.diagnostic.identity.projectId !== expectedProjectId
+      || item.diagnostic.identity.executionId !== projection.execution.executionId
+      || item.diagnostic.identity.runId !== projection.run.runId
+      || item.diagnostic.identity.itemOrdinal !== item.manifestOrdinal) {
+      throw new CanonicalResultsContractError('Results detail diagnostic identity is cross-bound.')
+    }
+  }
   return projection
 }
 
 /** Adapts the core-owned projection to the one frontend-visible contract. */
-export function serializeCanonicalExecutionResultsRead(value: unknown): CanonicalExecutionResultsRead {
+export function serializeCanonicalExecutionResultsRead(value: unknown, expectedProjectId?: string): CanonicalExecutionResultsRead {
   const root = object(value, ['kind', 'projection', 'integrityWarnings'], 'Core Results read')
   if (root.kind === 'not_found') {
     object(value, ['kind'], 'Core Results read')
@@ -599,7 +785,7 @@ export function serializeCanonicalExecutionResultsRead(value: unknown): Canonica
     'selectionAuthority',
   ], 'Core execution')
   const sourceItems = array(source.items, (entry, index) => {
-    const item = object(entry, ['itemOrdinal', 'definitionId', 'executablePlanHash', 'result'], `Core items[${index}]`)
+    const item = object(entry, ['itemOrdinal', 'definitionId', 'executablePlanHash', 'result', 'diagnostic'], `Core items[${index}]`)
     const result = object(item.result, ['state', 'resultId', 'outcome', 'reasonCode', 'safeMessage', 'durationMs', 'oracleKind', 'observedSubjectId'], `Core items[${index}].result`)
     const evidence: CanonicalObservedResult | CanonicalMissingResult = result.state === 'no_result_observed'
       ? (() => {
@@ -629,6 +815,7 @@ export function serializeCanonicalExecutionResultsRead(value: unknown): Canonica
       definitionId: id(item.definitionId, `Core items[${index}].definitionId`),
       executablePlanHash: hash(item.executablePlanHash, `Core items[${index}].executablePlanHash`),
       evidence,
+      ...(item.diagnostic === undefined ? {} : { diagnostic: item.diagnostic }),
     }
   }, 'Core items')
   const sourceRun = source.run === null ? null : object(source.run, [
@@ -671,7 +858,7 @@ export function serializeCanonicalExecutionResultsRead(value: unknown): Canonica
       },
       items: sourceItems,
       integrityWarnings: source.integrityWarnings,
-    }),
+    }, expectedProjectId),
   }
 }
 

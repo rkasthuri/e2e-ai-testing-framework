@@ -210,7 +210,7 @@ function ResultItem({ item }: { item: CanonicalExecutionResultItem }) {
       <div><dt className="text-xs text-muted">Reason</dt><dd className="text-primary">{readable(evidence.reasonCode)}</dd></div>
       <div><dt className="text-xs text-muted">Duration</dt><dd className="text-primary">{evidence.durationMs} ms</dd></div>
     </dl>
-    <p className="mt-3 text-xs text-muted">Detailed diagnostic evidence was not persisted for this Result.</p>
+    <p className="mt-3 text-xs text-muted">Diagnostic interpretation is not rendered in this transport-only release.</p>
     <details className="mt-3">
       <summary className="cursor-pointer text-xs font-medium text-brand outline-none focus-visible:ring-2 focus-visible:ring-brand">Technical provenance</summary>
       <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
@@ -224,6 +224,7 @@ function ResultItem({ item }: { item: CanonicalExecutionResultItem }) {
 
 function DefinitionProvenance({ detail }: { detail: CanonicalExecutionResultsDetail }) {
   const authority = detail.execution.definitionAuthority
+  if ('scope' in authority) return null
   return <details className="rounded-lg border border-border bg-surface p-4">
     <summary className="cursor-pointer font-semibold text-primary outline-none focus-visible:ring-2 focus-visible:ring-brand">Execution authority and provenance</summary>
     <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">

@@ -16,8 +16,20 @@ import { ExecutionPersistenceError, ExecutionRepository } from '../storage/repos
 import { RunRepository } from '../storage/repositories/RunRepository'
 import { SuiteRepository } from '../storage/repositories/SuiteRepository'
 import { TestResultRepository } from '../storage/repositories/TestResultRepository'
+import { DiagnosticEvidenceRepository } from '../storage/repositories/DiagnosticEvidenceRepository'
 import type { Database } from '../storage/types'
 import { SuiteContractError } from '../suites/SuiteContract'
+import {
+  DIAGNOSTIC_CLASSIFIER_VERSION,
+  UnsupportedDiagnosticClassifierVersionError,
+  type DiagnosticOutcome,
+} from './DiagnosticClassificationContract'
+import {
+  DiagnosticClassificationService,
+  DiagnosticEvidenceNotFoundError,
+  DiagnosticEvidenceUnreadableError,
+} from './DiagnosticClassificationService'
+import { DIAGNOSTIC_EVIDENCE_SCHEMA_VERSION } from './DiagnosticEvidenceContract'
 import {
   PersistedEvidenceAggregator,
   type PersistedEvidenceIntegrityCode,
@@ -61,7 +73,33 @@ export interface ExecutionItemResultProjection {
   definitionId: string
   executablePlanHash: string
   result: PersistedResultProjection | MissingResultProjection
+  diagnostic?: ExecutionItemDiagnosticProjection
 }
+
+export interface ExecutionItemDiagnosticIdentity {
+  projectId: string
+  executionId: string
+  runId: string
+  itemOrdinal: number
+  evidenceSchemaVersion: typeof DIAGNOSTIC_EVIDENCE_SCHEMA_VERSION
+}
+
+export type ExecutionItemDiagnosticProjection =
+  | {
+      state: 'available'
+      identity: ExecutionItemDiagnosticIdentity
+      evidenceSchemaVersion: typeof DIAGNOSTIC_EVIDENCE_SCHEMA_VERSION
+      evidenceHash: string
+      classifierVersion: typeof DIAGNOSTIC_CLASSIFIER_VERSION
+      outcome: DiagnosticOutcome
+      /** Derived presentation only; never diagnostic authority. */
+      displayString: string
+    }
+  | {
+      state: 'unavailable'
+      reason: 'not_found' | 'unreadable' | 'unsupported_classifier_version'
+      identity: ExecutionItemDiagnosticIdentity
+    }
 
 export interface ExecutionResultProjection {
   availability: 'available'
@@ -83,7 +121,7 @@ export interface ExecutionResultProjection {
       supportSealHash: string | null
       routeEvidenceIdentityHash: string | null
       authenticationExpectationIdentityHash: string | null
-    }
+    } | { scope: 'per_item' }
     selectionAuthority?: {
       kind: 'suite_revision'
       suiteId: string
@@ -168,6 +206,7 @@ export class ExecutionResultProjectionService {
     private readonly results = new TestResultRepository(),
     aggregator?: PersistedEvidenceAggregator,
     suites?: SuiteRepository,
+    private readonly diagnosticEvidence = new DiagnosticEvidenceRepository(dbProvider),
   ) {
     this.aggregator = aggregator ?? new PersistedEvidenceAggregator(dbProvider, executions, runs, results)
     this.suites = suites ?? new SuiteRepository(dbProvider)
@@ -180,7 +219,8 @@ export class ExecutionResultProjectionService {
         const read = await this.aggregator.read(projectId, executionId, trx)
         if (read.kind === 'not_found') return { kind: 'not_found' }
         const suite = await this.readSuiteSelection(read.evidence.execution, trx)
-        return { kind: 'ok', projection: this.project(read, suite) }
+        const diagnostics = await this.readDiagnostics(read, trx)
+        return { kind: 'ok', projection: this.project(read, suite, diagnostics) }
       })
     } catch (cause) {
       if (cause instanceof ProjectionIntegrityError) {
@@ -249,6 +289,71 @@ export class ExecutionResultProjectionService {
     return { kind: 'ok', executions, limit }
   }
 
+  private async readDiagnostics(
+    read: Extract<PersistedEvidenceRead, { kind: 'ok' }>,
+    trx: Transaction<Database>,
+  ): Promise<Map<number, ExecutionItemDiagnosticProjection>> {
+    const { execution, runs, items } = read.evidence
+    const run = runs[0] ?? null
+    if (!run) return new Map()
+    const rows = await this.diagnosticEvidence.read(execution.project_id, execution.execution_id, trx)
+    const diagnosticClassification = new DiagnosticClassificationService({
+      readExact: identity => this.diagnosticEvidence.readExact(identity, trx),
+    })
+    const exactRows = new Map(rows
+      .filter(row => row.run_id === run.run_id && row.evidence_schema_version === DIAGNOSTIC_EVIDENCE_SCHEMA_VERSION)
+      .map(row => [Number(row.item_ordinal), row]))
+    const diagnostics = new Map<number, ExecutionItemDiagnosticProjection>()
+    for (const item of items) {
+      const itemOrdinal = Number(item.item_ordinal)
+      const identity: ExecutionItemDiagnosticIdentity = {
+        projectId: execution.project_id,
+        executionId: execution.execution_id,
+        runId: run.run_id,
+        itemOrdinal,
+        evidenceSchemaVersion: DIAGNOSTIC_EVIDENCE_SCHEMA_VERSION,
+      }
+      const row = exactRows.get(itemOrdinal)
+      if (!row) {
+        diagnostics.set(itemOrdinal, { state: 'unavailable', reason: 'not_found', identity })
+        continue
+      }
+      try {
+        const readModel = await diagnosticClassification.classify({
+          ...identity,
+          evidenceHash: row.evidence_hash,
+          classifierVersion: DIAGNOSTIC_CLASSIFIER_VERSION,
+        })
+        diagnostics.set(itemOrdinal, {
+          state: 'available',
+          identity: {
+            projectId: readModel.identity.projectId,
+            executionId: readModel.identity.executionId,
+            runId: readModel.identity.runId,
+            itemOrdinal: readModel.identity.itemOrdinal,
+            evidenceSchemaVersion: DIAGNOSTIC_EVIDENCE_SCHEMA_VERSION,
+          },
+          evidenceSchemaVersion: readModel.evidenceSchemaVersion,
+          evidenceHash: readModel.evidenceHash,
+          classifierVersion: readModel.classifierVersion,
+          outcome: readModel.outcome,
+          displayString: readModel.displayString,
+        })
+      } catch (cause) {
+        const reason = cause instanceof DiagnosticEvidenceNotFoundError
+          ? 'not_found'
+          : cause instanceof DiagnosticEvidenceUnreadableError
+            ? 'unreadable'
+            : cause instanceof UnsupportedDiagnosticClassifierVersionError
+              ? 'unsupported_classifier_version'
+              : null
+        if (reason === null) throw cause
+        diagnostics.set(itemOrdinal, { state: 'unavailable', reason, identity })
+      }
+    }
+    return diagnostics
+  }
+
   private async readSuiteSelection(execution: Extract<PersistedEvidenceRead,{kind:'ok'}>['evidence']['execution'], trx:Transaction<Database>): Promise<ExecutionResultProjection['execution']['selectionAuthority']> {
     if (execution.suite_id===null && execution.suite_revision===null && execution.suite_content_hash===null) return undefined
     if (!execution.suite_id || !execution.suite_revision || !execution.suite_content_hash) throw new ProjectionIntegrityError([{severity:'error',code:'conflicting_provenance',safeMessage:'Execution Suite authority is incomplete.'}])
@@ -272,26 +377,24 @@ export class ExecutionResultProjectionService {
     }
   }
 
-  private project(read: Extract<PersistedEvidenceRead, { kind: 'ok' }>, suite: ExecutionResultProjection['execution']['selectionAuthority']): ExecutionResultProjection {
+  private project(
+    read: Extract<PersistedEvidenceRead, { kind: 'ok' }>,
+    suite: ExecutionResultProjection['execution']['selectionAuthority'],
+    diagnostics: ReadonlyMap<number, ExecutionItemDiagnosticProjection> = new Map(),
+  ): ExecutionResultProjection {
     const { evidence, aggregation } = read
     const invalid = aggregation.integrityWarnings.filter(item => item.severity === 'error')
     if (invalid.length > 0) throw new ProjectionIntegrityError(invalid)
-    if (evidence.execution.test_set_authority_scope === 'per_item') {
-      throw new ProjectionIntegrityError([{
-        severity: 'error',
-        code: 'conflicting_provenance',
-        safeMessage: 'Single-root Definition authority is unavailable for an Execution with per-item authority.',
-      }])
-    }
-
     const run = evidence.runs[0] ?? null
     const resultsByOrdinal = new Map(
       evidence.results.map(result => [Number(result.execution_item_ordinal), result]),
     )
     const items: ExecutionItemResultProjection[] = evidence.items.map(item => {
       const result = resultsByOrdinal.get(Number(item.item_ordinal))
+      const itemOrdinal = Number(item.item_ordinal)
+      const diagnostic = diagnostics.get(itemOrdinal)
       return {
-        itemOrdinal: Number(item.item_ordinal),
+        itemOrdinal,
         definitionId: item.definition_id,
         executablePlanHash: item.executable_plan_hash,
         result: result
@@ -306,6 +409,7 @@ export class ExecutionResultProjectionService {
               observedSubjectId: result.observed_subject_id,
             }
           : { state: 'no_result_observed', reasonCode: 'expected_result_missing' },
+        ...(diagnostic ? { diagnostic } : {}),
       }
     })
     const executionMismatch = aggregation.integrityWarnings
@@ -325,16 +429,18 @@ export class ExecutionResultProjectionService {
         acceptedAt: aggregation.execution.acceptedAt,
         terminalAt: aggregation.execution.terminalAt,
         manifestCount: aggregation.manifest.expectedResultCount,
-        definitionAuthority: {
-          schemaVersion: Number(evidence.execution.definition_schema_version) as 1 | 2 | 3,
-          testSetId: evidence.execution.test_set_id!,
-          revision: Number(evidence.execution.test_set_revision),
-          modelRowId: Number(evidence.execution.model_row_id),
-          modelVersion: evidence.execution.model_version!,
-          supportSealHash: evidence.execution.support_seal_hash,
-          routeEvidenceIdentityHash: evidence.execution.route_evidence_identity_hash,
-          authenticationExpectationIdentityHash: evidence.execution.authentication_expectation_identity_hash,
-        },
+        definitionAuthority: evidence.execution.test_set_authority_scope === 'per_item'
+          ? { scope: 'per_item' }
+          : {
+              schemaVersion: Number(evidence.execution.definition_schema_version) as 1 | 2 | 3,
+              testSetId: evidence.execution.test_set_id!,
+              revision: Number(evidence.execution.test_set_revision),
+              modelRowId: Number(evidence.execution.model_row_id),
+              modelVersion: evidence.execution.model_version!,
+              supportSealHash: evidence.execution.support_seal_hash,
+              routeEvidenceIdentityHash: evidence.execution.route_evidence_identity_hash,
+              authenticationExpectationIdentityHash: evidence.execution.authentication_expectation_identity_hash,
+            },
         ...(suite ? { selectionAuthority: suite } : {}),
       },
       run: run ? {
