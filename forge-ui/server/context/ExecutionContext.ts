@@ -231,6 +231,7 @@ const ENGINE = {
   planExecutor: '../../../src/core/execution/PlaywrightPlanExecutor',
   executionService: '../../../src/core/execution/ExecutionService',
   executionResultProjection: '../../../src/core/execution/ExecutionResultProjectionService',
+  diagnosticInsights: '../../../src/core/execution/DiagnosticInsightsService',
   suites:        '../../../src/core/suites/SuiteService',
   observations: '../../../src/core/observation/ObservationService',
   observationProjection: '../../../src/core/observation/ObservationReadProjectionService',
@@ -761,6 +762,20 @@ export class ExecutionContext {
         executionResultProjectionService: { list(projectId: string, requestedLimit: number): Promise<unknown> }
       }
       return mod.executionResultProjectionService.list(appName, limit)
+    })
+  }
+
+  /** Exact version-partitioned Product diagnostic aggregate; Core owns every count. */
+  readProductDiagnosticInsights(appName: string, evidenceSchemaVersion: string, classifierVersion: string): Promise<unknown> {
+    return this.queue.run(async () => {
+      if (this.activeProductExecution && this.activeProductExecution.appName !== appName) {
+        throw new Error('Product Insights for another workspace are unavailable while an execution owns the database boundary.')
+      }
+      await this.switchDatabaseIfNeeded(appName)
+      const mod = await import(ENGINE.diagnosticInsights) as {
+        DiagnosticInsightsService: new () => { read(request: { projectId: string; evidenceSchemaVersion: string; classifierVersion: string }): Promise<unknown> }
+      }
+      return new mod.DiagnosticInsightsService().read({ projectId: appName, evidenceSchemaVersion, classifierVersion })
     })
   }
 

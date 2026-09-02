@@ -32,6 +32,7 @@ import type {
 } from '../api/types'
 import { decodeTestInventoryResponse } from '../api/testInventoryContract'
 import type { RunIntentController } from '../pages/runIntentState'
+import { fetchDiagnosticInsights } from '../api/insightsClient'
 
 /** GET /api/v1/projects — the project switcher + lists consume this. */
 export function useProjects() {
@@ -371,6 +372,16 @@ export function useCanonicalExecutionResults(appName: string | null, limit = 25)
   return useQuery({
     queryKey: ['canonical-execution-results', appName, limit],
     queryFn: () => fetchCanonicalExecutionResultsList(appName!, limit),
+    enabled: !!appName,
+    retry: false,
+  })
+}
+
+/** One explicit frozen diagnostic version partition; no latest-version fallback. */
+export function useDiagnosticInsights(appName: string | null) {
+  return useQuery({
+    queryKey: ['diagnostic-insights', appName],
+    queryFn: () => fetchDiagnosticInsights(appName!),
     enabled: !!appName,
     retry: false,
   })
