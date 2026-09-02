@@ -60,6 +60,7 @@ import {
 } from '../src/core/execution/DiagnosticEvidenceContract'
 import { HistoricalDefinitionAuthorityResolver } from '../src/core/execution/HistoricalDefinitionAuthorityResolver'
 import { DiagnosticClassificationService } from '../src/core/execution/DiagnosticClassificationService'
+import { DiagnosticInsightsService } from '../src/core/execution/DiagnosticInsightsService'
 import { DIAGNOSTIC_CLASSIFIER_VERSION } from '../src/core/execution/DiagnosticClassificationContract'
 import { loadM2CertificationCase } from './m2-certification/fixture-loader'
 import { ProductM2CertificationDriver, type ProductM2ObservationPort } from './m2-certification/product-driver'
@@ -1258,11 +1259,36 @@ test('M4 Chunk 0 proves Suite-originated authority from accepted Execution throu
       assert.equal(diagnostic?.state, 'available')
       if (diagnostic?.state === 'available') assert.deepEqual(diagnostic.outcome, contradictionClassification.outcome)
     }
+    const insightsRequest = {
+      projectId: PROJECT,
+      evidenceSchemaVersion: 'forge.m4.diagnostic-evidence/v1',
+      classifierVersion: DIAGNOSTIC_CLASSIFIER_VERSION,
+    }
+    const insightsBeforeReopen = await new DiagnosticInsightsService().read(insightsRequest)
+    assert.deepEqual(insightsBeforeReopen, {
+      projectId: PROJECT,
+      evidenceSchemaVersion: 'forge.m4.diagnostic-evidence/v1',
+      classifierVersion: DIAGNOSTIC_CLASSIFIER_VERSION,
+      totalDiagnostics: 10,
+      classifiedFailureCount: 6,
+      refusalCount: 4,
+      countsByFailureMode: {
+        executor_failure: 1,
+        authentication_not_established: 1,
+        navigation_not_completed: 1,
+        target_not_observed: 1,
+        action_not_completed: 1,
+        oracle_mismatch: 1,
+      },
+      insufficientEvidenceCount: 3,
+      integrityInvalidCount: 1,
+    })
     assert.equal((await getDb().selectFrom('execution_events').select('id')
       .where('execution_id', '=', missing.executionId).where('event_type', '=', 'terminal').execute()).length, 1)
 
     await closeDb()
     await openProjectDatabase(createWorkspace(context.root))
+    assert.deepEqual(await new DiagnosticInsightsService().read(insightsRequest), insightsBeforeReopen)
     assert.deepEqual(await deriveChunk0Authority(PROJECT, started.executionId), acceptedBeforeHeadAdvance)
     assert.equal((await deriveChunk0Authority(PROJECT, direct.executionId))[0]!.suiteAuthority, null)
     const reopenedSuiteRows = await new DiagnosticEvidenceRepository().read(PROJECT, started.executionId)
@@ -1523,6 +1549,14 @@ test('M4 Chunk 0B proves ordered two-member Suite v2 authority survives head adv
     const evidenceBeforeHeadAdvance=await new DiagnosticEvidenceRepository().read(PROJECT,started.executionId)
     assert.equal(evidenceBeforeHeadAdvance.length,2)
     const suiteV2ClassificationsBeforeHeadAdvance=await Promise.all(evidenceBeforeHeadAdvance.map(classifyPersistedDiagnostic))
+    const insightsRequest={projectId:PROJECT,evidenceSchemaVersion:'forge.m4.diagnostic-evidence/v1',classifierVersion:DIAGNOSTIC_CLASSIFIER_VERSION}
+    const suiteV2InsightsBeforeHeadAdvance=await new DiagnosticInsightsService().read(insightsRequest)
+    assert.deepEqual(suiteV2InsightsBeforeHeadAdvance,{projectId:PROJECT,
+      evidenceSchemaVersion:'forge.m4.diagnostic-evidence/v1',classifierVersion:DIAGNOSTIC_CLASSIFIER_VERSION,
+      totalDiagnostics:3,classifiedFailureCount:0,refusalCount:3,
+      countsByFailureMode:{executor_failure:0,authentication_not_established:0,navigation_not_completed:0,
+        target_not_observed:0,action_not_completed:0,oracle_mismatch:0},
+      insufficientEvidenceCount:3,integrityInvalidCount:0})
     assert.deepEqual(evidenceBeforeHeadAdvance.map(row=>{
       const evidence=JSON.parse(row.evidence_json)
       return [evidence.authority.itemOrdinal,evidence.authority.definitionId,
@@ -1537,7 +1571,9 @@ test('M4 Chunk 0B proves ordered two-member Suite v2 authority survives head adv
     assert.deepEqual(await deriveChunk0Authority(PROJECT,started.executionId),accepted)
     assert.deepEqual((await new DiagnosticEvidenceRepository().read(PROJECT,started.executionId))
       .map(row=>[row.evidence_hash,row.evidence_json]),evidenceBeforeHeadAdvance.map(row=>[row.evidence_hash,row.evidence_json]))
+    assert.deepEqual(await new DiagnosticInsightsService().read(insightsRequest),suiteV2InsightsBeforeHeadAdvance)
     await closeDb();await openProjectDatabase(createWorkspace(context.root))
+    assert.deepEqual(await new DiagnosticInsightsService().read(insightsRequest),suiteV2InsightsBeforeHeadAdvance)
     const firstRecoveredSuiteDecision=await new ExecutionRecoveryCoordinator().reconcile({projectId:PROJECT,
       executionId:recoveringSuite.executionId,currentProcessInstanceId:'m4-chunk0b-recovery-process',
       locallyActive:false,now:new Date(Date.now()+60_000).toISOString()})

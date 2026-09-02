@@ -34,6 +34,7 @@ import { generateTestInventory, readTestDefinition, readTestGenerationStatus, re
 import { readExecutionPreflight } from '../context/ExecutionPreflightController'
 import { cancelExecution, readExecutionStatus, startExecution } from '../context/ExecutionLifecycleController'
 import { listExecutionResults, readExecutionResults } from '../context/ExecutionResultsController'
+import { readDiagnosticInsights } from '../context/DiagnosticInsightsController'
 import { generateM1Intent, listM1DiscoveredAreas, saveM1Intent } from '../context/M1TestIntentController'
 import { createSuite, listSuites, readSuite, readSuiteCandidates, reviseSuite } from '../context/SuiteController'
 import { analyzeManualTest, saveManualTest } from '../context/ManualTestController'
@@ -356,6 +357,12 @@ router.get('/:appName/executions', async (req, res) => {
 
 router.get('/:appName/executions/:executionId/results', async (req, res) => {
   const result = await readExecutionResults(req.params.appName, req.params.executionId, resolveKnownProject)
+  res.status(result.status).json(result.body)
+})
+
+// Exact project + evidence/classifier version partition. This route transports only.
+router.get('/:appName/insights', async (req, res) => {
+  const result = await readDiagnosticInsights(req.params.appName, req.query as Record<string, unknown>, resolveKnownProject)
   res.status(result.status).json(result.body)
 })
 

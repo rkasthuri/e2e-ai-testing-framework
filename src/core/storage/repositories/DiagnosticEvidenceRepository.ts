@@ -117,6 +117,21 @@ export class DiagnosticEvidenceRepository {
       .orderBy('run_id').orderBy('item_ordinal').execute()
   }
 
+  async readProjectPartition(
+    projectId: string,
+    evidenceSchemaVersion: string,
+    transaction?: Transaction<Database>,
+  ): Promise<DiagnosticEvidenceRow[]> {
+    const db = transaction ?? this.dbProvider()
+    return db.selectFrom('diagnostic_evidence').selectAll()
+      .where('project_id', '=', projectId)
+      .where('evidence_schema_version', '=', evidenceSchemaVersion)
+      .orderBy('execution_id')
+      .orderBy('run_id')
+      .orderBy('item_ordinal')
+      .execute()
+  }
+
   async readExact(identity: DiagnosticEvidenceIdentity, transaction?: Transaction<Database>): Promise<DiagnosticEvidenceRow | null> {
     const db = transaction ?? this.dbProvider()
     return await db.selectFrom('diagnostic_evidence').selectAll()
