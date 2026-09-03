@@ -16,25 +16,13 @@ import type {
   CanonicalDiagnosticOutcome,
   CanonicalResultDiagnostic,
 } from '../../api/resultsContract'
+import {
+  DIAGNOSTIC_FAILURE_LABELS,
+  DIAGNOSTIC_REFUSAL_LABELS,
+} from '../shared/diagnosticPresentation'
 
-type ClassifiedFailureMode = Extract<CanonicalDiagnosticOutcome, { kind: 'classified_failure' }>['failureMode']
-type DiagnosticRefusalCode = Extract<CanonicalDiagnosticOutcome, { kind: 'refusal' }>['refusalCode']
 type DiagnosticUnavailableReason = Extract<CanonicalResultDiagnostic, { state: 'unavailable' }>['reason']
 type IntegrityFinding = Extract<CanonicalDiagnosticOutcome, { kind: 'refusal'; refusalCode: 'integrity_invalid' }>['integrityFindings'][number]
-
-const CLASSIFIED_LABELS: Record<ClassifiedFailureMode, string> = {
-  executor_failure: 'Execution failure',
-  authentication_not_established: 'Authentication not established',
-  navigation_not_completed: 'Navigation not completed',
-  target_not_observed: 'Target not observed',
-  action_not_completed: 'Action not completed',
-  oracle_mismatch: 'Oracle mismatch',
-}
-
-const REFUSAL_LABELS: Record<DiagnosticRefusalCode, string> = {
-  insufficient_evidence: 'Insufficient evidence',
-  integrity_invalid: 'Diagnostic integrity invalid',
-}
 
 const INTEGRITY_FINDING_LABELS: Record<IntegrityFinding, string> = {
   diagnostic_evidence_contradiction: 'Diagnostic evidence contradiction',
@@ -64,7 +52,7 @@ const UNAVAILABLE_PRESENTATION: Record<DiagnosticUnavailableReason, { label: str
     explanation: () => 'The item-specific diagnostic evidence could not be read safely. Interpretation is unavailable.',
   },
   unsupported_classifier_version: {
-    label: 'Unsupported diagnostic version',
+    label: 'Classifier version not supported',
     explanation: () => 'This item uses a diagnostic classifier version that this Results view cannot present.',
   },
 }
@@ -82,7 +70,7 @@ function DiagnosticIdentity({ diagnostic }: { diagnostic: CanonicalResultDiagnos
 
 function DiagnosticProvenance({ diagnostic }: { diagnostic: CanonicalResultDiagnostic }) {
   return <details className="mt-3 min-w-0">
-    <summary className="cursor-pointer text-xs font-medium text-brand outline-none focus-visible:ring-2 focus-visible:ring-brand">
+    <summary className="cursor-pointer rounded-sm text-xs font-medium text-brand outline-none focus-visible:ring-2 focus-visible:ring-brand">
       Diagnostic provenance
     </summary>
     <DiagnosticIdentity diagnostic={diagnostic} />
@@ -90,14 +78,15 @@ function DiagnosticProvenance({ diagnostic }: { diagnostic: CanonicalResultDiagn
 }
 
 function UnavailableDiagnostic({ diagnostic, hasResult }: { diagnostic: Extract<CanonicalResultDiagnostic, { state: 'unavailable' }>; hasResult: boolean }) {
+  const headingId = useId()
   const presentation = UNAVAILABLE_PRESENTATION[diagnostic.reason]
-  return <section aria-label={hasResult ? 'Result diagnostic' : 'Manifest item diagnostic'} className="min-w-0 rounded-md border border-border bg-surface p-3">
+  return <section aria-labelledby={headingId} className="min-w-0 rounded-md border border-border bg-surface p-3">
     <div className="flex min-w-0 items-start gap-3">
       <FileQuestion aria-hidden="true" className="mt-0.5 shrink-0 text-muted" size={18} />
       <div className="min-w-0">
-        <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted">Diagnostic detail unavailable</p>
-        <h5 className="mt-1 font-semibold text-primary">{presentation.label}</h5>
-        <p className="mt-1 text-sm text-secondary">{presentation.explanation(hasResult)}</p>
+        <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted">Diagnostic detail unavailable<span className="sr-only"> for this {hasResult ? 'Result' : 'manifest item'}</span></p>
+        <h5 id={headingId} className="mt-1 break-words font-semibold text-primary">{presentation.label}</h5>
+        <p className="mt-1 break-words text-sm text-secondary [overflow-wrap:anywhere]">{presentation.explanation(hasResult)}</p>
         <DiagnosticProvenance diagnostic={diagnostic} />
       </div>
     </div>
@@ -110,8 +99,8 @@ function AvailableDiagnostic({ diagnostic, hasResult }: { diagnostic: Extract<Ca
   const classified = outcome.kind === 'classified_failure'
   const integrityInvalid = outcome.kind === 'refusal' && outcome.refusalCode === 'integrity_invalid'
   const label = outcome.kind === 'classified_failure'
-    ? CLASSIFIED_LABELS[outcome.failureMode]
-    : REFUSAL_LABELS[outcome.refusalCode]
+    ? DIAGNOSTIC_FAILURE_LABELS[outcome.failureMode]
+    : DIAGNOSTIC_REFUSAL_LABELS[outcome.refusalCode]
   const integrityFindings = integrityInvalid
     ? [...outcome.integrityFindings].sort((left, right) => INTEGRITY_FINDING_RANK[left] - INTEGRITY_FINDING_RANK[right])
     : []
@@ -125,13 +114,13 @@ function AvailableDiagnostic({ diagnostic, hasResult }: { diagnostic: Extract<Ca
         <p className={`text-xs font-medium uppercase tracking-[0.12em] ${classified ? 'text-fail' : integrityInvalid ? 'text-fail' : 'text-unknown'}`}>
           {classified ? 'Classified failure' : 'Classification withheld'}
         </p>
-        <h5 id={headingId} className="mt-1 font-semibold text-primary">{label}</h5>
-        <p className="mt-1 break-words text-sm text-secondary">{diagnostic.displayString}</p>
+        <h5 id={headingId} className="mt-1 break-words font-semibold text-primary">{label}</h5>
+        <p className="mt-1 break-words text-sm text-secondary [overflow-wrap:anywhere]">{diagnostic.displayString}</p>
         {outcome.kind === 'refusal' && outcome.refusalCode === 'insufficient_evidence' && <p className="mt-2 text-xs text-muted">FORGE cannot classify this {hasResult ? 'Result' : 'manifest item'} from the current authoritative evidence.</p>}
         {outcome.kind === 'refusal' && outcome.refusalCode === 'integrity_invalid' && <>
           <p className="mt-2 text-xs text-muted">Interpretation is withheld because diagnostic evidence or authority integrity is invalid.</p>
           <div className="mt-3">
-            <p className="text-xs font-medium text-primary">Integrity findings</p>
+            <h6 className="text-xs font-medium text-primary">Integrity findings</h6>
             <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-secondary">
               {integrityFindings.map(finding => <li key={finding}>{INTEGRITY_FINDING_LABELS[finding]}</li>)}
             </ul>
@@ -144,7 +133,7 @@ function AvailableDiagnostic({ diagnostic, hasResult }: { diagnostic: Extract<Ca
 }
 
 export function ResultDiagnostics({ diagnostic, hasResult }: { diagnostic?: CanonicalResultDiagnostic; hasResult: boolean }) {
-  if (!diagnostic) return <p className="text-xs text-muted">No diagnostic detail is attached to this {hasResult ? 'Result' : 'manifest item'}.</p>
+  if (!diagnostic) return <p role="status" aria-live="polite" className="text-xs text-muted">No diagnostic detail is attached to this {hasResult ? 'Result' : 'manifest item'}. No classification or refusal is implied.</p>
   return diagnostic.state === 'available'
     ? <AvailableDiagnostic diagnostic={diagnostic} hasResult={hasResult} />
     : <UnavailableDiagnostic diagnostic={diagnostic} hasResult={hasResult} />

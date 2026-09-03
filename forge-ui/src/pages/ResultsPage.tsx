@@ -74,7 +74,7 @@ function IntegrityBadge({ state }: { state: CanonicalExecutionResultsListItem['i
 }
 
 function BoundedState({ title, explanation, alert = false }: { title: string; explanation: string; alert?: boolean }) {
-  return <section role={alert ? 'alert' : 'status'} className="rounded-lg border border-border bg-surface p-8 text-center">
+  return <section role={alert ? 'alert' : 'status'} aria-live={alert ? undefined : 'polite'} aria-atomic="true" className="min-w-0 rounded-lg border border-border bg-surface p-8 text-center">
     <h2 className="text-lg font-semibold text-primary">{title}</h2>
     <p className="mx-auto mt-2 max-w-xl text-sm text-secondary">{explanation}</p>
   </section>
@@ -83,11 +83,11 @@ function BoundedState({ title, explanation, alert = false }: { title: string; ex
 export function IntegrityRefusal({ warnings = [] }: { warnings?: readonly CanonicalResultsIntegrityWarning[] }) {
   return <section role="alert" className="rounded-lg border border-fail/50 bg-surface p-6">
     <div className="flex items-start gap-3">
-      <ShieldAlert className="mt-0.5 shrink-0 text-fail" size={20} />
-      <div>
+      <ShieldAlert aria-hidden="true" className="mt-0.5 shrink-0 text-fail" size={20} />
+      <div className="min-w-0">
         <h2 className="font-semibold text-primary">Results integrity could not be established</h2>
         <p className="mt-1 text-sm text-secondary">Results cannot be safely presented because canonical evidence integrity could not be established. FORGE will not substitute empty values or legacy evidence.</p>
-        {warnings.length > 0 && <ul className="mt-3 space-y-2 text-sm text-secondary">
+        {warnings.length > 0 && <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-secondary">
           {warnings.map((warning, index) => <li key={`${warning.code}-${index}`}><strong className="text-primary">{readable(warning.code)}:</strong> {warning.safeMessage}</li>)}
         </ul>}
       </div>
@@ -100,7 +100,7 @@ export function ResultsError({ error, subject }: { error: unknown; subject: 'his
   if (error instanceof CanonicalResultsPayloadError) return <BoundedState alert title="Canonical Results response was invalid" explanation="FORGE refused a malformed Results payload. No Result truth was inferred from it." />
   if (error instanceof ApiError && error.status === 404) return <BoundedState alert title={subject === 'detail' ? 'Execution not found' : 'Project not found'} explanation={subject === 'detail' ? 'The selected canonical Product execution does not exist for this project.' : 'The selected project does not exist.'} />
   if (error instanceof ApiError && (error.status === 0 || error.code === 'BACKEND_UNAVAILABLE')) return <BoundedState alert title="FORGE backend unavailable" explanation="Canonical Results could not be reached. No legacy source was used as a fallback." />
-  return <BoundedState alert title={`Results ${subject} unavailable`} explanation="Canonical Results authority could not be read safely. Try again after the underlying API issue is resolved." />
+  return <BoundedState alert title={`Results ${subject} unavailable`} explanation="Canonical Results authority could not be read safely. No Result truth was displayed or inferred." />
 }
 
 function EvidenceCounts({ item }: { item: CanonicalExecutionResultsListItem }) {
@@ -124,7 +124,7 @@ export function ExecutionHistory({
   onSelect: (executionId: string) => void
 }) {
   if (executions.length === 0) return <BoundedState title="No Product executions yet" explanation="This project has no canonical Product execution history. Open Run to review current execution eligibility." />
-  return <section aria-labelledby="execution-history-heading" className="space-y-3">
+  return <section aria-labelledby="execution-history-heading" className="min-w-0 space-y-3">
     <div>
       <p className="text-xs uppercase tracking-[0.16em] text-brand">Canonical Product history</p>
       <h2 id="execution-history-heading" className="mt-1 text-xl font-semibold text-primary">Executions</h2>
@@ -133,21 +133,21 @@ export function ExecutionHistory({
       {executions.map(item => {
         const selected = item.executionId === selectedExecutionId
         const invalid = item.integrityState === 'invalid'
-        return <article key={item.executionId} className={`rounded-lg border bg-surface ${selected ? 'border-brand ring-1 ring-brand' : invalid ? 'border-fail/50' : 'border-border'}`}>
+        return <article key={item.executionId} className={`min-w-0 rounded-lg border bg-surface ${selected ? 'border-brand ring-1 ring-brand' : invalid ? 'border-fail/50' : 'border-border'}`}>
           <button
             type="button"
             disabled={invalid}
             aria-current={selected ? 'true' : undefined}
             aria-label={invalid ? `Execution ${item.executionId}: Results integrity invalid` : `Inspect execution ${item.executionId}`}
             onClick={() => onSelect(item.executionId)}
-            className="w-full rounded-lg p-4 text-left outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            className="w-full min-w-0 rounded-lg p-4 text-left outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:hover:bg-transparent"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <p className="font-mono text-xs text-muted">Execution ID</p>
                 <p className="break-all font-mono text-sm text-primary">{item.executionId}</p>
                 <p className="mt-1 text-xs text-secondary">Accepted <Time value={item.acceptedAt} /></p>
-                {item.selectionAuthority && <p className="mt-1 text-xs text-brand">{item.selectionAuthority.name} · Suite revision {item.selectionAuthority.suiteRevision}</p>}
+                {item.selectionAuthority && <p className="mt-1 break-words text-xs text-brand [overflow-wrap:anywhere]">{item.selectionAuthority.name} · Suite revision {item.selectionAuthority.suiteRevision}</p>}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-run">Lifecycle: {readable(item.lifecycle)}</span>
@@ -183,7 +183,7 @@ function ResultIcon({ item }: { item: CanonicalExecutionResultItem }) {
 }
 
 function ResultItem({ item }: { item: CanonicalExecutionResultItem }) {
-  if (item.evidence.kind === 'missing_result') return <article className="rounded-lg border border-border bg-elevated p-4">
+  if (item.evidence.kind === 'missing_result') return <article className="min-w-0 rounded-lg border border-border bg-elevated p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex min-w-0 items-start gap-3">
         <ResultIcon item={item} />
@@ -193,10 +193,10 @@ function ResultItem({ item }: { item: CanonicalExecutionResultItem }) {
     </div>
     <p className="mt-3 text-sm text-secondary"><strong className="text-flaky">Expected Result missing.</strong> No persisted Result row exists for this manifest item.</p>
     <div className="mt-3"><ResultDiagnostics diagnostic={item.diagnostic} hasResult={false} /></div>
-    <details className="mt-3"><summary className="cursor-pointer text-xs font-medium text-brand outline-none focus-visible:ring-2 focus-visible:ring-brand">Technical provenance</summary><dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2"><div><dt className="text-muted">Definition ID</dt><dd className="break-all font-mono text-secondary">{item.definitionId}</dd></div><div><dt className="text-muted">Executable plan hash</dt><dd className="break-all font-mono text-secondary">{item.executablePlanHash}</dd></div></dl></details>
+    <details className="mt-3 min-w-0"><summary className="cursor-pointer rounded-sm text-xs font-medium text-brand outline-none focus-visible:ring-2 focus-visible:ring-brand">Technical provenance</summary><dl className="mt-2 grid min-w-0 gap-2 text-xs sm:grid-cols-2"><div className="min-w-0"><dt className="text-muted">Definition ID</dt><dd className="break-all font-mono text-secondary">{item.definitionId}</dd></div><div className="min-w-0"><dt className="text-muted">Executable plan hash</dt><dd className="break-all font-mono text-secondary">{item.executablePlanHash}</dd></div></dl></details>
   </article>
   const evidence = item.evidence
-  return <article className="rounded-lg border border-border bg-elevated p-4">
+  return <article className="min-w-0 rounded-lg border border-border bg-elevated p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex min-w-0 items-start gap-3">
         <ResultIcon item={item} />
@@ -213,12 +213,12 @@ function ResultItem({ item }: { item: CanonicalExecutionResultItem }) {
       <div><dt className="text-xs text-muted">Duration</dt><dd className="text-primary">{evidence.durationMs} ms</dd></div>
     </dl>
     <div className="mt-3"><ResultDiagnostics diagnostic={item.diagnostic} hasResult /></div>
-    <details className="mt-3">
-      <summary className="cursor-pointer text-xs font-medium text-brand outline-none focus-visible:ring-2 focus-visible:ring-brand">Technical provenance</summary>
-      <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
-        <div><dt className="text-muted">Definition ID</dt><dd className="break-all font-mono text-secondary">{item.definitionId}</dd></div>
-        <div><dt className="text-muted">Executable plan hash</dt><dd className="break-all font-mono text-secondary">{item.executablePlanHash}</dd></div>
-        <div><dt className="text-muted">Result ID</dt><dd className="break-all font-mono text-secondary">{evidence.resultId}</dd></div>
+    <details className="mt-3 min-w-0">
+      <summary className="cursor-pointer rounded-sm text-xs font-medium text-brand outline-none focus-visible:ring-2 focus-visible:ring-brand">Technical provenance</summary>
+      <dl className="mt-2 grid min-w-0 gap-2 text-xs sm:grid-cols-2">
+        <div className="min-w-0"><dt className="text-muted">Definition ID</dt><dd className="break-all font-mono text-secondary">{item.definitionId}</dd></div>
+        <div className="min-w-0"><dt className="text-muted">Executable plan hash</dt><dd className="break-all font-mono text-secondary">{item.executablePlanHash}</dd></div>
+        <div className="min-w-0"><dt className="text-muted">Result ID</dt><dd className="break-all font-mono text-secondary">{evidence.resultId}</dd></div>
       </dl>
     </details>
   </article>
@@ -227,13 +227,13 @@ function ResultItem({ item }: { item: CanonicalExecutionResultItem }) {
 function DefinitionProvenance({ detail }: { detail: CanonicalExecutionResultsDetail }) {
   const authority = detail.execution.definitionAuthority
   if ('scope' in authority) return null
-  return <details className="rounded-lg border border-border bg-surface p-4">
-    <summary className="cursor-pointer font-semibold text-primary outline-none focus-visible:ring-2 focus-visible:ring-brand">Execution authority and provenance</summary>
+  return <details className="min-w-0 rounded-lg border border-border bg-surface p-4">
+    <summary className="cursor-pointer rounded-sm font-semibold text-primary outline-none focus-visible:ring-2 focus-visible:ring-brand">Execution authority and provenance</summary>
     <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
       <div><dt className="text-xs text-muted">Execution ID</dt><dd className="break-all font-mono text-secondary">{detail.execution.executionId}</dd></div>
       <div><dt className="text-xs text-muted">Run ID</dt><dd className="break-all font-mono text-secondary">{detail.run?.runId ?? 'No Product Run persisted'}</dd></div>
       <div><dt className="text-xs text-muted">Test Set</dt><dd className="break-all font-mono text-secondary">{authority.testSetId} · revision {authority.revision}</dd></div>
-      <div><dt className="text-xs text-muted">App Model</dt><dd className="text-secondary">{authority.modelVersion} (row {authority.modelRowId})</dd></div>
+      <div className="min-w-0"><dt className="text-xs text-muted">App Model</dt><dd className="break-all text-secondary">{authority.modelVersion} (row {authority.modelRowId})</dd></div>
       <div><dt className="text-xs text-muted">Support seal</dt><dd className="break-all font-mono text-xs text-secondary">{authority.supportSealHash ?? 'Not persisted'}</dd></div>
       <div><dt className="text-xs text-muted">Route evidence identity</dt><dd className="break-all font-mono text-xs text-secondary">{authority.routeEvidenceIdentityHash ?? 'Not persisted'}</dd></div>
       <div><dt className="text-xs text-muted">Authentication expectation identity</dt><dd className="break-all font-mono text-xs text-secondary">{authority.authenticationExpectationIdentityHash ?? 'Not persisted'}</dd></div>
@@ -250,8 +250,8 @@ export function ExecutionResultsDetail({ detail }: { detail: CanonicalExecutionR
       <OutcomeBadge outcome={detail.evidenceHeadlineOutcome} prefix="Current evidence" />
     </div>
 
-    {detail.integrityWarnings.length > 0 && <aside className="rounded-lg border border-flaky/40 bg-surface p-4" role="status">
-      <div className="flex gap-3"><AlertTriangle className="shrink-0 text-flaky" size={18} /><div><h3 className="font-semibold text-primary">Integrity warnings</h3><ul className="mt-1 space-y-1 text-sm text-secondary">{detail.integrityWarnings.map((warning, index) => <li key={`${warning.code}-${index}`}>{warning.safeMessage}</li>)}</ul></div></div>
+    {detail.integrityWarnings.length > 0 && <aside className="min-w-0 rounded-lg border border-flaky/40 bg-surface p-4" role="status" aria-live="polite" aria-atomic="true">
+      <div className="flex min-w-0 gap-3"><AlertTriangle aria-hidden="true" className="shrink-0 text-flaky" size={18} /><div className="min-w-0"><h3 className="font-semibold text-primary">Integrity warnings</h3><ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-secondary">{detail.integrityWarnings.map((warning, index) => <li key={`${warning.code}-${index}`} className="break-words [overflow-wrap:anywhere]">{warning.safeMessage}</li>)}</ul></div></div>
     </aside>}
 
     <section className="rounded-lg border border-border bg-surface p-4" aria-labelledby="execution-truth-heading">
@@ -308,12 +308,14 @@ export function ResultsPage() {
     setParams(next)
   }
 
-  return <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6">
+  return <div className="mx-auto w-full min-w-0 max-w-7xl space-y-6 px-4 py-6 sm:px-6">
     <div><p className="text-xs uppercase tracking-[0.18em] text-brand">Persisted canonical authority</p><h1 className="mt-1 text-2xl font-semibold text-primary">Results</h1><p className="mt-1 max-w-3xl text-sm text-secondary">Review what ran, what Result evidence FORGE persisted, what that evidence currently supports, and what remains explicitly missing.</p></div>
     {!project && <section className="rounded-lg border border-border bg-surface"><ProjectSelector title="Results" subtitle="Select a project to read its canonical Product execution history." basePath="/results" /></section>}
-    {project && history.isLoading && <div role="status" className="flex items-center gap-2 text-secondary"><Loader2 className="animate-spin" size={18} /> Loading canonical execution history…</div>}
-    {project && history.isError && <ResultsError error={history.error} subject="history" />}
-    {project && history.data && <div className="grid items-start gap-6 lg:grid-cols-[minmax(19rem,0.8fr)_minmax(0,1.4fr)]">
+    {project && (history.isLoading
+      ? <div role="status" aria-live="polite" aria-atomic="true" aria-busy="true" className="flex items-center gap-2 text-secondary"><Loader2 aria-hidden="true" className="animate-spin" size={18} /> Loading canonical execution history…</div>
+      : history.isError
+        ? <ResultsError error={history.error} subject="history" />
+        : history.data && <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(19rem,0.8fr)_minmax(0,1.4fr)]">
       <ExecutionHistory executions={executions} selectedExecutionId={selectedExecutionId} onSelect={selectExecution} />
       <div className="min-w-0">
         {requestedItem?.integrityState === 'invalid'
@@ -325,14 +327,14 @@ export function ResultsPage() {
               ? <BoundedState title="Select an execution" explanation="Choose a canonical execution to inspect its Run, manifest Results, missing evidence, and provenance." />
               : executions.length > 0 && <IntegrityRefusal />
             : detail.isLoading
-              ? <div role="status" className="flex items-center gap-2 text-secondary"><Loader2 className="animate-spin" size={18} /> Loading execution Results…</div>
+              ? <div role="status" aria-live="polite" aria-atomic="true" aria-busy="true" className="flex items-center gap-2 text-secondary"><Loader2 aria-hidden="true" className="animate-spin" size={18} /> Loading execution Results…</div>
               : detail.isError
                 ? <ResultsError error={detail.error} subject="detail" />
                 : detail.data
                   ? <ExecutionResultsDetail detail={detail.data} />
                   : null}
       </div>
-    </div>}
-    <aside className="flex gap-3 rounded-lg border border-border bg-elevated p-4 text-xs text-secondary"><Clock3 className="shrink-0 text-brand" size={17} /><p>Evidence completeness is not a pass rate. Missing Results remain missing, and current evidence is kept separate from persisted terminal outcome.</p></aside>
+    </div>)}
+    <aside className="flex min-w-0 gap-3 rounded-lg border border-border bg-elevated p-4 text-xs text-secondary"><Clock3 aria-hidden="true" className="shrink-0 text-brand" size={17} /><p className="min-w-0 break-words">Evidence completeness is not a pass rate. Missing Results remain missing, and current evidence is kept separate from persisted terminal outcome.</p></aside>
   </div>
 }

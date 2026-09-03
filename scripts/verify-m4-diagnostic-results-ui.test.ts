@@ -186,7 +186,7 @@ test('M4 Chunk 4 displayString mutation cannot select or replace the authoritati
 test('M4 Chunk 4 contains a long unbroken displayString as prose without changing its authority role', () => {
   const displayString = `Observed-${'unbroken'.repeat(80)}`
   const html = renderDiagnostic(available(outcomeMatrix[0]!.outcome, displayString))
-  assert.match(html, /class="[^"]*break-words[^"]*">Observed-/)
+  assert.match(html, /class="[^"]*break-words[^"]*\[overflow-wrap:anywhere\][^"]*">Observed-/)
   assert.match(html, />Execution failure</)
   assert.match(html, /Classified failure/)
 })
@@ -245,7 +245,7 @@ test('M4 Chunk 4 keeps all three unavailable transport states distinct and safe'
   const cases = [
     ['not_found', 'Diagnostic evidence not found'],
     ['unreadable', 'Diagnostic evidence unreadable'],
-    ['unsupported_classifier_version', 'Unsupported diagnostic version'],
+    ['unsupported_classifier_version', 'Classifier version not supported'],
   ] as const
   for (const [reason, label] of cases) {
     const html = renderDiagnostic(unavailable(reason))
@@ -258,8 +258,12 @@ test('M4 Chunk 4 keeps all three unavailable transport states distinct and safe'
 
 test('M4 Chunk 4 no-diagnostic state remains bounded and does not invent a classification', () => {
   const html = renderDiagnostic()
+  assert.match(html, /role="status"/)
+  assert.match(html, /aria-live="polite"/)
   assert.match(html, /No diagnostic detail is attached to this Result/)
+  assert.match(html, /No classification or refusal is implied/)
   assert.doesNotMatch(html, /Classified failure|Classification withheld|Insufficient evidence/)
+  assert.doesNotMatch(html, /Passed|success/i)
 
   const missingHtml = renderDiagnostic(undefined, false)
   assert.match(missingHtml, /No diagnostic detail is attached to this manifest item/)
@@ -270,7 +274,7 @@ test('M4 Chunk 4 decodes missing-Result diagnostics and keeps every unavailable 
   const cases = [
     ['not_found', 'Diagnostic evidence not found'],
     ['unreadable', 'Diagnostic evidence unreadable'],
-    ['unsupported_classifier_version', 'Unsupported diagnostic version'],
+    ['unsupported_classifier_version', 'Classifier version not supported'],
   ] as const
   for (const [reason, label] of cases) {
     const decoded = decoderValidMissingResultDetail(unavailable(reason))
@@ -278,7 +282,7 @@ test('M4 Chunk 4 decodes missing-Result diagnostics and keeps every unavailable 
     assert.match(html, /Expected Result missing/)
     assert.match(html, /No persisted Result row exists/)
     assert.match(html, new RegExp(`>${label}<`))
-    assert.match(html, /Manifest item diagnostic/)
+    assert.match(html, /for this manifest item/)
     assert.doesNotMatch(html, /for this Result|attached to this Result|classify this Result|Result diagnostic|Result ID<\/dt>/)
   }
 })
@@ -305,7 +309,19 @@ test('M4 Chunk 4 provenance disclosure is keyboard-native, versioned, item-speci
   assert.match(html, /forge\.m4\.diagnostic-classifier\/v1/)
   assert.match(html, /Manifest item/)
   assert.match(html, /break-all/)
+  assert.match(html, /focus-visible:ring-2 focus-visible:ring-brand/)
   assert.equal((html.match(new RegExp(LONG_ID, 'g')) ?? []).length, 3)
+})
+
+test('M4 Chunk 7 Results markup contains hostile long content without page-level overflow pressure', () => {
+  const longDisplay = `Observed-${'unbroken'.repeat(80)}`
+  const diagnosticHtml = renderDiagnostic(available(outcomeMatrix[0]!.outcome, longDisplay))
+  const missingHtml = renderToStaticMarkup(React.createElement(ExecutionResultsDetail, { detail: decoderValidMissingResultDetail(unavailable('unreadable')) }))
+  assert.match(diagnosticHtml, /min-w-0/)
+  assert.match(diagnosticHtml, /\[overflow-wrap:anywhere\]/)
+  assert.match(missingHtml, /min-w-0/)
+  assert.match(missingHtml, /break-all/)
+  assert.match(missingHtml, /sm:grid-cols-2/)
 })
 
 test('M4 Chunk 4 renders direct, Suite v1 single-root, and Suite v2 per-item diagnostics without authority reconstruction', () => {

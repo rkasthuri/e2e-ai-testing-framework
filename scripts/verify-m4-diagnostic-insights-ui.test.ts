@@ -22,7 +22,7 @@ import {
   DiagnosticInsightsContractError,
   type DiagnosticInsightsReadModel,
 } from '../forge-ui/src/api/insightsContract'
-import { InsightsError, InsightsSummary } from '../forge-ui/src/pages/InsightsPage'
+import { InsightsError, InsightsSummary, InsightsVersionScope } from '../forge-ui/src/pages/InsightsPage'
 import { readDiagnosticInsights } from '../forge-ui/server/context/DiagnosticInsightsController'
 import { executionContext } from '../forge-ui/server/context/ExecutionContext'
 
@@ -53,7 +53,7 @@ test('M4 Chunk 5 certified 10-diagnostic partition decodes and renders exact sep
   const decoded = decodeDiagnosticInsights(matrix(), PROJECT)
   assert.deepEqual(decoded, matrix())
   const html = render(React.createElement(InsightsSummary, { insights: decoded }))
-  for (const label of ['Total diagnostics', 'Classified failures', 'Refusals', 'Executor failure', 'Authentication not established', 'Navigation not completed', 'Target not observed', 'Action not completed', 'Oracle mismatch', 'Insufficient evidence', 'Integrity invalid']) assert.match(html, new RegExp(label))
+  for (const label of ['Total diagnostics', 'Classified failures', 'Refusals', 'Execution failure', 'Authentication not established', 'Navigation not completed', 'Target not observed', 'Action not completed', 'Oracle mismatch', 'Insufficient evidence', 'Diagnostic integrity invalid']) assert.match(html, new RegExp(label))
   assert.match(html, /Refusals are not classified failures/)
   assert.equal((html.match(/>1<\/dd>/g) ?? []).length, 7)
 })
@@ -71,6 +71,8 @@ test('M4 Chunk 5 zero partition is an honest empty state with no error or invent
   const zero = decodeDiagnosticInsights(matrix({ totalDiagnostics: 0, classifiedFailureCount: 0, refusalCount: 0, countsByFailureMode: Object.fromEntries(Object.keys(six).map(key => [key, 0])) as typeof six, insufficientEvidenceCount: 0, integrityInvalidCount: 0 }), PROJECT)
   const html = render(React.createElement(InsightsSummary, { insights: zero }))
   assert.match(html, /role="status"/)
+  assert.match(html, /aria-live="polite"/)
+  assert.match(html, /aria-atomic="true"/)
   assert.match(html, /No diagnostics in this version partition/)
   assert.doesNotMatch(html, /role="alert"|Classified failure modes|Classification refusals/)
 })
@@ -174,8 +176,39 @@ test('M4 Chunk 5 page exposes semantic headings, announced states, and responsiv
   const page = fs.readFileSync(path.resolve('forge-ui/src/pages/InsightsPage.tsx'), 'utf8')
   assert.match(page, /<h1[^>]*>Insights<\/h1>/)
   assert.match(page, /aria-live="polite"/)
-  assert.match(page, /aria-live="assertive"/)
+  assert.match(page, /role="alert"/)
   assert.match(page, /grid gap-3 sm:grid-cols-3/)
-  assert.match(page, /grid gap-6 lg:grid-cols-2/)
+  assert.match(page, /grid [^"\n]*gap-6 lg:grid-cols-2/)
   assert.match(page, /break-all font-mono/)
+})
+
+test('M4 Chunk 7 long explicit versions wrap and remain semantically labelled', () => {
+  const evidenceVersion = `forge.m4.diagnostic-evidence/${'long-version-'.repeat(30)}`
+  const classifierVersion = `forge.m4.diagnostic-classifier/${'long-version-'.repeat(30)}`
+  const html = render(React.createElement(InsightsVersionScope, { evidenceSchemaVersion: evidenceVersion, classifierVersion }))
+  assert.match(html, /aria-labelledby="version-scope-heading"/)
+  assert.match(html, /<dt[^>]*>Evidence schema<\/dt>/)
+  assert.match(html, /<dt[^>]*>Classifier<\/dt>/)
+  assert.match(html, new RegExp(evidenceVersion))
+  assert.match(html, new RegExp(classifierVersion))
+  assert.equal((html.match(/break-all font-mono/g) ?? []).length, 2)
+})
+
+test('M4 Chunk 7 Insights loading, error, and data are mutually exclusive and errors expose no partial counts', () => {
+  const page = fs.readFileSync(path.resolve('forge-ui/src/pages/InsightsPage.tsx'), 'utf8')
+  assert.match(page, /query\.isLoading[\s\S]*\? <div role="status"[\s\S]*: query\.isError[\s\S]*\? <InsightsError[\s\S]*: query\.data[\s\S]*\? <InsightsSummary/)
+  assert.doesNotMatch(page, /\{project && query\.(?:isLoading|isError|data)/)
+  const html = render(React.createElement(InsightsError, { error: new Error('unknown storage cause') }))
+  assert.match(html, /Diagnostic Insights unavailable/)
+  assert.doesNotMatch(html, /Total diagnostics|Classified failures|Refusals|unknown storage cause/)
+})
+
+test('M4 Chunk 7 Results and Insights consume one UI-only label authority', () => {
+  const results = fs.readFileSync(path.resolve('forge-ui/src/components/results/ResultDiagnostics.tsx'), 'utf8')
+  const insights = fs.readFileSync(path.resolve('forge-ui/src/pages/InsightsPage.tsx'), 'utf8')
+  for (const source of [results, insights]) {
+    assert.match(source, /DIAGNOSTIC_FAILURE_LABELS/)
+    assert.match(source, /DIAGNOSTIC_REFUSAL_LABELS/)
+  }
+  assert.doesNotMatch(`${results}\n${insights}`, /Executor failure|label="Integrity invalid"/)
 })
