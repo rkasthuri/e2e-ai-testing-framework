@@ -13,8 +13,9 @@
 import { Router } from 'express'
 import { notImplemented } from '../http'
 
-// Legacy compatibility stub: mounted but always 501. No canonical Product
-// Insights transport exists in the current certified local Product.
+// Legacy compatibility stub: mounted but always 501. Canonical Product Insights
+// exists at /api/v1/projects/:appName/insights; this top-level route remains an
+// unsupported compatibility surface.
 const router = Router()
 router.use(notImplemented)
 export default router

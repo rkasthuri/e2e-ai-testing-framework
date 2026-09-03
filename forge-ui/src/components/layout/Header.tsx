@@ -27,6 +27,7 @@ const TABS = [
   { to: '/tests', label: 'Tests', scoped: true },
   { to: '/run', label: 'Run', scoped: true },
   { to: '/results', label: 'Results', scoped: true },
+  { to: '/insights', label: 'Insights', scoped: true },
   { to: '/application/overview', label: 'Application', scoped: true },
 ]
 
