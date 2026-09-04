@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/m5/refusal-artifact.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "repairKind",
+    "stage",
+    "code"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "forge.m5.repair-refusal/v1"
+    },
+    "repairKind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stage": {
+      "enum": [
+        "integrity",
+        "contract",
+        "candidate",
+        "approval"
+      ]
+    },
+    "code": {
+      "enum": [
+        "integrity_mismatch",
+        "historical_authority_mismatch",
+        "unsupported_contract_version",
+        "unsupported_repair_kind",
+        "candidate_not_found",
+        "candidate_not_governed",
+        "candidate_ambiguous",
+        "candidate_semantics_unproven",
+        "stale_authority"
+      ]
+    }
+  }
+}

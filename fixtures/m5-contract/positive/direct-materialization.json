@@ -1,0 +1,573 @@
+{
+  "schemaVersion": "forge.m5.selector-repair-materialization-case/v1",
+  "caseId": "direct-repair",
+  "suiteAuthority": null,
+  "persistedSuiteAuthority": null,
+  "sourceTestSet": {
+    "schemaVersion": 3,
+    "testSetId": "test-set-v3-7c568c867a2989a6b842e917",
+    "revision": 7,
+    "projectId": "m5-selector-repair",
+    "generationId": "generation-source",
+    "generatedAt": "2026-09-03T12:00:00.000Z",
+    "generationMethod": "deterministic",
+    "outcome": "completed",
+    "canonicalSupport": {
+      "modelRowId": 41,
+      "modelVersion": "1.0.0",
+      "observationRunId": "observation-run-m1",
+      "supportSealHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "characterizationPolicy": {
+        "id": "forge.crawl-observation-characterization",
+        "version": "1"
+      },
+      "supportingObservationIds": [
+        "obs-cart-m1",
+        "obs-checkout-m1"
+      ],
+      "supportingGapIds": []
+    },
+    "definitions": [
+      {
+        "id": "test-v3-flow-14b286921056c7a91cb10523",
+        "title": "Direct checkout from cart: Cart to Checkout information",
+        "intent": "Reach checkout-html through the directly observed cart-html:checkout interaction.",
+        "canonicalSubjects": [
+          "cart-html",
+          "checkout-html"
+        ],
+        "provenance": {
+          "modelRowId": 41,
+          "modelVersion": "1.0.0",
+          "supportSealHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "subjectSupport": [
+            {
+              "canonicalSubjectId": "cart-html",
+              "supportingObservationIds": [
+                "obs-cart-m1"
+              ],
+              "supportingGapIds": []
+            },
+            {
+              "canonicalSubjectId": "checkout-html",
+              "supportingObservationIds": [
+                "obs-checkout-m1"
+              ],
+              "supportingGapIds": []
+            }
+          ],
+          "intentId": "intent-v1-b59536e7482f9de8982e8551",
+          "intentContentHash": "bb7460cd923d06c176d983d6d33fbd03f3ba72ce428d3643f05813d7aa271fc5"
+        },
+        "appArea": "Cart",
+        "normalizedIntent": {
+          "appArea": {
+            "confidence": "medium",
+            "evidenceIds": [
+              "cart-html"
+            ],
+            "id": "Cart",
+            "method": "rule",
+            "sourceSubjectId": "cart-html"
+          },
+          "disposition": {
+            "state": "supported"
+          },
+          "evidenceAssessment": {
+            "limitations": [
+              "Source flow steps 1 were excluded and are not executable M1 semantics.",
+              "The source flow is partial; only the directly observed selected transition is runnable."
+            ],
+            "selectedStepGrounding": "observed",
+            "sourceFlowConfidence": "partial",
+            "state": "sufficient"
+          },
+          "expectedOutcomes": [
+            {
+              "kind": "subject_observable",
+              "outcomeId": "intent-outcome-0167ac59bb506ede92b43062",
+              "routePath": "/checkout.html",
+              "subjectId": "checkout-html"
+            }
+          ],
+          "grounding": {
+            "excludedFlowStepIndexes": [
+              1
+            ],
+            "modelRowId": 41,
+            "modelVersion": "1.0.0",
+            "observationRunId": "observation-run-m1",
+            "selectedFlowStepIndexes": [
+              2
+            ],
+            "sourceFlowId": "direct-checkout",
+            "subjectSupport": [
+              {
+                "canonicalSubjectId": "cart-html",
+                "supportingGapIds": [],
+                "supportingObservationIds": [
+                  "obs-cart-m1"
+                ]
+              },
+              {
+                "canonicalSubjectId": "checkout-html",
+                "supportingGapIds": [],
+                "supportingObservationIds": [
+                  "obs-checkout-m1"
+                ]
+              }
+            ],
+            "supportSealHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "intentId": "intent-v1-b59536e7482f9de8982e8551",
+          "objective": "Reach checkout-html through the directly observed cart-html:checkout interaction.",
+          "preconditions": [
+            {
+              "kind": "authenticated_role",
+              "mechanism": "form-login",
+              "roleId": "standardUser"
+            }
+          ],
+          "projectId": "m5-selector-repair",
+          "schemaVersion": "forge-normalized-test-intent/v1",
+          "source": "discovered",
+          "steps": [
+            {
+              "kind": "navigate_to_observed_route",
+              "ordinal": 0,
+              "routePath": "/cart.html",
+              "stepId": "intent-step-12de687a21696014d7426147",
+              "subjectId": "cart-html"
+            },
+            {
+              "dataTestValue": "checkout-old",
+              "elementId": "cart-html:checkout",
+              "kind": "click_observed_data_test",
+              "ordinal": 1,
+              "stepId": "intent-step-dc78bf3b6471a8b7dd760f52",
+              "subjectId": "cart-html",
+              "targetSubjectId": "checkout-html"
+            }
+          ],
+          "title": "Direct checkout from cart: Cart to Checkout information"
+        },
+        "flowRouteEvidence": [
+          {
+            "subjectId": "cart-html",
+            "normalizedPath": "/cart.html",
+            "normalizationPolicy": {
+              "id": "forge.canonical-route-normalization",
+              "version": "1"
+            },
+            "supportingObservationIds": [
+              "obs-cart-m1"
+            ]
+          },
+          {
+            "subjectId": "checkout-html",
+            "normalizedPath": "/checkout.html",
+            "normalizationPolicy": {
+              "id": "forge.canonical-route-normalization",
+              "version": "1"
+            },
+            "supportingObservationIds": [
+              "obs-checkout-m1"
+            ]
+          }
+        ],
+        "authenticationExpectation": {
+          "state": "required",
+          "mechanism": "form-login",
+          "bases": [
+            {
+              "kind": "declared_configuration",
+              "policyId": "forge.authentication-expectation.declared-configuration",
+              "policyVersion": "1",
+              "configurationDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "mechanism": "form-login"
+            }
+          ]
+        },
+        "actions": [
+          {
+            "kind": "navigate_to_observed_route",
+            "ordinal": 0,
+            "routePath": "/cart.html",
+            "stepId": "intent-step-12de687a21696014d7426147",
+            "subjectId": "cart-html"
+          },
+          {
+            "dataTestValue": "checkout-old",
+            "elementId": "cart-html:checkout",
+            "kind": "click_observed_data_test",
+            "ordinal": 1,
+            "stepId": "intent-step-dc78bf3b6471a8b7dd760f52",
+            "subjectId": "cart-html",
+            "targetSubjectId": "checkout-html"
+          }
+        ],
+        "oracle": {
+          "kind": "subject_observable",
+          "subjectId": "checkout-html",
+          "supportingObservationIds": [
+            "obs-checkout-m1"
+          ],
+          "explanation": "Observe the sealed target subject at its governed final route after the directly observed click transition."
+        },
+        "generationMethod": "deterministic",
+        "validation": {
+          "state": "valid",
+          "explanation": "The definition embeds one immutable normalized intent whose selected click is directly observed and exactly sealed."
+        },
+        "runnerCompatibility": {
+          "state": "compatible",
+          "explanation": "The definition's steps, oracle, and authentication setup are all supported."
+        },
+        "confidenceLimitations": [
+          "Source flow steps 1 were excluded and are not executable M1 semantics.",
+          "The source flow is partial; only the directly observed selected transition is runnable."
+        ],
+        "materialUnknowns": [
+          "Credential availability and runtime authentication outcome remain execution-time truths."
+        ],
+        "unobservedScope": [
+          "Excluded source-flow steps and behavior outside the selected transition remain unobserved M1 scope."
+        ],
+        "preventedStrongerDefinition": "M1 supports one observed data-test click between two governed subjects; additional actions and oracles are refused."
+      }
+    ],
+    "limitations": [
+      "Generation was deterministic, used no AI enrichment, and did not execute the definition.",
+      "Source flow steps 1 were excluded and are not executable M1 semantics.",
+      "The source flow is partial; only the directly observed selected transition is runnable."
+    ],
+    "materialUnknowns": [
+      "Credential availability and authentication execution outcome remain outside Test Definition authority."
+    ],
+    "unobservedScope": [
+      "Coverage outside the exact selected observed transition is unknown."
+    ],
+    "preventedStrongerSet": "The frozen M1 contract permits one observed data-test click only.",
+    "coverage": "unknown",
+    "freshness": "not_evaluated"
+  },
+  "expectedResultingTestSet": {
+    "schemaVersion": 3,
+    "testSetId": "test-set-v3-7c568c867a2989a6b842e917",
+    "revision": 8,
+    "projectId": "m5-selector-repair",
+    "generationId": "generation-repair",
+    "generatedAt": "2026-09-03T18:00:00.000Z",
+    "generationMethod": "deterministic",
+    "outcome": "completed",
+    "canonicalSupport": {
+      "modelRowId": 52,
+      "modelVersion": "2.0.0",
+      "observationRunId": "observation-run-m2",
+      "supportSealHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "characterizationPolicy": {
+        "id": "forge.crawl-observation-characterization",
+        "version": "1"
+      },
+      "supportingObservationIds": [
+        "obs-cart-m2",
+        "obs-checkout-m2"
+      ],
+      "supportingGapIds": []
+    },
+    "definitions": [
+      {
+        "id": "test-v3-flow-7ef3777aaca635cd0bfcf289",
+        "title": "Direct checkout from cart: Cart to Checkout information",
+        "intent": "Reach checkout-html through the directly observed cart-html:checkout interaction.",
+        "canonicalSubjects": [
+          "cart-html",
+          "checkout-html"
+        ],
+        "provenance": {
+          "modelRowId": 52,
+          "modelVersion": "2.0.0",
+          "supportSealHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "subjectSupport": [
+            {
+              "canonicalSubjectId": "cart-html",
+              "supportingObservationIds": [
+                "obs-cart-m2"
+              ],
+              "supportingGapIds": []
+            },
+            {
+              "canonicalSubjectId": "checkout-html",
+              "supportingObservationIds": [
+                "obs-checkout-m2"
+              ],
+              "supportingGapIds": []
+            }
+          ],
+          "intentId": "intent-v1-437b798841dda4e25ae99ada",
+          "intentContentHash": "b5eb3b300c7a2ebb3e51061f6249ba119f1fbab30738f060197231e19c37abf0"
+        },
+        "appArea": "Cart",
+        "normalizedIntent": {
+          "appArea": {
+            "confidence": "medium",
+            "evidenceIds": [
+              "cart-html"
+            ],
+            "id": "Cart",
+            "method": "rule",
+            "sourceSubjectId": "cart-html"
+          },
+          "disposition": {
+            "state": "supported"
+          },
+          "evidenceAssessment": {
+            "limitations": [
+              "Source flow steps 1 were excluded and are not executable M1 semantics.",
+              "The source flow is partial; only the directly observed selected transition is runnable."
+            ],
+            "selectedStepGrounding": "observed",
+            "sourceFlowConfidence": "partial",
+            "state": "sufficient"
+          },
+          "expectedOutcomes": [
+            {
+              "kind": "subject_observable",
+              "outcomeId": "intent-outcome-a591debd9c132d5631656ee8",
+              "routePath": "/checkout.html",
+              "subjectId": "checkout-html"
+            }
+          ],
+          "grounding": {
+            "excludedFlowStepIndexes": [
+              1
+            ],
+            "modelRowId": 52,
+            "modelVersion": "2.0.0",
+            "observationRunId": "observation-run-m2",
+            "selectedFlowStepIndexes": [
+              2
+            ],
+            "sourceFlowId": "direct-checkout",
+            "subjectSupport": [
+              {
+                "canonicalSubjectId": "cart-html",
+                "supportingGapIds": [],
+                "supportingObservationIds": [
+                  "obs-cart-m2"
+                ]
+              },
+              {
+                "canonicalSubjectId": "checkout-html",
+                "supportingGapIds": [],
+                "supportingObservationIds": [
+                  "obs-checkout-m2"
+                ]
+              }
+            ],
+            "supportSealHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "intentId": "intent-v1-437b798841dda4e25ae99ada",
+          "objective": "Reach checkout-html through the directly observed cart-html:checkout interaction.",
+          "preconditions": [
+            {
+              "kind": "authenticated_role",
+              "mechanism": "form-login",
+              "roleId": "standardUser"
+            }
+          ],
+          "projectId": "m5-selector-repair",
+          "schemaVersion": "forge-normalized-test-intent/v1",
+          "source": "discovered",
+          "steps": [
+            {
+              "kind": "navigate_to_observed_route",
+              "ordinal": 0,
+              "routePath": "/cart.html",
+              "stepId": "intent-step-469ef79f1f775b37ce099780",
+              "subjectId": "cart-html"
+            },
+            {
+              "dataTestValue": "checkout-new",
+              "elementId": "cart-html:checkout",
+              "kind": "click_observed_data_test",
+              "ordinal": 1,
+              "stepId": "intent-step-fac41abfbd2f66e0a250421e",
+              "subjectId": "cart-html",
+              "targetSubjectId": "checkout-html"
+            }
+          ],
+          "title": "Direct checkout from cart: Cart to Checkout information"
+        },
+        "flowRouteEvidence": [
+          {
+            "subjectId": "cart-html",
+            "normalizedPath": "/cart.html",
+            "normalizationPolicy": {
+              "id": "forge.canonical-route-normalization",
+              "version": "1"
+            },
+            "supportingObservationIds": [
+              "obs-cart-m2"
+            ]
+          },
+          {
+            "subjectId": "checkout-html",
+            "normalizedPath": "/checkout.html",
+            "normalizationPolicy": {
+              "id": "forge.canonical-route-normalization",
+              "version": "1"
+            },
+            "supportingObservationIds": [
+              "obs-checkout-m2"
+            ]
+          }
+        ],
+        "authenticationExpectation": {
+          "state": "required",
+          "mechanism": "form-login",
+          "bases": [
+            {
+              "kind": "declared_configuration",
+              "policyId": "forge.authentication-expectation.declared-configuration",
+              "policyVersion": "1",
+              "configurationDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "mechanism": "form-login"
+            }
+          ]
+        },
+        "actions": [
+          {
+            "kind": "navigate_to_observed_route",
+            "ordinal": 0,
+            "routePath": "/cart.html",
+            "stepId": "intent-step-469ef79f1f775b37ce099780",
+            "subjectId": "cart-html"
+          },
+          {
+            "dataTestValue": "checkout-new",
+            "elementId": "cart-html:checkout",
+            "kind": "click_observed_data_test",
+            "ordinal": 1,
+            "stepId": "intent-step-fac41abfbd2f66e0a250421e",
+            "subjectId": "cart-html",
+            "targetSubjectId": "checkout-html"
+          }
+        ],
+        "oracle": {
+          "kind": "subject_observable",
+          "subjectId": "checkout-html",
+          "supportingObservationIds": [
+            "obs-checkout-m2"
+          ],
+          "explanation": "Observe the sealed target subject at its governed final route after the directly observed click transition."
+        },
+        "generationMethod": "deterministic",
+        "validation": {
+          "state": "valid",
+          "explanation": "The definition embeds one immutable normalized intent whose selected click is directly observed and exactly sealed."
+        },
+        "runnerCompatibility": {
+          "state": "compatible",
+          "explanation": "The definition's steps, oracle, and authentication setup are all supported."
+        },
+        "confidenceLimitations": [
+          "Source flow steps 1 were excluded and are not executable M1 semantics.",
+          "The source flow is partial; only the directly observed selected transition is runnable."
+        ],
+        "materialUnknowns": [
+          "Credential availability and runtime authentication outcome remain execution-time truths."
+        ],
+        "unobservedScope": [
+          "Excluded source-flow steps and behavior outside the selected transition remain unobserved M1 scope."
+        ],
+        "preventedStrongerDefinition": "M1 supports one observed data-test click between two governed subjects; additional actions and oracles are refused."
+      }
+    ],
+    "limitations": [
+      "Generation was deterministic, used no AI enrichment, and did not execute the definition.",
+      "Source flow steps 1 were excluded and are not executable M1 semantics.",
+      "The source flow is partial; only the directly observed selected transition is runnable."
+    ],
+    "materialUnknowns": [
+      "Credential availability and authentication execution outcome remain outside Test Definition authority."
+    ],
+    "unobservedScope": [
+      "Coverage outside the exact selected observed transition is unknown."
+    ],
+    "preventedStrongerSet": "The frozen M1 contract permits one observed data-test click only.",
+    "coverage": "unknown",
+    "freshness": "not_evaluated"
+  },
+  "sourceRoutes": {
+    "schemaVersion": "forge-canonical-route-evidence/v1",
+    "projectId": "m5-selector-repair",
+    "modelRowId": 41,
+    "supportSealHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "normalizationPolicy": {
+      "id": "forge.canonical-route-normalization",
+      "version": "1"
+    },
+    "subjects": [
+      {
+        "canonicalSubjectId": "cart-html",
+        "normalizedPath": "/cart.html",
+        "supportingObservationIds": [
+          "obs-cart-m1"
+        ]
+      },
+      {
+        "canonicalSubjectId": "checkout-html",
+        "normalizedPath": "/checkout.html",
+        "supportingObservationIds": [
+          "obs-checkout-m1"
+        ]
+      }
+    ],
+    "identityHash": "a80b792e54437765ae4c5160edcff5e919f2a523233a7bdedf1acb8da450371a"
+  },
+  "candidateRoutes": {
+    "schemaVersion": "forge-canonical-route-evidence/v1",
+    "projectId": "m5-selector-repair",
+    "modelRowId": 52,
+    "supportSealHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "normalizationPolicy": {
+      "id": "forge.canonical-route-normalization",
+      "version": "1"
+    },
+    "subjects": [
+      {
+        "canonicalSubjectId": "cart-html",
+        "normalizedPath": "/cart.html",
+        "supportingObservationIds": [
+          "obs-cart-m2"
+        ]
+      },
+      {
+        "canonicalSubjectId": "checkout-html",
+        "normalizedPath": "/checkout.html",
+        "supportingObservationIds": [
+          "obs-checkout-m2"
+        ]
+      }
+    ],
+    "identityHash": "3c72ab58cb52f6d7e365c356502d4d15fb953ad08eafab05982b8da68f5c24c6"
+  },
+  "authenticationExpectation": {
+    "schemaVersion": "forge-authentication-expectation/v1",
+    "state": "required",
+    "mechanism": "form-login",
+    "bases": [
+      {
+        "kind": "declared_configuration",
+        "policyId": "forge.authentication-expectation.declared-configuration",
+        "policyVersion": "1",
+        "configurationDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mechanism": "form-login"
+      }
+    ],
+    "identityHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "materializerVersion": "forge.m5.selector-repair-materializer/v1",
+  "transformHash": "40d2c8eac3fc8bc2cd1e7625542f1dcdaad6baca8dc6262c5da11763478cc053"
+}

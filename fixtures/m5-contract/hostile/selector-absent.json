@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-selector_absent",
+  "operation": "selector_absent",
+  "expected": {
+    "code": "candidate_not_governed",
+    "stage": "candidate"
+  }
+}

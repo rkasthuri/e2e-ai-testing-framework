@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-source_subject_content",
+  "operation": "source_subject_content",
+  "expected": {
+    "code": "candidate_semantics_unproven",
+    "stage": "candidate"
+  }
+}

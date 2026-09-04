@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-authority_id_conflict",
+  "operation": "authority_id_conflict",
+  "expected": {
+    "code": "integrity_mismatch",
+    "stage": "integrity"
+  }
+}

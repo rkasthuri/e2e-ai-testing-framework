@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-cross_project",
+  "operation": "cross_project",
+  "expected": {
+    "code": "candidate_not_governed",
+    "stage": "candidate"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-stale_proposal_endpoints",
+  "operation": "stale_proposal_endpoints",
+  "expected": {
+    "code": "stale_authority",
+    "stage": "approval"
+  }
+}

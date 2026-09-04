@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-materialized_subject",
+  "operation": "materialized_subject",
+  "expected": {
+    "code": "candidate_semantics_unproven",
+    "stage": "candidate"
+  }
+}

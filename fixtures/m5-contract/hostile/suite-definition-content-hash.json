@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-suite_definition_content_hash",
+  "operation": "suite_definition_content_hash",
+  "expected": {
+    "code": "historical_authority_mismatch",
+    "stage": "integrity"
+  }
+}

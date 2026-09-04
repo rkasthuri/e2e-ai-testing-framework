@@ -1,0 +1,572 @@
+{
+  "schemaVersion": "forge.m5.governed-selector-repair-contract/v1",
+  "versions": {
+    "proposal": "forge.m5.transition-correspondence-proposal/v1",
+    "decision": "forge.m5.transition-correspondence-decision/v1",
+    "authority": "forge.m5.app-model-transition-supersession-authority/v1",
+    "materializer": "forge.m5.selector-repair-materializer/v1",
+    "revision": "forge.m5.repair-revision-link/v1",
+    "rerun": "forge.m5.repair-rerun-link/v1"
+  },
+  "schemas": {
+    "common": "schema/common.schema.json",
+    "proposal": "schema/transition-proposal.schema.json",
+    "decision": "schema/transition-decision.schema.json",
+    "authority": "schema/transition-supersession-authority.schema.json",
+    "revision": "schema/repair-revision-link.schema.json",
+    "rerun": "schema/repair-rerun-link.schema.json",
+    "materialization": "schema/materialization-case.schema.json",
+    "refusal": "schema/refusal-artifact.schema.json",
+    "fixture": "schema/fixture-case.schema.json"
+  },
+  "positiveAggregateRoot": "ac6811a86f4e5ef066b38082df28d7a3f3b071c889f68919e7705e4f19de4ed3",
+  "artifacts": [
+    {
+      "file": "positive/source-model.json",
+      "digest": "6d139073e14bf1a732a83f54fd28fcebb20688c61aa80ff4f0c5393a58799f8f"
+    },
+    {
+      "file": "positive/candidate-model.json",
+      "digest": "cfd6e503bfd7948fa4a8b2481ef4c43e382dec39da651582fa6a58535e9dedc9"
+    },
+    {
+      "file": "positive/proposal.json",
+      "digest": "44f038657ddba205c00427ff6fd3ee9ce7bba5556ccb46904a01555a57167065"
+    },
+    {
+      "file": "positive/approve.json",
+      "digest": "f15a5db44d68a2f68c8cf5f69f83b7e3b5d50eee6c7988e2a29d5fb4a36da580"
+    },
+    {
+      "file": "positive/reject.json",
+      "digest": "9678ee6dbdba191de643182f9620f5aba4d6a22faddd00bd511565d979bc8ca0"
+    },
+    {
+      "file": "positive/supersession-authority.json",
+      "digest": "781426e743e67d77f46c920def4ac6539defcc884cdffbacd04c551100ac5079"
+    },
+    {
+      "file": "positive/source-test-set.json",
+      "digest": "4185480f09f024d95cf653eaeeb596bbed1ebe8a778a7e2125967364f1dccd76"
+    },
+    {
+      "file": "positive/resulting-test-set.json",
+      "digest": "1baa6753e3a0cc86f79010993e048c36da492a11848dfab80822773663935b10"
+    },
+    {
+      "file": "positive/direct-materialization.json",
+      "digest": "5c072ad787a1fd1672bb02aa02ebf8ceaf9405882a2057d4b7b191b2691be5c2"
+    },
+    {
+      "file": "positive/suite-materialization.json",
+      "digest": "5b51d668edc88ae43b06b92a3ba68063cb4d45fc5dd0a1fca828792f7deeb63c"
+    },
+    {
+      "file": "positive/repair-revision-link.json",
+      "digest": "dd97d42e2e891188eb514d6dd60f600d65e3bc4d1383a71e33c2c83bfdb1c61f"
+    },
+    {
+      "file": "positive/repair-rerun-link.json",
+      "digest": "c3fae2558e73457f5f35da8ac6e626bed2c8ffe7c6af28b196359866cc5bd402"
+    }
+  ],
+  "hostile": [
+    "hostile/source-model-hash.json",
+    "hostile/candidate-model-hash.json",
+    "hostile/source-model-row.json",
+    "hostile/candidate-model-row.json",
+    "hostile/source-support-float.json",
+    "hostile/candidate-support-float.json",
+    "hostile/flow-id.json",
+    "hostile/step-index.json",
+    "hostile/source-subject-content.json",
+    "hostile/target-subject-content.json",
+    "hostile/element-content.json",
+    "hostile/route-semantics.json",
+    "hostile/auth-semantics.json",
+    "hostile/precondition-semantics.json",
+    "hostile/oracle-semantics.json",
+    "hostile/duplicate-successor.json",
+    "hostile/selector-absent.json",
+    "hostile/candidate-missing.json",
+    "hostile/credential-candidate.json",
+    "hostile/cross-project.json",
+    "hostile/proposal-endpoint-elsewhere.json",
+    "hostile/enumerator-version-mismatch.json",
+    "hostile/derived-successor-count-mismatch.json",
+    "hostile/candidate-set-hash-mismatch.json",
+    "hostile/wrong-approval-hash.json",
+    "hostile/stale-proposal-endpoints.json",
+    "hostile/unsupported-repair-kind.json",
+    "hostile/unsupported-contract-version.json",
+    "hostile/current-head-substitution.json",
+    "hostile/suite-ordinal-crosswire.json",
+    "hostile/orphan-revision.json",
+    "hostile/mislabelled-revision.json",
+    "hostile/extra-semantic-field.json",
+    "hostile/materialized-oracle.json",
+    "hostile/materialized-route.json",
+    "hostile/materialized-auth.json",
+    "hostile/materialized-action.json",
+    "hostile/materialized-action-order.json",
+    "hostile/materialized-subject.json",
+    "hostile/wrong-selector.json",
+    "hostile/mixed-authority.json",
+    "hostile/materializer-version.json",
+    "hostile/transform-hash.json",
+    "hostile/proposal-hash.json",
+    "hostile/decision-hash.json",
+    "hostile/actor.json",
+    "hostile/timestamp.json",
+    "hostile/authority-id-conflict.json",
+    "hostile/precedence-integrity-over-candidate.json",
+    "hostile/precedence-contract-over-candidate.json",
+    "hostile/precedence-not-found-over-not-governed.json",
+    "hostile/precedence-stale-after-candidate.json",
+    "hostile/multiple-data-test-strategies.json",
+    "hostile/unrelated-selector-drift.json",
+    "hostile/rejected-decision-promotion.json",
+    "hostile/supersession-project-float.json",
+    "hostile/supersession-proposal-id-float.json",
+    "hostile/supersession-decision-id-float.json",
+    "hostile/suite-id-crosswire.json",
+    "hostile/suite-revision-crosswire.json",
+    "hostile/suite-hash-crosswire.json",
+    "hostile/suite-member-crosswire.json",
+    "hostile/stale-suite-authority.json",
+    "hostile/rerun-definition-crosswire.json",
+    "hostile/rerun-execution-crosswire.json",
+    "hostile/rerun-run-crosswire.json",
+    "hostile/rerun-result-crosswire.json",
+    "hostile/rerun-project-crosswire.json",
+    "hostile/source-authority-float.json",
+    "hostile/suite-definition-content-hash.json",
+    "hostile/nested-persisted-authority-extra.json",
+    "hostile/coordinated-fixture-manifest-drift.json"
+  ],
+  "refusalPrecedence": [
+    "integrity_mismatch",
+    "historical_authority_mismatch",
+    "unsupported_contract_version",
+    "unsupported_repair_kind",
+    "candidate_not_found",
+    "candidate_not_governed",
+    "candidate_semantics_unproven",
+    "candidate_ambiguous",
+    "stale_authority"
+  ],
+  "correspondenceRules": {
+    "enumeratorVersion": "forge.m5.bounded-successor-enumerator/v1",
+    "stageAEnumeratesPhysicalEndpointSlotsWithoutStrategies": true,
+    "stageBExpandsEveryPhysicalStrategyPosition": true,
+    "stageCAppliesCompleteSemanticsBeforeAmbiguity": true,
+    "derivedSuccessorCountIsAuditOnly": true,
+    "sameProject": true,
+    "canonicalModelParsingAndContentHash": true,
+    "exactSupportSeals": true,
+    "uniqueFlowAndStep": true,
+    "observedClickOnly": true,
+    "semanticIdentityExact": true,
+    "eachGovernedDataTestStrategyRemainsPhysicallyDistinct": true,
+    "selectorValuesMustDiffer": true,
+    "noAlternativeSuccessor": true,
+    "unchanged": [
+      "route",
+      "app_area",
+      "authentication",
+      "precondition",
+      "oracle"
+    ],
+    "forbiddenSignals": [
+      "name",
+      "text",
+      "fuzzy",
+      "llm",
+      "confidence"
+    ],
+    "proposalAuthoritative": false
+  },
+  "promotionRules": {
+    "humanApprovalRequired": true,
+    "approvalBindsCompleteEndpoints": true,
+    "staleAuthorityRefuses": true,
+    "approvalAndPromotionImmutable": true,
+    "rejectionCreatesAuthority": false,
+    "exactDuplicateReplay": true,
+    "idCollisionDifferentBytes": "integrity_conflict"
+  },
+  "materializer": {
+    "allowedChanges": [
+      "selector_value",
+      "model_row_version_content_hash",
+      "observation_run_support_seal",
+      "subject_support_observation_ids",
+      "normalized_intent_grounding",
+      "intent_content_hash",
+      "authority_derived_ids",
+      "test_set_revision_content_hash_timestamps",
+      "repair_lineage"
+    ],
+    "unchangedSemantics": [
+      "project",
+      "title",
+      "objective",
+      "app_area",
+      "preconditions_auth_identity",
+      "source_target_subject_identity",
+      "flow_identity_selected_step",
+      "action_kind_element_identity",
+      "navigation_routes",
+      "oracle_meaning",
+      "excluded_step_semantics"
+    ]
+  },
+  "suiteRules": {
+    "directSuiteAuthority": null,
+    "historicalSuiteImmutable": true,
+    "repairedDefinitionFloatsIntoExistingSuite": false,
+    "adoptionRequiresExplicitNewSuiteRevision": true
+  },
+  "persistenceDesign": {
+    "status": "design_only_no_migration",
+    "choice": "test_set_discriminator_and_one_to_one_repair_origin_authority",
+    "testSetRevisionAdditions": {
+      "columns": [
+        "revision_origin_kind TEXT NOT NULL DEFAULT 'generation' CHECK (revision_origin_kind IN ('generation','repair'))",
+        "repair_origin_id TEXT UNIQUE NULL",
+        "CHECK ((revision_origin_kind='generation' AND repair_origin_id IS NULL) OR (revision_origin_kind='repair' AND repair_origin_id IS NOT NULL))",
+        "FOREIGN KEY (repair_origin_id) REFERENCES repair_revision_origins(repair_origin_id) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED"
+      ],
+      "repairOriginTable": "CREATE TABLE repair_revision_origins (repair_origin_id TEXT PRIMARY KEY, test_set_row_id INTEGER NOT NULL UNIQUE REFERENCES test_set_revisions(id) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED, project_id TEXT NOT NULL, source_definition_authority_json TEXT NOT NULL, result_definition_authority_json TEXT NOT NULL, supersession_authority_id TEXT NOT NULL, supersession_authority_hash TEXT NOT NULL, proposal_id TEXT NOT NULL, proposal_hash TEXT NOT NULL, decision_id TEXT NOT NULL, decision_hash TEXT NOT NULL, materializer_version TEXT NOT NULL, transform_hash TEXT NOT NULL, created_at TEXT NOT NULL)",
+      "migration036Rebuild": [
+        "capture and drop dependent triggers, indexes, and tables as required by the Migration 035 parent-rebuild precedent",
+        "create test_set_revisions_036 with every current Migration 031 column/check/key plus revision_origin_kind and repair_origin_id",
+        "copy every legacy row with revision_origin_kind='generation' and repair_origin_id=NULL",
+        "drop old test_set_revisions and rename test_set_revisions_036",
+        "create repair_revision_origins and all other new M5 authority tables",
+        "restore dependents in dependency order and recreate captured indexes/triggers",
+        "create the new result-id FK index and M5 validation/refusal triggers",
+        "run PRAGMA foreign_key_check and refuse commit on any row",
+        "do not implement this migration during Chunk 0"
+      ]
+    },
+    "existingParentAuthority": {
+      "tables": [
+        "executions",
+        "execution_items",
+        "execution_item_authorities",
+        "runs",
+        "test_results",
+        "suite_revisions",
+        "suite_revision_members",
+        "suite_revision_member_authorities",
+        "suites",
+        "test_set_revisions"
+      ],
+      "usableKeys": [
+        "test_set_revisions(id) PRIMARY KEY",
+        "execution_items(execution_id,item_ordinal) PRIMARY KEY",
+        "execution_item_authorities(execution_id,item_ordinal) PRIMARY KEY",
+        "runs(run_id) UNIQUE",
+        "suite_revisions(suite_id,revision) PRIMARY KEY",
+        "suite_revision_members(suite_id,suite_revision,member_ordinal) PRIMARY KEY",
+        "suite_revision_member_authorities(suite_id,suite_revision,member_ordinal) PRIMARY KEY",
+        "suites(suite_id,project_id) UNIQUE"
+      ],
+      "requiredMigration036Index": "CREATE UNIQUE INDEX uq_results_result_id_fk ON test_results(result_id)",
+      "sqliteNullSemantics": "SQLite permits multiple NULL values in a UNIQUE index; legacy rows with result_id NULL remain valid while every non-NULL canonical result_id is unique and FK-addressable."
+    },
+    "tables": {
+      "repair_proposals": {
+        "primaryKey": [
+          "proposal_id"
+        ],
+        "columns": [
+          "proposal_id",
+          "project_id",
+          "schema_version",
+          "repair_kind",
+          "canonical_payload",
+          "proposal_hash",
+          "source_endpoint_identity",
+          "candidate_endpoint_identity",
+          "enumerator_version",
+          "candidate_set_hash",
+          "derived_successor_count CHECK (derived_successor_count=1)"
+        ],
+        "unique": [
+          [
+            "proposal_id",
+            "project_id",
+            "proposal_hash"
+          ]
+        ]
+      },
+      "repair_decisions": {
+        "primaryKey": [
+          "decision_id"
+        ],
+        "columns": [
+          "decision_id",
+          "proposal_id",
+          "project_id",
+          "proposal_hash",
+          "decision CHECK (decision IN ('approve','reject'))",
+          "actor_kind CHECK (actor_kind='human')",
+          "actor_id",
+          "mechanism_id CHECK (mechanism_id='local_product')",
+          "decided_at",
+          "canonical_payload",
+          "decision_hash"
+        ],
+        "unique": [
+          [
+            "proposal_id"
+          ],
+          [
+            "decision_id",
+            "proposal_id",
+            "project_id",
+            "proposal_hash",
+            "decision",
+            "actor_kind",
+            "actor_id",
+            "mechanism_id",
+            "decision_hash"
+          ]
+        ],
+        "foreignKeys": [
+          "(proposal_id,project_id,proposal_hash) REFERENCES repair_proposals(proposal_id,project_id,proposal_hash)"
+        ]
+      },
+      "app_model_transition_supersessions": {
+        "primaryKey": [
+          "authority_id"
+        ],
+        "columns": [
+          "authority_id",
+          "authority_hash",
+          "project_id",
+          "source_endpoint_identity",
+          "candidate_endpoint_identity",
+          "proposal_id",
+          "proposal_hash",
+          "decision_id",
+          "decision_hash",
+          "decision_kind CHECK (decision_kind='approve')",
+          "actor_kind CHECK (actor_kind='human')",
+          "actor_id",
+          "mechanism_id CHECK (mechanism_id='local_product')",
+          "promoted_at"
+        ],
+        "unique": [
+          [
+            "authority_id",
+            "authority_hash",
+            "project_id",
+            "proposal_id",
+            "proposal_hash",
+            "decision_id",
+            "decision_hash"
+          ],
+          [
+            "decision_id"
+          ],
+          [
+            "proposal_id"
+          ]
+        ],
+        "foreignKeys": [
+          "(decision_id,proposal_id,project_id,proposal_hash,decision_kind,actor_kind,actor_id,mechanism_id,decision_hash) REFERENCES repair_decisions(decision_id,proposal_id,project_id,proposal_hash,decision,actor_kind,actor_id,mechanism_id,decision_hash)"
+        ]
+      },
+      "repair_revision_origins": {
+        "primaryKey": [
+          "repair_origin_id"
+        ],
+        "columns": [
+          "repair_origin_id TEXT",
+          "test_set_row_id INTEGER NOT NULL",
+          "project_id TEXT NOT NULL",
+          "source_definition_authority_json TEXT NOT NULL",
+          "result_definition_authority_json TEXT NOT NULL",
+          "supersession_authority_id TEXT NOT NULL",
+          "supersession_authority_hash TEXT NOT NULL",
+          "proposal_id TEXT NOT NULL",
+          "proposal_hash TEXT NOT NULL",
+          "decision_id TEXT NOT NULL",
+          "decision_hash TEXT NOT NULL",
+          "materializer_version TEXT NOT NULL",
+          "transform_hash TEXT NOT NULL",
+          "created_at TEXT NOT NULL"
+        ],
+        "unique": [
+          [
+            "test_set_row_id"
+          ],
+          [
+            "supersession_authority_id"
+          ]
+        ],
+        "foreignKeys": [
+          "test_set_row_id REFERENCES test_set_revisions(id) ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED",
+          "(supersession_authority_id,supersession_authority_hash,project_id,proposal_id,proposal_hash,decision_id,decision_hash) REFERENCES app_model_transition_supersessions(authority_id,authority_hash,project_id,proposal_id,proposal_hash,decision_id,decision_hash)"
+        ]
+      },
+      "repair_rerun_links": {
+        "primaryKey": [
+          "rerun_link_id"
+        ],
+        "columns": [
+          "rerun_link_id",
+          "rerun_link_hash",
+          "repair_origin_id",
+          "repair_lineage_hash",
+          "project_id",
+          "resulting_test_set_row_id",
+          "resulting_test_set_id",
+          "resulting_test_set_revision",
+          "resulting_test_set_content_hash",
+          "resulting_definition_schema_version",
+          "resulting_definition_id",
+          "resulting_definition_content_hash",
+          "model_row_id",
+          "model_version",
+          "support_seal_hash",
+          "execution_id",
+          "item_ordinal",
+          "plan_hash",
+          "run_id",
+          "attempt_ordinal",
+          "result_id",
+          "suite_project_id NULL",
+          "suite_id NULL",
+          "suite_revision NULL",
+          "suite_content_hash NULL",
+          "suite_item_ordinal NULL",
+          "recorded_at"
+        ],
+        "unique": [
+          [
+            "rerun_link_hash"
+          ]
+        ],
+        "checks": [
+          "Suite columns are either all NULL or all NOT NULL"
+        ],
+        "foreignKeys": [
+          "repair_origin_id REFERENCES repair_revision_origins(repair_origin_id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+          "(execution_id,item_ordinal) REFERENCES execution_items(execution_id,item_ordinal) ON UPDATE RESTRICT ON DELETE RESTRICT",
+          "(execution_id,item_ordinal) REFERENCES execution_item_authorities(execution_id,item_ordinal) ON UPDATE RESTRICT ON DELETE RESTRICT",
+          "run_id REFERENCES runs(run_id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+          "result_id REFERENCES test_results(result_id) ON UPDATE RESTRICT ON DELETE RESTRICT using uq_results_result_id_fk",
+          "nullable (suite_id,suite_revision,suite_item_ordinal) REFERENCES suite_revision_members(suite_id,suite_revision,member_ordinal) ON UPDATE RESTRICT ON DELETE RESTRICT"
+        ]
+      }
+    },
+    "triggerPseudocode": {
+      "repair_rerun_links_validate_insert": [
+        "BEFORE INSERT ON repair_rerun_links; require executions e where e.execution_id=NEW.execution_id and e.project_id=NEW.project_id",
+        "join execution_items i on (execution_id,item_ordinal); require i.definition_id=NEW.resulting_definition_id and i.executable_plan_hash=NEW.plan_hash",
+        "join execution_item_authorities a on (execution_id,item_ordinal); require every resulting Test Set row/id/revision/content/schema/Definition scalar equals NEW",
+        "join test_set_revisions t on t.id=NEW.resulting_test_set_row_id; require project/id/revision/schema/content/model/version/support exact and revision_origin_kind='repair' and repair_origin_id=NEW.repair_origin_id",
+        "require exactly one json_each(t.payload_json,'$.definitions') member with NEW.resulting_definition_id and recomputed exact member Definition content hash=NEW.resulting_definition_content_hash",
+        "join runs r on r.run_id=NEW.run_id; require r.app_name=NEW.project_id, r.execution_id=NEW.execution_id, r.attempt_ordinal=NEW.attempt_ordinal, r.origin='product'",
+        "join test_results tr on tr.result_id=NEW.result_id; require tr.run_id=NEW.run_id, tr.execution_item_ordinal=NEW.item_ordinal, tr.definition_id=NEW.resulting_definition_id, tr.executable_plan_hash=NEW.plan_hash",
+        "when Suite tuple is non-null join suites, suite_revisions, suite_revision_members, and suite_revision_member_authorities; require Suite project/content/member authority exact",
+        "when direct rerun require suite_project_id,suite_id,suite_revision,suite_content_hash,suite_item_ordinal all NULL; otherwise require all non-NULL"
+      ],
+      "repair_revision_origin_validate_insert": [
+        "BEFORE INSERT ON repair_revision_origins; join test_set_revisions result where result.id=NEW.test_set_row_id, result.revision_origin_kind='repair', and result.repair_origin_id=NEW.repair_origin_id",
+        "parse source and result Test Set payload_json and require the bound Definition ID occurs exactly once in each",
+        "recompute source and result Test Set plus exact member Definition hashes and require every stored authority scalar exact",
+        "require source authority equals the proposal/supersession-bound source and result authority equals the approved candidate model/support",
+        "join app_model_transition_supersessions, repair_proposals, and repair_decisions and require proposal/decision/source/candidate tuples agree",
+        "require decision='approve', actor_kind='human', mechanism_id='local_product'; rejected or non-human decisions cannot satisfy insertion"
+      ],
+      "manualPromotionGuard": "BEFORE INSERT through manual promotion; reject any test_set_revisions row whose revision_origin_kind is not 'generation' or repair_origin_id is not NULL",
+      "immutableRefusalTriggers": [
+        "repair_proposals_immutable_update/delete",
+        "repair_decisions_immutable_update/delete",
+        "app_model_transition_supersessions_immutable_update/delete",
+        "repair_revision_origins_immutable_update/delete",
+        "repair_rerun_links_immutable_update/delete"
+      ]
+    },
+    "transaction": [
+      "PRECONDITION: proposal and human decision already committed and immutable",
+      "BEGIN IMMEDIATE and enable deferred foreign-key enforcement",
+      "reread the committed proposal and human decision",
+      "revalidate source/candidate authority and re-enumerate frozen Stage A/B/C",
+      "insert or exact-replay immutable supersession",
+      "materialize candidate-grounded canonical v3 through production validation and source/result rebound",
+      "preallocate repair_origin_id",
+      "insert repair-labelled test_set_revision pointing to deferred repair_origin_id",
+      "insert repair_revision_origins reverse link",
+      "append terminal generation event and release generation lock under the current lifecycle",
+      "commit; deferred foreign keys validate; any failure rolls back the entire promotion transaction"
+    ],
+    "rerunTransaction": [
+      "optionally insert a new immutable Suite revision first when adopting the repaired Definition",
+      "insert executions",
+      "insert execution_items",
+      "insert execution_item_authorities",
+      "insert execution lock/event authority",
+      "insert product runs row",
+      "insert canonical test_results row",
+      "insert repair_rerun_links LAST",
+      "commit; any failure rolls back the rerun linkage transaction"
+    ],
+    "constraints": [
+      "generation revision forbids repair origin",
+      "repair revision requires its one-to-one repair origin",
+      "source authority equals proposal-bound immutable source",
+      "proposal and decision pre-exist promotion transaction",
+      "one decision per proposal",
+      "one repaired revision per supersession",
+      "unconditional update/delete guards on all M5 authority tables",
+      "generation insertion guard requires generation origin and null repair origin",
+      "repair insertion guard requires repair origin and deferred reverse authority",
+      "manual promotion rejects repair-origin Test Set rows",
+      "rejected decision cannot satisfy supersession foreign key",
+      "authority ID exact replay requires byte-identical canonical payload and hash; conflicting bytes refuse",
+      "no historical source mutation"
+    ],
+    "timestampRule": "proposedAt <= decidedAt <= promotedAt <= revisionCreatedAt <= rerunRecordedAt; equality is allowed between promotedAt and revisionCreatedAt; timestamps are immutable audit metadata, never structural authority"
+  },
+  "observationClaim": "human-approved semantic successor between two exact content-hash-bound App Model revisions, each related to exact sealed support authority",
+  "canonicalization": {
+    "scope": "M5 fixed ASCII schema keys only",
+    "objectKeyOrder": "locale-independent ordinal",
+    "arrayOrder": "semantic order preserved; only explicitly set-like arrays are byte-sorted",
+    "strings": "exact UTF-8 bytes; no Unicode normalization",
+    "numbers": "finite JSON numbers only",
+    "unknownKeys": "refuse"
+  },
+  "refusalMapping": {
+    "zeroStageAEndpointSlots": "candidate_not_found",
+    "nonemptyStageAAndZeroStageBStrategies": "candidate_not_governed",
+    "nonemptyStageBAndZeroStageCSemanticMatches": "candidate_semantics_unproven",
+    "multipleStageCSemanticMatches": "candidate_ambiguous",
+    "oneStageCMatchButProposalEndpointDiffers": "candidate_not_governed",
+    "oneStageCMatchWithDerivedAuditMismatch": "candidate_semantics_unproven"
+  },
+  "secondOpinionQuestions": [
+    "approval-before-revision atomicity and circularity",
+    "origin discriminator on test_set_revisions versus strict one-to-one authority table",
+    "subject-level observation support versus selector-specific observation provenance"
+  ],
+  "outOfScope": [
+    "migration",
+    "repositories",
+    "production eligibility service",
+    "candidate generator",
+    "approval endpoint or UI",
+    "Definition/Test Set write path",
+    "rerun orchestration",
+    "route repair",
+    "oracle repair",
+    "LLM",
+    "confidence"
+  ]
+}

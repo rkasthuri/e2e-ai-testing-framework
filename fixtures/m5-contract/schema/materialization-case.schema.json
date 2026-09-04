@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/m5/materialization-case.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "caseId",
+    "suiteAuthority",
+    "persistedSuiteAuthority",
+    "sourceTestSet",
+    "expectedResultingTestSet",
+    "sourceRoutes",
+    "candidateRoutes",
+    "authenticationExpectation",
+    "materializerVersion",
+    "transformHash"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "forge.m5.selector-repair-materialization-case/v1"
+    },
+    "caseId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "suiteAuthority": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "persistedSuiteAuthority": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "sourceTestSet": {
+      "type": "object"
+    },
+    "expectedResultingTestSet": {
+      "type": "object"
+    },
+    "sourceRoutes": {
+      "type": "object"
+    },
+    "candidateRoutes": {
+      "type": "object"
+    },
+    "authenticationExpectation": {
+      "type": "object"
+    },
+    "materializerVersion": {
+      "const": "forge.m5.selector-repair-materializer/v1"
+    },
+    "transformHash": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+    }
+  }
+}

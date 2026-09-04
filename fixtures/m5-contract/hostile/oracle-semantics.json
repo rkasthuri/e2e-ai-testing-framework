@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-oracle_semantics",
+  "operation": "oracle_semantics",
+  "expected": {
+    "code": "candidate_semantics_unproven",
+    "stage": "candidate"
+  }
+}

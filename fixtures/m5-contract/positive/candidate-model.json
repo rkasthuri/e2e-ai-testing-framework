@@ -1,0 +1,149 @@
+{
+  "schemaVersion": "2.0",
+  "generatedAt": "2026-09-02T12:00:00.000Z",
+  "generatedBy": "engine",
+  "classificationRunId": "classification-2.0.0",
+  "app": {
+    "name": "m5-selector-repair",
+    "displayName": "M5 selector repair fixture",
+    "baseUrl": "https://m5.example.test",
+    "appType": "web-ui",
+    "modelVersion": "2.0.0",
+    "spaConfig": null,
+    "evidenceState": "crawled",
+    "crawlMetadata": {
+      "crawlConfigHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "crawledAt": "2026-09-02T12:00:00.000Z",
+      "crawledBy": "engine",
+      "crawlDurationMs": 1000,
+      "pagesBudget": 10,
+      "pagesDiscovered": 2,
+      "pagesSkipped": null,
+      "aiBudgetStatus": "within-budget",
+      "crawlDiagnostics": null
+    }
+  },
+  "roles": [
+    {
+      "id": "standardUser",
+      "displayName": "Standard user",
+      "authFlow": "form-login",
+      "credentialsEnvKey": "M5_CREDENTIALS",
+      "storageStatePath": null,
+      "reachablePageIds": [
+        "cart-html",
+        "checkout-html"
+      ],
+      "restrictedPageIds": [],
+      "authOutcome": "succeeded"
+    }
+  ],
+  "pages": [
+    {
+      "id": "cart-html",
+      "displayName": "Cart",
+      "urlPattern": "/cart.html",
+      "urlPatternType": "exact",
+      "fingerprint": "cart-semantic-fingerprint",
+      "fingerprintBasis": "url+dom-hash",
+      "appType": "web-ui",
+      "accessibleByRoles": [
+        "standardUser"
+      ],
+      "isAuthPage": false,
+      "module": {
+        "name": "Cart",
+        "confidence": "medium",
+        "method": "rule",
+        "evidenceIds": [
+          "cart-html"
+        ],
+        "source": "evidence-matched",
+        "reason": "one unambiguous cart keyword"
+      },
+      "elements": [
+        {
+          "id": "cart-html:checkout",
+          "name": "checkout",
+          "kind": "button",
+          "label": "Checkout",
+          "critical": true,
+          "aiNamed": false,
+          "strategies": [
+            {
+              "type": "data-test",
+              "value": "checkout-new",
+              "confidence": 1
+            }
+          ],
+          "tier3Assertions": [],
+          "cardinality": {
+            "kind": "single"
+          },
+          "observedState": "visible",
+          "href": null
+        }
+      ]
+    },
+    {
+      "id": "checkout-html",
+      "displayName": "Checkout information",
+      "urlPattern": "/checkout.html",
+      "urlPatternType": "exact",
+      "fingerprint": "checkout-semantic-fingerprint",
+      "fingerprintBasis": "url+dom-hash",
+      "appType": "web-ui",
+      "accessibleByRoles": [
+        "standardUser"
+      ],
+      "isAuthPage": false,
+      "module": {
+        "name": "Checkout",
+        "confidence": "medium",
+        "method": "rule",
+        "evidenceIds": [
+          "checkout-html"
+        ],
+        "source": "evidence-matched",
+        "reason": "one unambiguous checkout keyword"
+      },
+      "elements": []
+    }
+  ],
+  "flows": [
+    {
+      "id": "direct-checkout",
+      "displayName": "Direct checkout from cart",
+      "confidence": "partial",
+      "source": "agent-proposed",
+      "roleId": "standardUser",
+      "steps": [
+        {
+          "stepIndex": 1,
+          "pageId": "home",
+          "action": "assert-navigation",
+          "elementId": null,
+          "targetPageId": "cart-html",
+          "value": null,
+          "grounding": "inferred"
+        },
+        {
+          "stepIndex": 2,
+          "pageId": "cart-html",
+          "action": "click",
+          "elementId": "cart-html:checkout",
+          "targetPageId": "checkout-html",
+          "value": null,
+          "grounding": "observed"
+        }
+      ],
+      "linkedApiEndpointIds": [],
+      "groundingWarnings": [
+        "The excluded entry navigation was not observed."
+      ]
+    }
+  ],
+  "endpoints": null,
+  "api": null,
+  "diff": null
+}

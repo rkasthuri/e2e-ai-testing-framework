@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-timestamp",
+  "operation": "timestamp",
+  "expected": {
+    "code": "stale_authority",
+    "stage": "approval"
+  }
+}

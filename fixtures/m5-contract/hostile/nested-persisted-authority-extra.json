@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-nested_persisted_authority_extra",
+  "operation": "nested_persisted_authority_extra",
+  "expected": {
+    "code": "schema_invalid",
+    "stage": "contract"
+  }
+}

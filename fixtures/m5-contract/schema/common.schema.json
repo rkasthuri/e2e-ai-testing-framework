@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/m5/common.schema.json",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$"
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelRowId",
+        "modelVersion",
+        "modelContentHash",
+        "observationRunId",
+        "supportSealHash",
+        "characterizationPolicy",
+        "supportingObservationIds",
+        "flowId",
+        "flowContentHash",
+        "stepIndex",
+        "action",
+        "grounding",
+        "sourceSubjectId",
+        "sourceSubjectContentHash",
+        "elementId",
+        "elementContentHash",
+        "selector",
+        "targetSubjectId",
+        "targetSubjectContentHash"
+      ],
+      "properties": {
+        "modelRowId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "modelVersion": {
+          "$ref": "#/$defs/id"
+        },
+        "modelContentHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observationRunId": {
+          "$ref": "#/$defs/id"
+        },
+        "supportSealHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "characterizationPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "version": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        },
+        "supportingObservationIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "flowId": {
+          "$ref": "#/$defs/id"
+        },
+        "flowContentHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "stepIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "const": "click"
+        },
+        "grounding": {
+          "const": "observed"
+        },
+        "sourceSubjectId": {
+          "$ref": "#/$defs/id"
+        },
+        "sourceSubjectContentHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "elementId": {
+          "$ref": "#/$defs/id"
+        },
+        "elementContentHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "selector": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "value"
+          ],
+          "properties": {
+            "kind": {
+              "const": "data_test"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        },
+        "targetSubjectId": {
+          "$ref": "#/$defs/id"
+        },
+        "targetSubjectContentHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "endpointPair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "candidate"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "candidate": {
+          "$ref": "#/$defs/endpoint"
+        }
+      }
+    },
+    "definitionAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "testSetRowId",
+        "testSetId",
+        "testSetRevision",
+        "testSetContentHash",
+        "definitionId",
+        "definitionContentHash",
+        "modelRowId",
+        "modelVersion",
+        "supportSealHash"
+      ],
+      "properties": {
+        "testSetRowId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "testSetId": {
+          "$ref": "#/$defs/id"
+        },
+        "testSetRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "testSetContentHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "definitionId": {
+          "$ref": "#/$defs/id"
+        },
+        "definitionContentHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "modelRowId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "modelVersion": {
+          "$ref": "#/$defs/id"
+        },
+        "supportSealHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

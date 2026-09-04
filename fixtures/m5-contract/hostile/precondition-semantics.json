@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-precondition_semantics",
+  "operation": "precondition_semantics",
+  "expected": {
+    "code": "candidate_semantics_unproven",
+    "stage": "candidate"
+  }
+}

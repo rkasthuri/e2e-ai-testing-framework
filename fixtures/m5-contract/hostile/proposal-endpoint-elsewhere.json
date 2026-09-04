@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-proposal_endpoint_elsewhere",
+  "operation": "proposal_endpoint_elsewhere",
+  "expected": {
+    "code": "candidate_not_governed",
+    "stage": "candidate"
+  }
+}

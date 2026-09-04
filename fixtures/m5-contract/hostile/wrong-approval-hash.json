@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-wrong_approval_hash",
+  "operation": "wrong_approval_hash",
+  "expected": {
+    "code": "stale_authority",
+    "stage": "approval"
+  }
+}

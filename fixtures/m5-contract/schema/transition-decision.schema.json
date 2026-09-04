@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/m5/transition-decision.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "decisionId",
+    "decisionHash",
+    "projectId",
+    "proposalAuthority",
+    "source",
+    "candidate",
+    "decision",
+    "decidedBy",
+    "decidedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "forge.m5.transition-correspondence-decision/v1"
+    },
+    "decisionId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "decisionHash": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+    },
+    "projectId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "proposalAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposalId",
+        "proposalHash"
+      ],
+      "properties": {
+        "proposalId": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        },
+        "proposalHash": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "source": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/endpoint"
+    },
+    "candidate": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/endpoint"
+    },
+    "decision": {
+      "enum": [
+        "approve",
+        "reject"
+      ]
+    },
+    "decidedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "actorId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "human"
+        },
+        "actorId": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        }
+      }
+    },
+    "decidedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
