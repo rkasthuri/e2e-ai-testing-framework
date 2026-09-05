@@ -5,12 +5,12 @@
     "projectId": "m5-selector-repair",
     "suiteId": "suite-11111111-1111-4111-8111-111111111111",
     "revision": 3,
-    "contentHash": "c54fb127cd4d6ede024ca8808d1a51d5ed79893640fd0e3d0b75299ce9fef900",
+    "contentHash": "e9622bd58ac39310994fdb7692f8ed6e3428e56b63a3a520c7a1fc80017c70cf",
     "itemOrdinal": 2,
     "membership": {
       "testSetId": "test-set-v3-7c568c867a2989a6b842e917",
       "testSetRevision": 7,
-      "testSetContentHash": "4185480f09f024d95cf653eaeeb596bbed1ebe8a778a7e2125967364f1dccd76",
+      "testSetContentHash": "39e09f90d228eeac6d4361e77c3e3f59700647dc981c6ff51a3ce0c31a6181b0",
       "definitionId": "test-v3-flow-14b286921056c7a91cb10523"
     }
   },
@@ -41,7 +41,7 @@
           "definitionSchemaVersion": 3,
           "testSetId": "test-set-v3-7c568c867a2989a6b842e917",
           "testSetRevision": 7,
-          "testSetContentHash": "4185480f09f024d95cf653eaeeb596bbed1ebe8a778a7e2125967364f1dccd76"
+          "testSetContentHash": "39e09f90d228eeac6d4361e77c3e3f59700647dc981c6ff51a3ce0c31a6181b0"
         }
       }
     ],
@@ -53,7 +53,7 @@
       "changeIntentKey": "suite-change-historical-3",
       "changeIntentFingerprint": "8888888888888888888888888888888888888888888888888888888888888888"
     },
-    "contentHash": "c54fb127cd4d6ede024ca8808d1a51d5ed79893640fd0e3d0b75299ce9fef900"
+    "contentHash": "e9622bd58ac39310994fdb7692f8ed6e3428e56b63a3a520c7a1fc80017c70cf"
   },
   "sourceTestSet": {
     "schemaVersion": 3,
@@ -621,5 +621,5 @@
     "identityHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
   },
   "materializerVersion": "forge.m5.selector-repair-materializer/v1",
-  "transformHash": "40d2c8eac3fc8bc2cd1e7625542f1dcdaad6baca8dc6262c5da11763478cc053"
+  "transformHash": "0ee2a3e726bc70c6d9ac287772092ab49685ac198e4d17f950e8533e8a1d616c"
 }

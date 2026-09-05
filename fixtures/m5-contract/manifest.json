@@ -19,7 +19,7 @@
     "refusal": "schema/refusal-artifact.schema.json",
     "fixture": "schema/fixture-case.schema.json"
   },
-  "positiveAggregateRoot": "ac6811a86f4e5ef066b38082df28d7a3f3b071c889f68919e7705e4f19de4ed3",
+  "positiveAggregateRoot": "ccb1b0dea8e743a8d77e6211813e26eba09814c19d068af8ec26353c0c7d9515",
   "artifacts": [
     {
       "file": "positive/source-model.json",
@@ -55,19 +55,19 @@
     },
     {
       "file": "positive/direct-materialization.json",
-      "digest": "5c072ad787a1fd1672bb02aa02ebf8ceaf9405882a2057d4b7b191b2691be5c2"
+      "digest": "be5aee831a3e67d88cfc0d0144c603e275f58b544cd0de65f70a89301e8429a6"
     },
     {
       "file": "positive/suite-materialization.json",
-      "digest": "5b51d668edc88ae43b06b92a3ba68063cb4d45fc5dd0a1fca828792f7deeb63c"
+      "digest": "082d2d461b6fe883a52c6763c9fefddcd1caffdb2a7ecbb56b17605de972b5c8"
     },
     {
       "file": "positive/repair-revision-link.json",
-      "digest": "dd97d42e2e891188eb514d6dd60f600d65e3bc4d1383a71e33c2c83bfdb1c61f"
+      "digest": "a76868c15dc8594d672f100a9a82af92c1f0cb68a725f90d38324b030044711a"
     },
     {
       "file": "positive/repair-rerun-link.json",
-      "digest": "c3fae2558e73457f5f35da8ac6e626bed2c8ffe7c6af28b196359866cc5bd402"
+      "digest": "40e07f66cb3b66538fb0608967d414cb210c594e1add87588481809893c572a3"
     }
   ],
   "hostile": [
@@ -536,12 +536,17 @@
   },
   "observationClaim": "human-approved semantic successor between two exact content-hash-bound App Model revisions, each related to exact sealed support authority",
   "canonicalization": {
-    "scope": "M5 fixed ASCII schema keys only",
+    "scope": "M5-native authority objects with no pre-existing Product hash producer; fixed ASCII schema keys only",
     "objectKeyOrder": "locale-independent ordinal",
     "arrayOrder": "semantic order preserved; only explicitly set-like arrays are byte-sorted",
     "strings": "exact UTF-8 bytes; no Unicode normalization",
     "numbers": "finite JSON numbers only",
-    "unknownKeys": "refuse"
+    "unknownKeys": "refuse",
+    "existingProductAuthorityHashes": {
+      "testSetContentHash": "SHA256(JSON.stringify(testSet)) through the existing canonical Test Set materialization and persistence boundary",
+      "definitionContentHash": "SHA256(JSON.stringify(definition)) through the existing historical Definition authority resolver",
+      "genericCanonicalDigestForbidden": true
+    }
   },
   "refusalMapping": {
     "zeroStageAEndpointSlots": "candidate_not_found",
