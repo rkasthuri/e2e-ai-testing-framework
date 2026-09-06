@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-mislabelled_revision",
+  "operation": "mislabelled_revision",
+  "expected": {
+    "code": "unsupported_repair_kind",
+    "stage": "contract"
+  }
+}

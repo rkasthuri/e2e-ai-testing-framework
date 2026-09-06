@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-source_model_hash",
+  "operation": "source_model_hash",
+  "expected": {
+    "code": "integrity_mismatch",
+    "stage": "integrity"
+  }
+}

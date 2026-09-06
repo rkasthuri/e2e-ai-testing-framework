@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/m5/repair-revision-link.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "repairOriginId",
+    "originKind",
+    "projectId",
+    "testSetRowId",
+    "sourceDefinitionAuthority",
+    "supersessionAuthorityId",
+    "supersessionAuthorityHash",
+    "proposalAuthority",
+    "decisionAuthority",
+    "materializerVersion",
+    "transformHash",
+    "resultingDefinitionAuthority",
+    "createdAt",
+    "lineageHash"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "forge.m5.repair-revision-link/v1"
+    },
+    "repairOriginId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "originKind": {
+      "const": "repair"
+    },
+    "projectId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "testSetRowId": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "sourceDefinitionAuthority": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/definitionAuthority"
+    },
+    "supersessionAuthorityId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "supersessionAuthorityHash": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+    },
+    "proposalAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposalId",
+        "proposalHash"
+      ],
+      "properties": {
+        "proposalId": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        },
+        "proposalHash": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "decisionAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decisionId",
+        "decisionHash"
+      ],
+      "properties": {
+        "decisionId": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        },
+        "decisionHash": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "materializerVersion": {
+      "const": "forge.m5.selector-repair-materializer/v1"
+    },
+    "transformHash": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+    },
+    "resultingDefinitionAuthority": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/definitionAuthority"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lineageHash": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+    }
+  }
+}

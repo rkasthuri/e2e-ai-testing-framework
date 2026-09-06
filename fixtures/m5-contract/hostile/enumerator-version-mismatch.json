@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-enumerator_version_mismatch",
+  "operation": "enumerator_version_mismatch",
+  "expected": {
+    "code": "candidate_semantics_unproven",
+    "stage": "candidate"
+  }
+}

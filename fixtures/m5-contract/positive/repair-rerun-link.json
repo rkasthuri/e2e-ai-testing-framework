@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "forge.m5.repair-rerun-link/v1",
+  "rerunLinkId": "repair-rerun-link-00000000-0000-4000-8000-000000000001",
+  "projectId": "m5-selector-repair",
+  "repairOriginId": "repair-origin-00000000-0000-4000-8000-000000000001",
+  "repairLineageHash": "eeb39feaab0be6a12bc19a8a5f167b73e39d853451e9fa48ef3a0afb0dafecc5",
+  "resultingDefinitionAuthority": {
+    "testSetRowId": 802,
+    "testSetId": "test-set-v3-7c568c867a2989a6b842e917",
+    "testSetRevision": 8,
+    "testSetContentHash": "529bad27da9636f998814bf2817b60ad579239c9206bd230efa5e32aa9a06df8",
+    "definitionId": "test-v3-flow-7ef3777aaca635cd0bfcf289",
+    "definitionContentHash": "c86e905555a0a9a50d38c6b5955eda81affbad2053b818f74063019a6f8c0d41",
+    "modelRowId": 52,
+    "modelVersion": "2.0.0",
+    "supportSealHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "executionAuthority": {
+    "executionId": "execution-repair-1",
+    "itemOrdinal": 1,
+    "planHash": "7777777777777777777777777777777777777777777777777777777777777777",
+    "runId": "run-repair-1",
+    "attemptOrdinal": 1,
+    "resultId": "result-repair-1"
+  },
+  "suiteAuthority": null,
+  "persistedAuthorities": {
+    "execution": {
+      "projectId": "m5-selector-repair",
+      "executionId": "execution-repair-1",
+      "origin": "product",
+      "manifest": [
+        {
+          "itemOrdinal": 1,
+          "definitionAuthority": {
+            "testSetRowId": 802,
+            "testSetId": "test-set-v3-7c568c867a2989a6b842e917",
+            "testSetRevision": 8,
+            "testSetContentHash": "529bad27da9636f998814bf2817b60ad579239c9206bd230efa5e32aa9a06df8",
+            "definitionId": "test-v3-flow-7ef3777aaca635cd0bfcf289",
+            "definitionContentHash": "c86e905555a0a9a50d38c6b5955eda81affbad2053b818f74063019a6f8c0d41",
+            "modelRowId": 52,
+            "modelVersion": "2.0.0",
+            "supportSealHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "planHash": "7777777777777777777777777777777777777777777777777777777777777777"
+        }
+      ],
+      "suiteAuthority": null
+    },
+    "run": {
+      "projectId": "m5-selector-repair",
+      "runId": "run-repair-1",
+      "executionId": "execution-repair-1",
+      "origin": "product",
+      "attemptOrdinal": 1
+    },
+    "result": {
+      "projectId": "m5-selector-repair",
+      "resultId": "result-repair-1",
+      "runId": "run-repair-1",
+      "itemOrdinal": 1,
+      "definitionId": "test-v3-flow-7ef3777aaca635cd0bfcf289",
+      "planHash": "7777777777777777777777777777777777777777777777777777777777777777"
+    }
+  },
+  "recordedAt": "2026-09-03T19:00:00.000Z",
+  "rerunLinkHash": "63d4725a542ca86741ce429b36fa2458dac3ef161538ecfa477f00617ed07768"
+}

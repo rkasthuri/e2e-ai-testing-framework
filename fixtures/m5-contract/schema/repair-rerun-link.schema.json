@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/m5/repair-rerun-link.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "rerunLinkId",
+    "projectId",
+    "repairOriginId",
+    "repairLineageHash",
+    "resultingDefinitionAuthority",
+    "executionAuthority",
+    "suiteAuthority",
+    "persistedAuthorities",
+    "recordedAt",
+    "rerunLinkHash"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "forge.m5.repair-rerun-link/v1"
+    },
+    "rerunLinkId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "projectId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "repairOriginId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "repairLineageHash": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+    },
+    "resultingDefinitionAuthority": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/definitionAuthority"
+    },
+    "executionAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executionId",
+        "itemOrdinal",
+        "planHash",
+        "runId",
+        "attemptOrdinal",
+        "resultId"
+      ],
+      "properties": {
+        "executionId": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        },
+        "itemOrdinal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "planHash": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+        },
+        "runId": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        },
+        "attemptOrdinal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resultId": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        }
+      }
+    },
+    "suiteAuthority": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["projectId", "suiteId", "revision", "contentHash", "itemOrdinal"],
+          "properties": {
+            "projectId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+            "suiteId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+            "revision": { "type": "integer", "minimum": 1 },
+            "contentHash": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256" },
+            "itemOrdinal": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "persistedAuthorities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["execution", "run", "result"],
+      "properties": {
+        "execution": { "$ref": "#/$defs/execution" },
+        "run": { "$ref": "#/$defs/run" },
+        "result": { "$ref": "#/$defs/result" },
+        "suite": { "$ref": "#/$defs/suite" }
+      }
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rerunLinkHash": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "manifestItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["itemOrdinal", "definitionAuthority", "planHash"],
+      "properties": {
+        "itemOrdinal": { "type": "integer", "minimum": 1 },
+        "definitionAuthority": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/definitionAuthority" },
+        "planHash": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "executionId", "origin", "manifest", "suiteAuthority"],
+      "properties": {
+        "projectId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "executionId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "origin": { "const": "product" },
+        "manifest": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/manifestItem" } },
+        "suiteAuthority": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/suiteReference" }
+          ]
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "runId", "executionId", "origin", "attemptOrdinal"],
+      "properties": {
+        "projectId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "runId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "executionId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "origin": { "const": "product" },
+        "attemptOrdinal": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "resultId", "runId", "itemOrdinal", "definitionId", "planHash"],
+      "properties": {
+        "projectId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "resultId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "runId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "itemOrdinal": { "type": "integer", "minimum": 1 },
+        "definitionId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "planHash": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256" }
+      }
+    },
+    "suiteReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "suiteId", "revision", "contentHash", "itemOrdinal"],
+      "properties": {
+        "projectId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "suiteId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "contentHash": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256" },
+        "itemOrdinal": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "suiteMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "definitionAuthority"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "definitionAuthority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["testSetRowId", "definitionId", "definitionSchemaVersion", "testSetId", "testSetRevision", "testSetContentHash"],
+          "properties": {
+            "testSetRowId": { "type": "integer", "minimum": 1 },
+            "definitionId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+            "definitionSchemaVersion": { "const": 3 },
+            "testSetId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+            "testSetRevision": { "type": "integer", "minimum": 1 },
+            "testSetContentHash": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "suite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "suiteId", "projectId", "revision", "name", "purpose", "members", "createdAt", "provenance", "contentHash"],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "suiteId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "projectId": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "purpose": { "const": "sanity" },
+        "members": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/suiteMember" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "changeKind", "priorRevision", "changeIntentKey", "changeIntentFingerprint"],
+          "properties": {
+            "source": { "const": "product_api" },
+            "changeKind": { "enum": ["created", "revised"] },
+            "priorRevision": { "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 1 }] },
+            "changeIntentKey": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/id" },
+            "changeIntentFingerprint": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256" }
+          }
+        },
+        "contentHash": { "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256" }
+      }
+    }
+  }
+}

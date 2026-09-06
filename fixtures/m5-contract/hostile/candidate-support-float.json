@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-candidate_support_float",
+  "operation": "candidate_support_float",
+  "expected": {
+    "code": "historical_authority_mismatch",
+    "stage": "integrity"
+  }
+}

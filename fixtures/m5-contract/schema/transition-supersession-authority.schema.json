@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/m5/transition-supersession-authority.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "authorityId",
+    "authorityHash",
+    "projectId",
+    "relationKind",
+    "source",
+    "candidate",
+    "proposalAuthority",
+    "decisionAuthority",
+    "approvedBy",
+    "promotedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "forge.m5.app-model-transition-supersession-authority/v1"
+    },
+    "authorityId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "authorityHash": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+    },
+    "projectId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "relationKind": {
+      "const": "human_approved_semantic_successor"
+    },
+    "source": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/endpoint"
+    },
+    "candidate": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/endpoint"
+    },
+    "proposalAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposalId",
+        "proposalHash"
+      ],
+      "properties": {
+        "proposalId": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        },
+        "proposalHash": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "decisionAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decisionId",
+        "decisionHash",
+        "decision"
+      ],
+      "properties": {
+        "decisionId": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        },
+        "decisionHash": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+        },
+        "decision": {
+          "const": "approve"
+        }
+      }
+    },
+    "approvedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "actorId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "human"
+        },
+        "actorId": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        }
+      }
+    },
+    "promotedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

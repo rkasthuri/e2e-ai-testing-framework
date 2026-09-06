@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-precedence_contract_over_candidate",
+  "operation": "precedence_contract_over_candidate",
+  "expected": {
+    "code": "unsupported_repair_kind",
+    "stage": "contract"
+  }
+}

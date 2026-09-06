@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-unsupported_contract_version",
+  "operation": "unsupported_contract_version",
+  "expected": {
+    "code": "unsupported_contract_version",
+    "stage": "contract"
+  }
+}

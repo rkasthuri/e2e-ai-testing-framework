@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-orphan_revision",
+  "operation": "orphan_revision",
+  "expected": {
+    "code": "stale_authority",
+    "stage": "approval"
+  }
+}

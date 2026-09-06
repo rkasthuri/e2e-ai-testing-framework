@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-suite_ordinal_crosswire",
+  "operation": "suite_ordinal_crosswire",
+  "expected": {
+    "code": "historical_authority_mismatch",
+    "stage": "integrity"
+  }
+}

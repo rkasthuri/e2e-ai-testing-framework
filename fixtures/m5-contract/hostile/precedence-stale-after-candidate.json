@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-precedence_stale_after_candidate",
+  "operation": "precedence_stale_after_candidate",
+  "expected": {
+    "code": "stale_authority",
+    "stage": "approval"
+  }
+}

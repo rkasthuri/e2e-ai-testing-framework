@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-precedence_not_found_over_not_governed",
+  "operation": "precedence_not_found_over_not_governed",
+  "expected": {
+    "code": "candidate_not_found",
+    "stage": "candidate"
+  }
+}

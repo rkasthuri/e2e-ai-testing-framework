@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "forge.m5.repair-revision-link/v1",
+  "repairOriginId": "repair-origin-00000000-0000-4000-8000-000000000001",
+  "originKind": "repair",
+  "projectId": "m5-selector-repair",
+  "testSetRowId": 802,
+  "sourceDefinitionAuthority": {
+    "testSetRowId": 701,
+    "testSetId": "test-set-v3-7c568c867a2989a6b842e917",
+    "testSetRevision": 7,
+    "testSetContentHash": "39e09f90d228eeac6d4361e77c3e3f59700647dc981c6ff51a3ce0c31a6181b0",
+    "definitionId": "test-v3-flow-14b286921056c7a91cb10523",
+    "definitionContentHash": "efc43f85ab65c00085864c8fb5e047c30a015f618854587d7c12391341af5285",
+    "modelRowId": 41,
+    "modelVersion": "1.0.0",
+    "supportSealHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "supersessionAuthorityId": "transition-supersession-64811a9e41883452fe5a2eb9",
+  "supersessionAuthorityHash": "196d085bc567e47fbd7e22b0937bf46028443ba9e780a091fcb7996a6ecd3f21",
+  "proposalAuthority": {
+    "proposalId": "transition-proposal-d3bda93ebb2a3888835f4dfc",
+    "proposalHash": "4d68e26eaff47771495b90f0cd150843dc2e9308716595ed2391e74263465f21"
+  },
+  "decisionAuthority": {
+    "decisionId": "transition-decision-9c0c7a7b72feee301f238852",
+    "decisionHash": "781e4924689619f4fa45aa3d0428f09531f97fa73730848b80dfed15fd7bb291"
+  },
+  "materializerVersion": "forge.m5.selector-repair-materializer/v1",
+  "transformHash": "0ee2a3e726bc70c6d9ac287772092ab49685ac198e4d17f950e8533e8a1d616c",
+  "resultingDefinitionAuthority": {
+    "testSetRowId": 802,
+    "testSetId": "test-set-v3-7c568c867a2989a6b842e917",
+    "testSetRevision": 8,
+    "testSetContentHash": "529bad27da9636f998814bf2817b60ad579239c9206bd230efa5e32aa9a06df8",
+    "definitionId": "test-v3-flow-7ef3777aaca635cd0bfcf289",
+    "definitionContentHash": "c86e905555a0a9a50d38c6b5955eda81affbad2053b818f74063019a6f8c0d41",
+    "modelRowId": 52,
+    "modelVersion": "2.0.0",
+    "supportSealHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "createdAt": "2026-09-03T18:00:00.000Z",
+  "lineageHash": "eeb39feaab0be6a12bc19a8a5f167b73e39d853451e9fa48ef3a0afb0dafecc5"
+}

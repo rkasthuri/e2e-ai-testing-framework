@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-duplicate_successor",
+  "operation": "duplicate_successor",
+  "expected": {
+    "code": "candidate_ambiguous",
+    "stage": "candidate"
+  }
+}

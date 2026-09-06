@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "forge.m5.transition-correspondence-decision/v1",
+  "decisionId": "transition-decision-9c0c7a7b72feee301f238852",
+  "decisionHash": "781e4924689619f4fa45aa3d0428f09531f97fa73730848b80dfed15fd7bb291",
+  "projectId": "m5-selector-repair",
+  "proposalAuthority": {
+    "proposalId": "transition-proposal-d3bda93ebb2a3888835f4dfc",
+    "proposalHash": "4d68e26eaff47771495b90f0cd150843dc2e9308716595ed2391e74263465f21"
+  },
+  "source": {
+    "modelRowId": 41,
+    "modelVersion": "1.0.0",
+    "modelContentHash": "6d139073e14bf1a732a83f54fd28fcebb20688c61aa80ff4f0c5393a58799f8f",
+    "observationRunId": "observation-run-m1",
+    "supportSealHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "characterizationPolicy": {
+      "id": "forge.crawl-observation-characterization",
+      "version": "1"
+    },
+    "supportingObservationIds": [
+      "obs-cart-m1",
+      "obs-checkout-m1"
+    ],
+    "flowId": "direct-checkout",
+    "flowContentHash": "d795787bfc1874e340b3822c6a51efd77dea1ec4c8078cef104211b5101339d6",
+    "stepIndex": 2,
+    "action": "click",
+    "grounding": "observed",
+    "sourceSubjectId": "cart-html",
+    "sourceSubjectContentHash": "ed6a1db744832824464c6172d808e5139706bf7c949d28c92189585c1f0d46b7",
+    "elementId": "cart-html:checkout",
+    "elementContentHash": "83f97847afb5235f39a5b2ecaab1c7e9deef2e6007b377a6c5af4d789de5c176",
+    "selector": {
+      "kind": "data_test",
+      "value": "checkout-old"
+    },
+    "targetSubjectId": "checkout-html",
+    "targetSubjectContentHash": "fb66957e57638deda2b0bd51ed1472d49e769601dab4c30efecbfaba8f062453"
+  },
+  "candidate": {
+    "modelRowId": 52,
+    "modelVersion": "2.0.0",
+    "modelContentHash": "cfd6e503bfd7948fa4a8b2481ef4c43e382dec39da651582fa6a58535e9dedc9",
+    "observationRunId": "observation-run-m2",
+    "supportSealHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "characterizationPolicy": {
+      "id": "forge.crawl-observation-characterization",
+      "version": "1"
+    },
+    "supportingObservationIds": [
+      "obs-cart-m2",
+      "obs-checkout-m2"
+    ],
+    "flowId": "direct-checkout",
+    "flowContentHash": "d795787bfc1874e340b3822c6a51efd77dea1ec4c8078cef104211b5101339d6",
+    "stepIndex": 2,
+    "action": "click",
+    "grounding": "observed",
+    "sourceSubjectId": "cart-html",
+    "sourceSubjectContentHash": "eb5f793ef93fbb5e7123d91b25b60a89c7cd56bc3ad0394936bc654cb64ee0b3",
+    "elementId": "cart-html:checkout",
+    "elementContentHash": "ea56b5b8750409137b91b81b7acf1403b6f003b0f027259a369d076efb77dc7d",
+    "selector": {
+      "kind": "data_test",
+      "value": "checkout-new"
+    },
+    "targetSubjectId": "checkout-html",
+    "targetSubjectContentHash": "fb66957e57638deda2b0bd51ed1472d49e769601dab4c30efecbfaba8f062453"
+  },
+  "decision": "approve",
+  "decidedBy": {
+    "kind": "human",
+    "actorId": "local-owner"
+  },
+  "decidedAt": "2026-09-03T17:00:00.000Z"
+}

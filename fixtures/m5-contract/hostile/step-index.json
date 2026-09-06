@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-step_index",
+  "operation": "step_index",
+  "expected": {
+    "code": "candidate_not_found",
+    "stage": "candidate"
+  }
+}

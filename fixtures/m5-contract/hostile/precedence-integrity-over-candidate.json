@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-precedence_integrity_over_candidate",
+  "operation": "precedence_integrity_over_candidate",
+  "expected": {
+    "code": "integrity_mismatch",
+    "stage": "integrity"
+  }
+}

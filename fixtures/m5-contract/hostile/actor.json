@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "forge.m5.hostile-case/v1",
+  "caseId": "hostile-actor",
+  "operation": "actor",
+  "expected": {
+    "code": "stale_authority",
+    "stage": "approval"
+  }
+}

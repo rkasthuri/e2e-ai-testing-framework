@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/m5/transition-proposal.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "proposalId",
+    "proposalHash",
+    "repairKind",
+    "projectId",
+    "relationKind",
+    "source",
+    "candidate",
+        "boundedSemantics",
+        "enumeratorVersion",
+        "candidateSetHash",
+        "derivedSuccessorCount",
+    "producer",
+    "authorityState",
+    "proposedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "forge.m5.transition-correspondence-proposal/v1"
+    },
+    "proposalId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "proposalHash": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+    },
+    "repairKind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "projectId": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+    },
+    "relationKind": {
+      "const": "human_approved_semantic_successor"
+    },
+    "source": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/endpoint"
+    },
+    "candidate": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/endpoint"
+    },
+    "boundedSemantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "appArea",
+        "sourceRoute",
+        "targetRoute",
+        "authenticationExpectationIdentityHash",
+        "preconditionIdentityHash",
+        "oracleIdentityHash",
+        "excludedFlowStepIndexes"
+      ],
+      "properties": {
+        "appArea": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/id"
+        },
+        "sourceRoute": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "targetRoute": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "authenticationExpectationIdentityHash": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+        },
+        "preconditionIdentityHash": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+        },
+        "oracleIdentityHash": {
+          "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+        },
+        "excludedFlowStepIndexes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "derivedSuccessorCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Audit output recomputed from bounded physical candidate enumeration; never input authority."
+    },
+    "enumeratorVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Audit version recomputed by the verifier; unsupported values refuse at candidate semantics."
+    },
+    "candidateSetHash": {
+      "$ref": "https://forge.local/m5/common.schema.json#/$defs/sha256"
+    },
+    "producer": {
+      "const": "deterministic_bounded_correspondence"
+    },
+    "authorityState": {
+      "const": "proposed_non_authoritative"
+    },
+    "proposedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
