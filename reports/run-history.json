@@ -2,23 +2,6 @@
   "created": "2026-06-04T15:02:50.064Z",
   "runs": [
     {
-      "runId": "2026-07-12T22-33-38",
-      "timestamp": "2026-07-12T22:34:08.552Z",
-      "durationMs": 419195,
-      "stats": {
-        "total": 316,
-        "passed": 316,
-        "failed": 0,
-        "flaky": 0,
-        "skipped": 0,
-        "passRate": "100.0%"
-      },
-      "failures": [],
-      "flakyTests": [],
-      "inputHealth": "healthy",
-      "inputHealthReason": null
-    },
-    {
       "runId": "2026-07-13T02-14-54",
       "timestamp": "2026-07-13T02:15:35.206Z",
       "durationMs": 472095,
@@ -1949,6 +1932,31 @@
       },
       "failures": [],
       "flakyTests": [],
+      "inputHealth": "healthy",
+      "inputHealthReason": null
+    },
+    {
+      "runId": "2026-09-06T10-01-05",
+      "timestamp": "2026-09-06T10:03:28.908Z",
+      "durationMs": 492267,
+      "stats": {
+        "total": 320,
+        "passed": 319,
+        "failed": 0,
+        "flaky": 1,
+        "skipped": 0,
+        "passRate": "100.0%"
+      },
+      "failures": [],
+      "flakyTests": [
+        {
+          "testTitle": "TC032 - Return to products after order complete",
+          "file": "desktop/ui/saucedemo/tests/checkout.spec.ts",
+          "browser": "webkit",
+          "retries": 1,
+          "durationMs": 36981
+        }
+      ],
       "inputHealth": "healthy",
       "inputHealthReason": null
     }
